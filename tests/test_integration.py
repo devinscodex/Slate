@@ -13,10 +13,12 @@ import fitz
 import tkinter as tk
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import gate  # noqa: E402
 import slate  # noqa: E402
 import sign  # noqa: E402
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "basic3page.pdf")
+REAL_EMBEDDABLE_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"
 
 
 class _FakeEvent:
@@ -388,6 +390,126 @@ def test_toc_panel_shows_placeholder_when_no_outline(tmp_path, monkeypatch):
         items = app.toc_tree.get_children()
         assert len(items) == 1
         assert "no table of contents" in app.toc_tree.item(items[0], "text").lower()
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+# ----------------------------------------------------------------------
+# Slice 4: gated text editing, wired end-to-end through the real app
+# ----------------------------------------------------------------------
+
+def test_textedit_first_run_sets_passphrase_then_unlocks_mode(tmp_path, monkeypatch):
+    root, app = _make_app(tmp_path)
+    try:
+        assert gate.is_passphrase_set() is False
+        answers = iter(["a-real-passphrase", "a-real-passphrase"])
+        monkeypatch.setattr(slate.simpledialog, "askstring", lambda *a, **k: next(answers))
+
+        app._start_textedit_mode()
+        assert gate.is_passphrase_set() is True
+        assert app._textedit_unlocked_this_session is True
+        assert app.mode == "textedit"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_textedit_mismatched_new_passphrase_does_not_set_or_unlock(tmp_path, monkeypatch):
+    root, app = _make_app(tmp_path)
+    try:
+        answers = iter(["first-try", "does-not-match"])
+        monkeypatch.setattr(slate.simpledialog, "askstring", lambda *a, **k: next(answers))
+        monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
+
+        app._start_textedit_mode()
+        assert gate.is_passphrase_set() is False
+        assert app._textedit_unlocked_this_session is False
+        assert app.mode != "textedit"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_textedit_wrong_passphrase_then_correct_on_existing_gate(tmp_path, monkeypatch):
+    root, app = _make_app(tmp_path)
+    try:
+        gate.set_passphrase("the-real-one")
+
+        monkeypatch.setattr(slate.simpledialog, "askstring", lambda *a, **k: "wrong-guess")
+        monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
+        app._start_textedit_mode()
+        assert app._textedit_unlocked_this_session is False
+        assert app.mode != "textedit"
+
+        monkeypatch.setattr(slate.simpledialog, "askstring", lambda *a, **k: "the-real-one")
+        app._start_textedit_mode()
+        assert app._textedit_unlocked_this_session is True
+        assert app.mode == "textedit"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_textedit_click_edits_real_text_and_persists_on_reopen(tmp_path, monkeypatch):
+    """Real end-to-end: build a fixture with a genuinely embedded,
+    non-subsetted font (same fixture-building pattern as
+    test_textedit.py's reusable-tier fixture), click through the real
+    canvas handler, and confirm the change actually persisted to disk."""
+    path = str(tmp_path / "editable.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_font(fontname="F1", fontfile=REAL_EMBEDDABLE_FONT)
+    page.insert_text(fitz.Point(72, 100), "original wording here", fontname="F1", fontsize=14)
+    doc.save(path)
+    doc.close()
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, path)
+    try:
+        gate.set_passphrase("unlock-me")
+        app._textedit_unlocked_this_session = True
+        app._set_mode("textedit")
+
+        monkeypatch.setattr(slate.simpledialog, "askstring", lambda *a, **k: "replaced wording now")
+        z = app.viewer.zoom
+        app._on_press(_FakeEvent(int(80 * z), int(95 * z)))
+
+        out = str(tmp_path / "edited_via_app.pdf")
+        slate.io_pdf.safe_save(app.doc, out)
+        reread = fitz.open(out)
+        text = reread[0].get_text()
+        assert "replaced wording now" in text
+        assert "original wording here" not in text
+        reread.close()
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_textedit_click_warns_on_substitute_tier_for_basic_fixture(tmp_path, monkeypatch):
+    """basic3page.pdf's own font is plain "Helvetica", not embedded -- and
+    confirmed absent as a real system font on this dev box (fc-match
+    finds no exact "Helvetica" here), so this fixture is naturally
+    tier "substitute-needed" with zero extra setup, a real case rather
+    than a forced one."""
+    root, app = _make_app(tmp_path)
+    try:
+        gate.set_passphrase("unlock-me")
+        app._textedit_unlocked_this_session = True
+        app._set_mode("textedit")
+
+        seen_prompt = {}
+
+        def fake_askstring(title, prompt, **kwargs):
+            seen_prompt["text"] = prompt
+            return "new content here"
+
+        monkeypatch.setattr(slate.simpledialog, "askstring", fake_askstring)
+        z = app.viewer.zoom
+        app._on_press(_FakeEvent(int(100 * z), int(66 * z)))
+
+        assert "close substitute" in seen_prompt["text"].lower()
     finally:
         app.doc.close()
         root.destroy()

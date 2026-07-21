@@ -14,6 +14,7 @@ from PIL import ImageTk
 
 import annotate
 import forms
+import gate
 import io_pdf
 import merge_split
 import recent
@@ -21,6 +22,7 @@ import redact
 import scan
 import security
 import sign
+import textedit
 from viewer import Viewer
 
 class SlateApp:
@@ -31,13 +33,16 @@ class SlateApp:
         self.viewer = None
         self.page = None
         self._tk_img = None  # keep a reference or Tkinter garbage-collects it
-        self.mode = "view"  # view | redact | annotate:<kind> | forms
+        self.mode = "view"  # view | redact | annotate:<kind> | forms | textedit
         self._drag_start = None
         self._drag_rect_id = None
         self._pending_redactions = []  # [(page_num, fitz.Rect), ...]
         self._doc_view_built = False
         self.home_frame = None
         self.toc_visible = tk.BooleanVar(value=False)
+        # Gated feature (DESIGN.md's "Text editing"): a local UX gate,
+        # not real access control -- re-locks every restart on purpose.
+        self._textedit_unlocked_this_session = False
 
         root.title("Slate")
         self._build_menu()
@@ -100,6 +105,10 @@ class SlateApp:
         editm.add_separator()
         editm.add_command(label="Fill form field (click)", command=lambda: self._set_mode("forms"))
         editm.add_separator()
+        editm.add_command(
+            label="Edit Text (locked, click)...", command=self._start_textedit_mode
+        )
+        editm.add_separator()
         editm.add_command(label="Back to View mode", command=lambda: self._set_mode("view"))
         menubar.add_cascade(label="Edit", menu=editm)
 
@@ -140,6 +149,68 @@ class SlateApp:
             messagebox.showinfo("No document", "Open a PDF first (File > Open).")
             return False
         return True
+
+    # ------------------------------------------------------------------
+    # gated text editing (DESIGN.md's "Text editing")
+    # ------------------------------------------------------------------
+    def _start_textedit_mode(self):
+        if not self._require_doc():
+            return
+        if not gate.is_passphrase_set():
+            pw1 = simpledialog.askstring(
+                "Set a passphrase",
+                "No passphrase is set yet. Set one now to enable text editing:",
+                show="*", parent=self.root,
+            )
+            if not pw1:
+                return
+            pw2 = simpledialog.askstring(
+                "Confirm passphrase", "Confirm passphrase:", show="*", parent=self.root
+            )
+            if pw1 != pw2:
+                messagebox.showinfo("Passphrase mismatch", "Passphrases didn't match. Try again.")
+                return
+            gate.set_passphrase(pw1)
+            self._textedit_unlocked_this_session = True
+        elif not self._textedit_unlocked_this_session:
+            pw = simpledialog.askstring(
+                "Unlock text editing", "Enter passphrase:", show="*", parent=self.root
+            )
+            if pw is None:
+                return
+            if not gate.check_passphrase(pw):
+                messagebox.showinfo("Incorrect passphrase", "That passphrase is incorrect.")
+                return
+            self._textedit_unlocked_this_session = True
+        self._set_mode("textedit")
+
+    def _handle_textedit_click(self, cx, cy):
+        z = self.viewer.zoom
+        px, py = cx / z, cy / z
+        page = self.page
+        span = textedit.detect_span(page, fitz.Point(px, py))
+        if span is None:
+            messagebox.showinfo("No text here", "No text found at that location.")
+            return
+
+        tier = textedit.font_safety(self.doc, page, span)
+        prompt = "Text:"
+        if tier == "substitute-needed":
+            prompt += (
+                "\n\n(This document's original font can't be reproduced exactly "
+                "here -- a close substitute font will be used instead.)"
+            )
+        new_text = simpledialog.askstring(
+            "Edit text", prompt, initialvalue=span["text"], parent=self.root
+        )
+        if new_text is None:
+            return
+        try:
+            textedit.edit_text(self.doc, page, span, new_text, tier=tier)
+        except textedit.TextFitError as e:
+            messagebox.showinfo("Text doesn't fit", str(e))
+            return
+        self.render()
 
     # ------------------------------------------------------------------
     # home screen
@@ -351,6 +422,9 @@ class SlateApp:
         self._drag_start = (event.x, event.y)
         if self.mode == "forms":
             self._handle_form_click(event.x, event.y)
+            self._drag_start = None
+        elif self.mode == "textedit":
+            self._handle_textedit_click(event.x, event.y)
             self._drag_start = None
 
     def _on_drag(self, event):
