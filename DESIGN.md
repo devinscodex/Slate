@@ -4,6 +4,28 @@ A suckless PDF editor, composed from proven libraries rather than a
 reimplemented PDF engine. Full feature set: view, annotate/markup,
 merge/split, redact, sign, form-fill, scan for sensitive content.
 
+## Licensing posture (real, load-bearing constraint)
+
+`pymupdf` is AGPL-3.0/commercial dual-licensed (Artifex) — confirmed
+directly via its own package metadata, not assumed. Real research this
+session (sourced: FSF/Wikipedia's GPL material, opensource.com's AGPLv3
+breakdown) converges on: copyleft/source-disclosure obligations trigger
+on **distribution outside your organization** (or, AGPL-specifically,
+letting outside users interact with a *modified* copy over a network as
+a service) — not on purely private/internal use. Slate is a local
+desktop app, not a network service, and isn't modifying PyMuPDF itself.
+
+**Devin's explicit ruling: Slate stays personal/internal-only — he will
+personally ensure it is never open-sourced or shared outside that.**
+Under that constraint, per the sourced material above, the AGPL
+distribution trigger doesn't apply. This is not a legal ruling (get a
+real lawyer before treating it as one) — it's the scope decision that
+keeps the licensing question moot for now. If that constraint ever
+changes (shared with a client/vendor, open-sourced, sold), the AGPL
+question reopens for real and needs actual legal review at that point,
+plus a real look at Artifex's commercial license (no public pricing —
+requires contacting their sales team directly).
+
 ## Why composition, not a new engine
 
 Full ISO 32000 parity is a multi-year effort even for funded teams
