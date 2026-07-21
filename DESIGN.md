@@ -181,7 +181,7 @@ was there to dismiss the dialog. Fixed by removing the popup entirely —
 the status bar (`render()`) already shows the pending-redaction count
 for the current page, which is the correct non-blocking feedback.
 
-## Text editing — real v2 feature, gated by design (not scoped yet)
+## Text editing — real v2 feature, gated by design (in progress)
 
 Editing existing body-paragraph text was in Devin's original ask, missed
 in the first pass of this plan (view/annotate/merge-split/redact/sign/
@@ -189,34 +189,71 @@ form-fill/scan only). Real, deliberate scope call from Devin once this
 gap was pointed out: ship it as a **separate, gated capability**, not a
 plain menu item everyone gets — "so not just everyone has PDF text
 editing, but everything else they would need without editing a 'final
-form' of a document." The rest of v1 (view/annotate/redact/merge-split/
-sign/form-fill/scan) stays open to everyone; text editing sits behind a
-password/unlock gate, off by default.
+form' of a document." The rest of v1 stays open to everyone; text
+editing sits behind a passphrase gate, off by default.
 
-Why this is genuinely a separate feature, not a menu item: editing
-existing PDF body text means re-flowing text runs and matching the
-original font/kerning/spacing exactly — PDF is page-fixed glyph
-positions, not a reflow format like a word processor. Even Adobe/Foxit's
-own "Edit Text" is famously imperfect at this. Realistic approach:
-PyMuPDF's redact-then-reinsert pattern (`add_redact_annot` with a
-replacement region, `apply_redactions()`, then `insert_text` at the same
-position) is the standard workaround most tools use — visually
-convincing, not a true content-stream edit, and font-matching is the
-real risk (falls back to a substitute font if the original isn't
-embedded/available, which can look wrong on anything but simple
-documents).
+Why this is genuinely a separate feature: editing existing PDF body text
+means re-flowing text runs and matching the original font/kerning
+exactly — PDF is page-fixed glyph positions, not a reflow format. Even
+Adobe/Foxit's own "Edit Text" is imperfect at this. Real approach:
+redact-then-reinsert (`add_redact_annot` + `apply_redactions()` +
+`insert_text` at the same spot) — **with the redaction fill set to
+white/transparent, not black**. Real bug caught live running the slice-0
+experiment below: reusing `redact.py`'s `mark_region()` as-is produced a
+solid black bar instead of new text, because that function is correctly
+built for actual redaction (black fill on purpose) — wrong default for
+this feature. Text-editing's own redact call uses `fill=(1, 1, 1)`.
 
-**Gate mechanism, not yet built:** simplest suckless-fitting shape is a
-local passphrase check (stored as a hash, not plaintext) that unlocks an
-"Edit Text" mode toggle in the UI for the session — no license server,
-no external dependency, matches the rest of Slate's zero-extra-
-infrastructure posture. Exact mechanism (per-install passphrase vs a
-build-time flag vs something else) is Devin's call, not decided yet.
+**Three-tier font-safety approach (refined from the original two-tier
+plan, Devin's idea):** before falling to a crude Base-14 substitute,
+check whether the same font is already installed as a real system font
+first — most business PDFs use Calibri/Arial/Times New Roman/Segoe UI,
+already sitting on the same Office-standardized Windows machines that
+would run Slate. Real, non-approximated glyphs for the common case, zero
+bundled fonts, zero new dependencies.
+1. **reusable** — font fully embedded, not subsetted (`page.get_fonts()`,
+   no `ABCDEF+` prefix) → reuse via `extract_font`/`insert_font`.
+2. **system-font** — `fontmatch.find_system_font()` (new module,
+   Windows via stdlib `winreg` checking HKCU then HKLM with name
+   normalization, verified via `fitz.Font(fontfile=...).name`; Linux via
+   `fc-match` for dev, with a **real, live-confirmed pitfall**:
+   `fc-match` never fails, it always substitutes a "closest" font —
+   `fc-match "Calibri"` on this dev box, which has no Calibri, returned
+   `DejaVu Sans` silently. Must compare the *returned* family against
+   what was asked for, reject a mismatch as "not really installed.")
+3. **substitute-needed** — Base-14 mapped from the font's flags bitfield
+   (serif/bold/italic/monospace), same as the original plan. Only this
+   tier needs an up-front warning in the UI — 1 and 2 are both real
+   fonts.
 
-**Status: logged, not scoped or built.** This needs its own planning
-pass (font-matching risk in particular deserves real investigation
-before committing to an approach) rather than being bolted on
-opportunistically — flagged here so it doesn't get lost, not started.
+**Slice 0 (the font-fidelity experiment) — done, real images, not a
+prediction anymore.** Built a fixture with a genuinely embedded,
+non-subsetted font (confirmed via `get_fonts()`: `ext='ttf'`,
+`basefont='DejaVu Serif Book'`, no subset prefix), then rendered all
+three tiers after a redact+reinsert cycle:
+- **Reuse:** visually identical to the original — same serif shapes,
+  same weight, same spacing, as expected for literally the same font
+  program.
+- **System-font:** clean, correct glyph rendering — a real typeface,
+  not a wrong-shaped approximation (rendered a different real font in
+  this demo to make the point: a genuine font file always renders
+  correctly, regardless of which one it is).
+- **Substitute:** renders, but visibly different letterforms (serif
+  style, spacing, descenders) from the original — confirms the
+  predicted degradation is real, not alarmist.
+
+**Gate mechanism:** `hashlib.pbkdf2_hmac("sha256", ..., 600_000)`, local
+salted hash (not plaintext) at `~/.slate/unlock.json` (same convention
+as `recent.py`), stdlib-only. First-run (Devin confirmed): clicking
+"Edit Text" with none set yet prompts to set one right there, no
+separate admin step. Unlock is session-only. Stated plainly: a local UX
+gate, not real access control.
+
+**Status: slice 0 done (real visual proof in hand). Slices 1-4
+(`fontmatch.py`, `textedit.py` core, the gate, UI wiring) in progress.**
+Full build-order table and research citations: the approved plan this
+was built from (session history, not duplicated here to avoid drift
+between two copies of the same table).
 
 ## Fixtures
 
