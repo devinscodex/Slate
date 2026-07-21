@@ -23,6 +23,7 @@ import scan
 import security
 import sign
 import textedit
+import version
 from viewer import Viewer
 
 class SlateApp:
@@ -120,7 +121,23 @@ class SlateApp:
         )
         menubar.add_cascade(label="View", menu=viewm)
 
+        helpm = tk.Menu(menubar, tearoff=0)
+        helpm.add_command(label="About Slate...", command=self._show_about)
+        menubar.add_cascade(label="Help", menu=helpm)
+
         self.root.config(menu=menubar)
+
+    def _show_about(self):
+        top = tk.Toplevel(self.root)
+        top.title("About Slate")
+        top.resizable(False, False)
+        tk.Label(
+            top, text=f"Slate {version.VERSION}", font=("TkDefaultFont", 14, "bold")
+        ).pack(padx=24, pady=(18, 6))
+        tk.Label(
+            top, text=version.SUMMARY, wraplength=360, justify="left"
+        ).pack(padx=24, pady=(0, 18))
+        tk.Button(top, text="Close", command=top.destroy).pack(pady=(0, 14))
 
     def _refresh_recent_menu(self):
         self.recent_menu.delete(0, "end")

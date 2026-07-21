@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import gate  # noqa: E402
 import slate  # noqa: E402
 import sign  # noqa: E402
+import version  # noqa: E402
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "basic3page.pdf")
 REAL_EMBEDDABLE_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"
@@ -510,6 +511,28 @@ def test_textedit_click_warns_on_substitute_tier_for_basic_fixture(tmp_path, mon
         app._on_press(_FakeEvent(int(100 * z), int(66 * z)))
 
         assert "close substitute" in seen_prompt["text"].lower()
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_about_dialog_shows_real_version_and_summary(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app._show_about()
+        found_version = False
+        found_summary = False
+        for child in root.winfo_children():
+            if isinstance(child, tk.Toplevel):
+                for widget in child.winfo_children():
+                    if isinstance(widget, tk.Label):
+                        text = widget.cget("text")
+                        if version.VERSION in text:
+                            found_version = True
+                        if text == version.SUMMARY:
+                            found_summary = True
+        assert found_version, "About dialog should show version.VERSION"
+        assert found_summary, "About dialog should show version.SUMMARY"
     finally:
         app.doc.close()
         root.destroy()
