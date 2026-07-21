@@ -249,11 +249,39 @@ as `recent.py`), stdlib-only. First-run (Devin confirmed): clicking
 separate admin step. Unlock is session-only. Stated plainly: a local UX
 gate, not real access control.
 
-**Status: slice 0 done (real visual proof in hand). Slices 1-4
-(`fontmatch.py`, `textedit.py` core, the gate, UI wiring) in progress.**
-Full build-order table and research citations: the approved plan this
-was built from (session history, not duplicated here to avoid drift
-between two copies of the same table).
+**Slice 1 (`fontmatch.py`) — done, 6/6 tests, real fc-match substitution
+pitfall confirmed and guarded against.**
+
+**Slice 2 (`textedit.py` core) — done, 9/9 tests. Two real bugs caught
+writing these tests, not before:**
+- `font_safety`'s original match compared `page.get_fonts()`'s `name`
+  field against `span["font"]` — but `name` is the page's font-
+  *resource* alias (e.g. `"F1"`, whatever key insert_font/the PDF
+  producer picked), while `span["font"]` (from `get_text("dict")`) is
+  the font's own internal name. Confirmed live: these are different
+  strings even for a font this exact code just embedded itself
+  (`"F1"` vs `"DejaVuSerif"`). This would have made tier 1 (reuse)
+  silently never fire on *any* real document — every edit would have
+  fallen to tier 2/3 even when the exact original font was genuinely
+  reusable. Fixed: compare `span["font"]` against `basefont` (the
+  font's real reported name, subset-prefix stripped), normalized with
+  `fontmatch`'s existing `_normalize_font_name` (already built, already
+  tested) — reused rather than duplicated, and it already handles the
+  registry-vs-PostScript-style naming mismatch this needed too
+  (`"DejaVu Serif Book"` vs `"DejaVuSerif"`).
+- `edit_text` called `page.insert_font()` for the reusable/system-font
+  tiers *before* `apply_redactions()`. `apply_redactions()` rebuilds
+  page resources and drops any font not yet referenced by the content
+  stream — so the just-registered font vanished before `insert_text`
+  could use it (`Exception: need font file or buffer`). Fixed by
+  moving font registration to *after* the redaction call, immediately
+  before the actual `insert_text`.
+
+**Status: slices 1-2 done and tested (68/68 total suite). Slices 3-4
+(the passphrase gate, UI wiring) in progress.** Full build-order table
+and research citations: the approved plan this was built from (session
+history, not duplicated here to avoid drift between two copies of the
+same table).
 
 ## Fixtures
 
