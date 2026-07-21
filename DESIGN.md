@@ -159,6 +159,43 @@ was there to dismiss the dialog. Fixed by removing the popup entirely —
 the status bar (`render()`) already shows the pending-redaction count
 for the current page, which is the correct non-blocking feedback.
 
+## Text editing — real v2 feature, gated by design (not scoped yet)
+
+Editing existing body-paragraph text was in Devin's original ask, missed
+in the first pass of this plan (view/annotate/merge-split/redact/sign/
+form-fill/scan only). Real, deliberate scope call from Devin once this
+gap was pointed out: ship it as a **separate, gated capability**, not a
+plain menu item everyone gets — "so not just everyone has PDF text
+editing, but everything else they would need without editing a 'final
+form' of a document." The rest of v1 (view/annotate/redact/merge-split/
+sign/form-fill/scan) stays open to everyone; text editing sits behind a
+password/unlock gate, off by default.
+
+Why this is genuinely a separate feature, not a menu item: editing
+existing PDF body text means re-flowing text runs and matching the
+original font/kerning/spacing exactly — PDF is page-fixed glyph
+positions, not a reflow format like a word processor. Even Adobe/Foxit's
+own "Edit Text" is famously imperfect at this. Realistic approach:
+PyMuPDF's redact-then-reinsert pattern (`add_redact_annot` with a
+replacement region, `apply_redactions()`, then `insert_text` at the same
+position) is the standard workaround most tools use — visually
+convincing, not a true content-stream edit, and font-matching is the
+real risk (falls back to a substitute font if the original isn't
+embedded/available, which can look wrong on anything but simple
+documents).
+
+**Gate mechanism, not yet built:** simplest suckless-fitting shape is a
+local passphrase check (stored as a hash, not plaintext) that unlocks an
+"Edit Text" mode toggle in the UI for the session — no license server,
+no external dependency, matches the rest of Slate's zero-extra-
+infrastructure posture. Exact mechanism (per-install passphrase vs a
+build-time flag vs something else) is Devin's call, not decided yet.
+
+**Status: logged, not scoped or built.** This needs its own planning
+pass (font-matching risk in particular deserves real investigation
+before committing to an approach) rather than being bolted on
+opportunistically — flagged here so it doesn't get lost, not started.
+
 ## Fixtures
 
 `tests/fixtures/` holds small synthetic PDFs only — generated
