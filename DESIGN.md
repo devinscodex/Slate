@@ -277,11 +277,22 @@ writing these tests, not before:**
   moving font registration to *after* the redaction call, immediately
   before the actual `insert_text`.
 
-**Status: slices 1-2 done and tested (68/68 total suite). Slices 3-4
-(the passphrase gate, UI wiring) in progress.** Full build-order table
-and research citations: the approved plan this was built from (session
-history, not duplicated here to avoid drift between two copies of the
-same table).
+**Slice 3 (`gate.py`) — done, 6/6 tests.** `hashlib.pbkdf2_hmac`,
+600k iterations, random salt, stored at `~/.slate/unlock.json`.
+Covers correct unlock, wrong passphrase, re-set invalidating the old
+one, fail-closed when nothing's set yet, and plaintext never touching
+disk.
+
+**Slice 4 (UI wiring in `slate.py`) — done, 5/5 tests. Feature
+complete, all 4 slices built and tested (79/79 total suite).**
+"Edit Text (locked, click)..." on the Edit menu: first click ever
+prompts to set a passphrase right there (no separate admin step);
+set-but-locked prompts to unlock; unlocked routes straight into
+textedit mode. Unlock is session-only, re-locks on restart -- a local
+UX gate, not real access control, stated plainly in the code. A canvas
+click in textedit mode runs `detect_span` + `font_safety`, surfaces
+the tier-3 substitute-font warning in the edit dialog when relevant,
+and catches `TextFitError` as a real message instead of a crash.
 
 ## Fixtures
 
