@@ -20,6 +20,7 @@ import merge_split
 import recent
 import redact
 import scan
+import search
 import security
 import sign
 import textedit
@@ -44,6 +45,7 @@ class SlateApp:
         # Gated feature (DESIGN.md's "Text editing"): a local UX gate,
         # not real access control -- re-locks every restart on purpose.
         self._textedit_unlocked_this_session = False
+        self.search_state = search.SearchState()
 
         root.title("Slate")
         self._build_menu()
@@ -119,6 +121,8 @@ class SlateApp:
             variable=self.toc_visible,
             command=self._toggle_toc_panel,
         )
+        viewm.add_separator()
+        viewm.add_command(label="Find... (/)", command=self._show_find_bar)
         menubar.add_cascade(label="View", menu=viewm)
 
         helpm = tk.Menu(menubar, tearoff=0)
@@ -291,8 +295,23 @@ class SlateApp:
         self.status = tk.Label(toolbar, text="")
         self.status.pack(side=tk.RIGHT, padx=8)
 
+        self.find_frame = tk.Frame(self.body_frame)
+        tk.Label(self.find_frame, text="Find:").pack(side=tk.LEFT, padx=(6, 4))
+        self.find_var = tk.StringVar()
+        find_entry = tk.Entry(self.find_frame, textvariable=self.find_var, width=30)
+        find_entry.pack(side=tk.LEFT)
+        find_entry.bind("<Return>", self._find_next)
+        find_entry.bind("<Shift-Return>", self._find_prev)
+        find_entry.bind("<Escape>", lambda e: self._hide_find_bar())
+        self.find_status = tk.Label(self.find_frame, text="")
+        self.find_status.pack(side=tk.LEFT, padx=8)
+        tk.Button(self.find_frame, text="X", command=self._hide_find_bar).pack(side=tk.RIGHT, padx=6)
+        self._find_entry = find_entry
+        # not packed by default -- toggled via "/" or View > Find...
+
         content = tk.Frame(self.body_frame)
         content.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self._content_frame = content
 
         self.toc_frame = tk.Frame(content, width=240)
         self.toc_tree = ttk.Treeview(self.toc_frame, show="tree")
@@ -311,7 +330,120 @@ class SlateApp:
         self.root.bind("<Prior>", lambda e: self.prev())
         self.root.bind("<Next>", lambda e: self.next())
 
+        # Sumatra-style keyboard nav. Guarded on "typing somewhere" (any
+        # Entry has focus, e.g. the find box itself) so these don't
+        # hijack normal text entry -- a real risk since single-letter
+        # keys like "j"/"g" are otherwise perfectly valid search text.
+        self.root.bind("<Key-j>", self._kb_next_page)
+        self.root.bind("<Key-k>", self._kb_prev_page)
+        self.root.bind("<Key-g>", self._kb_first_page)
+        self.root.bind("<Key-G>", self._kb_last_page)
+        self.root.bind("<Key-n>", self._kb_find_next)
+        self.root.bind("<Key-N>", self._kb_find_prev)
+        self.root.bind("<Key-slash>", self._kb_open_find)
+
         self._doc_view_built = True
+
+    def _typing_in_entry(self) -> bool:
+        return isinstance(self.root.focus_get(), tk.Entry)
+
+    def _kb_next_page(self, event=None):
+        if self._typing_in_entry():
+            return
+        self.next()
+
+    def _kb_prev_page(self, event=None):
+        if self._typing_in_entry():
+            return
+        self.prev()
+
+    def _kb_first_page(self, event=None):
+        if self._typing_in_entry() or self.viewer is None:
+            return
+        self.viewer.goto(0)
+        self.render()
+
+    def _kb_last_page(self, event=None):
+        if self._typing_in_entry() or self.viewer is None:
+            return
+        self.viewer.goto(self.viewer.page_count - 1)
+        self.render()
+
+    def _kb_open_find(self, event=None):
+        if self._typing_in_entry():
+            return  # let a literal "/" be typed into whatever entry has focus
+        self._show_find_bar()
+        return "break"
+
+    def _kb_find_next(self, event=None):
+        """Root-level "n" binding -- guarded so typing a literal 'n' into
+        the find box (or any other entry) doesn't also trigger a jump.
+        The find box's own <Return> binding calls _find_next directly,
+        unguarded, since Enter there is always a deliberate search."""
+        if self._typing_in_entry():
+            return
+        self._find_next()
+
+    def _kb_find_prev(self, event=None):
+        if self._typing_in_entry():
+            return
+        self._find_prev()
+
+    # ------------------------------------------------------------------
+    # find / search
+    # ------------------------------------------------------------------
+    def _show_find_bar(self):
+        if not self._require_doc():
+            return
+        self.find_frame.pack(side=tk.TOP, fill=tk.X, before=self._content_frame)
+        self._find_entry.focus_set()
+
+    def _hide_find_bar(self):
+        self.find_frame.pack_forget()
+        self.canvas.focus_set()
+
+    def _run_find(self):
+        query = self.find_var.get()
+        self.search_state.run(self.doc, query)
+        n = len(self.search_state.matches)
+        if not query.strip():
+            self.find_status.config(text="")
+        elif n == 0:
+            self.find_status.config(text="no matches")
+        else:
+            self.find_status.config(text=f"1/{n}")
+        return n
+
+    def _jump_to_current_match(self):
+        match = self.search_state.current()
+        if match is None:
+            return
+        page_num, _rect = match
+        if self.viewer.page_num != page_num:
+            self.viewer.goto(page_num)
+        self.render()
+        n = len(self.search_state.matches)
+        self.find_status.config(text=f"{self.search_state.index + 1}/{n}")
+
+    def _find_next(self, event=None):
+        if self.doc is None:
+            return
+        if self.find_var.get() != self.search_state.query or not self.search_state.matches:
+            if self._run_find() == 0:
+                return
+        else:
+            self.search_state.advance()
+        self._jump_to_current_match()
+
+    def _find_prev(self, event=None):
+        if self.doc is None:
+            return
+        if self.find_var.get() != self.search_state.query or not self.search_state.matches:
+            if self._run_find() == 0:
+                return
+        else:
+            self.search_state.retreat()
+        self._jump_to_current_match()
 
     def _toggle_toc_panel(self):
         if self.toc_visible.get():
@@ -359,6 +491,7 @@ class SlateApp:
         self.viewer = Viewer(self.doc)
         self._pending_redactions = []
         self.mode = "view"
+        self.search_state = search.SearchState()  # stale matches from a prior doc must not linger
 
         self._ensure_doc_view_widgets()
         if self.home_frame is not None:
@@ -399,12 +532,29 @@ class SlateApp:
         self.canvas.delete("all")
         self.canvas.config(width=img.width, height=img.height)
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self._tk_img)
+        self._draw_search_highlights()
         pending_here = sum(1 for p, _ in self._pending_redactions if p == self.viewer.page_num)
         self.status.config(
             text=f"Page {self.viewer.page_num + 1}/{self.viewer.page_count}"
             f"  zoom {self.viewer.zoom:.2f}x"
             + (f"  ({pending_here} pending redaction)" if pending_here else "")
         )
+
+    def _draw_search_highlights(self):
+        """Canvas-only overlay, not real annotations -- cleared and
+        redrawn every render() same as the page image itself."""
+        if not self.search_state.matches:
+            return
+        z = self.viewer.zoom
+        current = self.search_state.current()
+        for rect in self.search_state.matches_on_page(self.viewer.page_num):
+            is_current = current is not None and current[0] == self.viewer.page_num and current[1] == rect
+            outline = "red" if is_current else "yellow"
+            width = 3 if is_current else 2
+            self.canvas.create_rectangle(
+                rect.x0 * z, rect.y0 * z, rect.x1 * z, rect.y1 * z,
+                outline=outline, width=width,
+            )
 
     def next(self):
         if self.viewer is None:

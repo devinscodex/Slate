@@ -516,6 +516,122 @@ def test_textedit_click_warns_on_substitute_tier_for_basic_fixture(tmp_path, mon
         root.destroy()
 
 
+def test_find_next_jumps_to_match_across_pages(tmp_path):
+    path = str(tmp_path / "findme.pdf")
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "nothing here", fontsize=14)
+    doc.new_page().insert_text((72, 72), "the needle is here", fontsize=14)
+    doc.save(path)
+    doc.close()
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, path)
+    try:
+        app._show_find_bar()
+        app.find_var.set("needle")
+        app._find_next()
+        assert app.viewer.page_num == 1
+        assert app.find_status.cget("text") == "1/1"
+        assert len(app.search_state.matches) == 1
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_find_next_wraps_around_multiple_matches(tmp_path):
+    path = str(tmp_path / "findme2.pdf")
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "alpha", fontsize=14)
+    doc.new_page().insert_text((72, 72), "alpha again", fontsize=14)
+    doc.save(path)
+    doc.close()
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, path)
+    try:
+        app._show_find_bar()
+        app.find_var.set("alpha")
+        app._find_next()
+        assert app.viewer.page_num == 0
+        app._find_next()
+        assert app.viewer.page_num == 1
+        app._find_next()  # wraps back to first match
+        assert app.viewer.page_num == 0
+        app._find_prev()  # wraps the other way
+        assert app.viewer.page_num == 1
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_find_no_matches_shows_no_matches_status(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app._show_find_bar()
+        app.find_var.set("zzz-nonexistent-zzz")
+        app._find_next()
+        assert app.find_status.cget("text") == "no matches"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_slash_key_opens_find_bar_unless_already_typing(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        root.update()
+        assert not app.find_frame.winfo_ismapped()
+        result = app._kb_open_find()
+        root.update()
+        assert app.find_frame.winfo_ismapped()
+        # not already typing anywhere -- consumes the keypress so a
+        # literal "/" doesn't also land on whatever had focus
+        assert result == "break"
+
+        # now focus is in the find entry itself -- a literal "/" typed
+        # as real search text must NOT be intercepted by this handler
+        app._find_entry.focus_set()
+        root.update()
+        result2 = app._kb_open_find()
+        assert result2 is None  # guarded: let the entry receive it normally
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_keyboard_jk_navigate_pages_and_gG_jump_to_ends(tmp_path):
+    root, app = _make_app(tmp_path)  # basic3page.pdf -- 3 pages
+    try:
+        app.canvas.focus_set()
+        root.update()
+        assert app.viewer.page_num == 0
+        app._kb_next_page()
+        assert app.viewer.page_num == 1
+        app._kb_prev_page()
+        assert app.viewer.page_num == 0
+        app._kb_last_page()
+        assert app.viewer.page_num == 2
+        app._kb_first_page()
+        assert app.viewer.page_num == 0
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_keyboard_jk_do_nothing_while_typing_in_an_entry(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app._show_find_bar()
+        app._find_entry.focus_set()
+        root.update()
+        assert app.viewer.page_num == 0
+        app._kb_next_page()  # guarded -- focus is in the find entry
+        assert app.viewer.page_num == 0
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_about_dialog_shows_real_version_and_summary(tmp_path):
     root, app = _make_app(tmp_path)
     try:
