@@ -28,6 +28,24 @@ import textedit
 import version
 from viewer import Viewer
 
+# Menu labels that only make sense for a real PDF (mutation/signing/
+# forms/etc) -- disabled whenever the active tab's document isn't one.
+# PyMuPDF/MuPDF (confirmed live + via its own docs feature matrix) also
+# opens EPUB/MOBI/FB2/CBZ/TXT/MD natively -- view/search/TOC/keyboard
+# nav all already work unchanged on those, only these PDF-specific
+# actions need gating.
+_FILE_PDF_ONLY_LABELS = [
+    "Save", "Save As...", "Merge PDFs...", "Split into pages...",
+    "Encrypt...", "Sign (self-signed test cert)...",
+]
+_EDIT_PDF_ONLY_LABELS = [
+    "Redact (drag a region)", "Apply pending redactions + Save As...",
+    "Highlight (drag)", "Rectangle (drag)", "Freetext note (click)",
+    "Stamp: Approved (click)", "Fill form field (click)",
+    "Edit Text (locked, click)...",
+]
+
+
 class SlateApp:
     def __init__(self, root, path=None):
         self.root = root
@@ -70,7 +88,7 @@ class SlateApp:
     def _build_menu(self):
         menubar = tk.Menu(self.root)
 
-        filem = tk.Menu(menubar, tearoff=0)
+        filem = self.filem = tk.Menu(menubar, tearoff=0)
         filem.add_command(label="Open...", command=self.open_file)
         self.recent_menu = tk.Menu(filem, tearoff=0, postcommand=self._refresh_recent_menu)
         filem.add_cascade(label="Recent", menu=self.recent_menu)
@@ -91,7 +109,7 @@ class SlateApp:
         filem.add_command(label="Quit", command=self.root.quit)
         menubar.add_cascade(label="File", menu=filem)
 
-        editm = tk.Menu(menubar, tearoff=0)
+        editm = self.editm = tk.Menu(menubar, tearoff=0)
         editm.add_command(label="Redact (drag a region)", command=lambda: self._set_mode("redact"))
         editm.add_command(
             label="Apply pending redactions + Save As...",
@@ -167,7 +185,12 @@ class SlateApp:
     def _title(self):
         if not self.path:
             return "Slate"
-        signed = " [SIGNED]" if sign.is_signed(self.path) else ""
+        # sign.is_signed() parses the file as a PDF (pyHanko) -- calling
+        # it on an ebook format crashes with "Illegal PDF header", a real
+        # bug caught live writing this slice's own epub test. Signing is
+        # itself a PDF-only menu item (gated off elsewhere), so a non-PDF
+        # document is never "signed" by definition.
+        signed = " [SIGNED]" if self.doc is not None and self.doc.is_pdf and sign.is_signed(self.path) else ""
         return f"Slate — {os.path.basename(self.path)}{signed}"
 
     def _set_mode(self, mode):
@@ -176,7 +199,7 @@ class SlateApp:
 
     def _require_doc(self) -> bool:
         if self.doc is None:
-            messagebox.showinfo("No document", "Open a PDF first (File > Open).")
+            messagebox.showinfo("No document", "Open a document first (File > Open).")
             return False
         return True
 
@@ -258,7 +281,7 @@ class SlateApp:
         tk.Label(self.home_frame, text="Slate", font=("TkDefaultFont", 20, "bold")).pack(
             anchor="w"
         )
-        tk.Button(self.home_frame, text="Open PDF...", command=self.open_file).pack(
+        tk.Button(self.home_frame, text="Open...", command=self.open_file).pack(
             anchor="w", pady=(10, 16)
         )
 
@@ -576,6 +599,15 @@ class SlateApp:
         self.root.title(self._title())
         self._refresh_outline()
         self.render()
+        self._update_pdf_only_menu_state()
+
+    def _update_pdf_only_menu_state(self):
+        disable = self.doc is not None and not self.doc.is_pdf
+        state = "disabled" if disable else "normal"
+        for label in _FILE_PDF_ONLY_LABELS:
+            self.filem.entryconfig(label, state=state)
+        for label in _EDIT_PDF_ONLY_LABELS:
+            self.editm.entryconfig(label, state=state)
 
     def do_close(self):
         if self._active_tab is None:
@@ -601,6 +633,7 @@ class SlateApp:
             self._set_mode("view")
             self.body_frame.pack_forget()
             self._show_home_screen()
+            self._update_pdf_only_menu_state()
 
     # ------------------------------------------------------------------
     # viewer
@@ -771,7 +804,12 @@ class SlateApp:
     # file operations
     # ------------------------------------------------------------------
     def open_file(self):
-        path = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
+        path = filedialog.askopenfilename(filetypes=[
+            ("PDF and ebook files", "*.pdf *.epub *.mobi *.fb2 *.cbz *.txt *.md"),
+            ("PDF files", "*.pdf"),
+            ("Ebook files", "*.epub *.mobi *.fb2 *.cbz *.txt *.md"),
+            ("All files", "*.*"),
+        ])
         if not path:
             return
         self._open_document(path)

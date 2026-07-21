@@ -8,6 +8,7 @@ the real call sites in slate.py still execute exactly as they would live.
 import os
 import shutil
 import sys
+import zipfile
 
 import fitz
 import tkinter as tk
@@ -32,6 +33,58 @@ def _drag(app, x0, y0, x1, y1):
     app._on_press(_FakeEvent(x0, y0))
     app._on_drag(_FakeEvent(x1, y1))
     app._on_release(_FakeEvent(x1, y1))
+
+
+def _build_test_epub(path):
+    """A minimal, valid, synthetic epub -- generated at test time, same
+    "never a real/committed document" discipline as the PDF fixtures
+    (DESIGN.md's Fixtures section). Confirmed live (this session, before
+    writing any of this slice's code): PyMuPDF opens this unmodified via
+    plain fitz.open(), with real page_count/get_toc()/get_text()."""
+    container_xml = (
+        '<?xml version="1.0"?><container version="1.0" '
+        'xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+        '<rootfiles><rootfile full-path="OEBPS/content.opf" '
+        'media-type="application/oebps-package+xml"/></rootfiles></container>'
+    )
+    content_opf = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="2.0">'
+        '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
+        '<dc:title>Slate Test Book</dc:title><dc:language>en</dc:language>'
+        '<dc:identifier id="BookId">urn:uuid:12345678-1234-1234-1234-123456789012</dc:identifier>'
+        '</metadata><manifest>'
+        '<item id="ch1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>'
+        '<item id="ch2" href="chapter2.xhtml" media-type="application/xhtml+xml"/>'
+        '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>'
+        '</manifest><spine toc="ncx"><itemref idref="ch1"/><itemref idref="ch2"/></spine></package>'
+    )
+    chapter1 = (
+        '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml">'
+        '<head><title>Chapter One</title></head><body><h1>Chapter One</h1>'
+        '<p>This is the needle sentence in chapter one.</p></body></html>'
+    )
+    chapter2 = (
+        '<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml">'
+        '<head><title>Chapter Two</title></head><body><h1>Chapter Two</h1>'
+        '<p>Nothing special appears in this second chapter.</p></body></html>'
+    )
+    toc_ncx = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head></head>'
+        '<docTitle><text>Slate Test Book</text></docTitle><navMap>'
+        '<navPoint id="np1" playOrder="1"><navLabel><text>Chapter One</text></navLabel>'
+        '<content src="chapter1.xhtml"/></navPoint>'
+        '<navPoint id="np2" playOrder="2"><navLabel><text>Chapter Two</text></navLabel>'
+        '<content src="chapter2.xhtml"/></navPoint></navMap></ncx>'
+    )
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+        z.writestr("META-INF/container.xml", container_xml)
+        z.writestr("OEBPS/content.opf", content_opf)
+        z.writestr("OEBPS/chapter1.xhtml", chapter1)
+        z.writestr("OEBPS/chapter2.xhtml", chapter2)
+        z.writestr("OEBPS/toc.ncx", toc_ncx)
 
 
 def _make_app(tmp_path, fixture=FIXTURE):
@@ -739,6 +792,77 @@ def test_closing_the_last_tab_returns_to_home_screen(tmp_path):
         if app._tabs:
             for t in app._tabs:
                 t.doc.close()
+        root.destroy()
+
+
+# ----------------------------------------------------------------------
+# Slice 3: ebook formats (epub/mobi/fb2/cbz -- PyMuPDF's own native
+# support, zero new dependency), PDF-only menu items gated off
+# ----------------------------------------------------------------------
+
+def test_opening_an_epub_renders_real_pages_toc_and_text(tmp_path):
+    epub_path = str(tmp_path / "book.epub")
+    _build_test_epub(epub_path)
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, epub_path)
+    try:
+        assert app.doc.is_pdf is False
+        assert app.viewer.page_count == 2
+        assert "Chapter One" in app.page.get_text()
+        outline = app.viewer.get_outline()
+        assert [title for _level, title, _page in outline] == ["Chapter One", "Chapter Two"]
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_pdf_only_menu_items_disabled_for_an_open_ebook(tmp_path):
+    epub_path = str(tmp_path / "book.epub")
+    _build_test_epub(epub_path)
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, epub_path)
+    try:
+        for label in slate._FILE_PDF_ONLY_LABELS:
+            assert app.filem.entrycget(label, "state") == "disabled", label
+        for label in slate._EDIT_PDF_ONLY_LABELS:
+            assert app.editm.entrycget(label, "state") == "disabled", label
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_pdf_only_menu_items_stay_enabled_for_a_real_pdf(tmp_path):
+    root, app = _make_app(tmp_path)  # basic3page.pdf -- a real PDF
+    try:
+        for label in slate._FILE_PDF_ONLY_LABELS:
+            assert app.filem.entrycget(label, "state") == "normal", label
+        for label in slate._EDIT_PDF_ONLY_LABELS:
+            assert app.editm.entrycget(label, "state") == "normal", label
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_menu_state_updates_correctly_switching_between_pdf_and_epub_tabs(tmp_path):
+    root, app = _make_app(tmp_path)  # tab 1: a real PDF
+    try:
+        assert app.filem.entrycget("Save", "state") == "normal"
+
+        epub_path = str(tmp_path / "book.epub")
+        _build_test_epub(epub_path)
+        app._open_document(epub_path)  # tab 2: an epub, becomes active
+
+        assert app.filem.entrycget("Save", "state") == "disabled"
+        assert app.editm.entrycget("Redact (drag a region)", "state") == "disabled"
+
+        app._select_tab(app._tab_frames[0])  # back to the PDF tab
+        assert app.filem.entrycget("Save", "state") == "normal"
+        assert app.editm.entrycget("Redact (drag a region)", "state") == "normal"
+    finally:
+        for t in app._tabs:
+            t.doc.close()
         root.destroy()
 
 
