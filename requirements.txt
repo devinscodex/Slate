@@ -2,3 +2,4 @@ pymupdf
 pikepdf
 pyhanko
 pytest
+pdfminer.six
