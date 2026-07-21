@@ -52,11 +52,33 @@ last write to a document. `io_pdf.py` must track signed-state and
 warn-or-refuse further edits to an already-signed document rather than
 silently invalidate the signature.
 
-## Forms — known library gotcha
+## Forms — verified findings (slice 5, corrects the original plan)
 
-PyMuPDF does not auto-unset sibling radio buttons in a group. `forms.py`
-must do this explicitly, or Slate will produce forms where two
-"mutually exclusive" options both appear checked.
+**Radio sibling-unset: the originally-cited gotcha is stale.** The plan
+assumed PyMuPDF doesn't auto-unset sibling radio buttons and that
+`forms.py` would need to do it manually. Verified directly against the
+installed version (PyMuPDF 1.28.0): `Widget._checker()` already handles
+this correctly — setting one radio button's `field_value` to its own ON
+state and calling `.update()` automatically forces every sibling in the
+same field-name group back to `Off`. `forms.py` does nothing special;
+`tests/test_forms.py::test_radio_sibling_auto_unset` pins this behavior
+so a future PyMuPDF upgrade that regresses it gets caught immediately.
+
+**Real gotcha instead: radio GROUP creation, and widget page-lifetime.**
+PyMuPDF cannot currently *create* a new interlinked radio group — adding
+two `Widget()` objects with a shared `field_name` via `add_widget()`
+raises `ValueError: bad xref` (confirmed, and matches PyMuPDF GitHub
+discussion #2333: group creation isn't supported, only filling an
+existing group's values is). Not a blocker for v1 — Slate fills
+received forms, it doesn't author new ones from scratch — but the test
+fixture's radio group had to be built at the raw PDF-object level via
+pikepdf instead. Separately: a `Widget` holds only a *weak* reference to
+its parent page; letting that page object go out of scope while still
+holding widgets (e.g. `forms.widgets_by_name(doc[0])` called inline,
+with nothing keeping `doc[0]`'s page object alive) turns a later
+sibling-unset into a raw `ReferenceError`, not a clean update. Always
+keep the page bound to a named variable for as long as any of its
+widgets are being read or written.
 
 ## Build order (each slice has its own standalone pass/fail check)
 
