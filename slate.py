@@ -23,6 +23,7 @@ import scan
 import search
 import security
 import sign
+import tab as tabmodule
 import textedit
 import version
 from viewer import Viewer
@@ -46,6 +47,14 @@ class SlateApp:
         # not real access control -- re-locks every restart on purpose.
         self._textedit_unlocked_this_session = False
         self.search_state = search.SearchState()
+        # Tabs: self._tabs / self._tab_frames are parallel, index-aligned
+        # lists (one real Tab per open document, one placeholder Notebook
+        # child frame -- never itself shown, just there so the Notebook
+        # widget has something to select). self._active_tab is whichever
+        # Tab's fields are currently loaded into the flat attributes above.
+        self._tabs = []
+        self._tab_frames = []
+        self._active_tab = None
 
         root.title("Slate")
         self._build_menu()
@@ -284,6 +293,18 @@ class SlateApp:
 
         self.body_frame = tk.Frame(self.root)
 
+        # A slim tab strip only -- ttk.Notebook's real per-child-widget
+        # display isn't used at all (each "tab" is a never-shown
+        # placeholder frame). The single shared toolbar/canvas/find-bar/
+        # toc below is what actually renders every tab's content, kept
+        # exactly as it already worked pre-tabs; only its state (which
+        # Tab's doc/page/mode/etc are loaded into the flat attributes)
+        # changes on <<NotebookTabChanged>>. Suckless: reuses everything
+        # already built rather than duplicating widgets per tab.
+        self.tab_strip = ttk.Notebook(self.body_frame, height=1)
+        self.tab_strip.pack(side=tk.TOP, fill=tk.X)
+        self.tab_strip.bind("<<NotebookTabChanged>>", self._on_tab_strip_changed)
+
         toolbar = tk.Frame(self.body_frame)
         toolbar.pack(side=tk.TOP, fill=tk.X)
         tk.Button(toolbar, text="< Prev", command=self.prev).pack(side=tk.LEFT)
@@ -483,15 +504,15 @@ class SlateApp:
     # opening / closing documents
     # ------------------------------------------------------------------
     def _open_document(self, path):
-        if self.doc is not None:
-            self.doc.close()
+        abspath = os.path.abspath(path)
+        for i, existing in enumerate(self._tabs):
+            if os.path.abspath(existing.path) == abspath:
+                self._select_tab(self._tab_frames[i])  # already open -- just switch to it
+                return
 
-        self.path = path
-        self.doc = fitz.open(path)
-        self.viewer = Viewer(self.doc)
-        self._pending_redactions = []
-        self.mode = "view"
-        self.search_state = search.SearchState()  # stale matches from a prior doc must not linger
+        doc = fitz.open(path)
+        new_tab = tabmodule.Tab(path, doc, Viewer(doc))
+        self._tabs.append(new_tab)
 
         self._ensure_doc_view_widgets()
         if self.home_frame is not None:
@@ -499,20 +520,87 @@ class SlateApp:
             self.home_frame = None
         self.body_frame.pack(fill=tk.BOTH, expand=True)
 
+        placeholder = tk.Frame(self.tab_strip)  # never shown -- a pure tab-strip entry
+        self.tab_strip.add(placeholder, text=os.path.basename(path))
+        self._tab_frames.append(placeholder)
+        self._select_tab(placeholder)
+
+        recent.add_recent(path)
+
+    def _select_tab(self, frame):
+        """Selecting a Notebook tab only fires <<NotebookTabChanged>> on
+        the next idle-loop pass, not synchronously -- real bug hit live
+        writing this feature's own tests: app.doc was still None right
+        after _open_document() returned. Calling the handler directly
+        here makes tab-loading synchronous and testable; the bound
+        virtual event (real interactive tab clicks) still also fires
+        afterward, which just reloads the same already-active tab --
+        idempotent, harmless."""
+        self.tab_strip.select(frame)
+        self._on_tab_strip_changed()
+
+    def _on_tab_strip_changed(self, event=None):
+        if self._active_tab is not None:
+            # path/doc/viewer are fixed for a Tab's whole lifetime (only
+            # ever set once, at creation, above) -- only these four can
+            # have changed while this tab was active, so only these need
+            # saving back before switching away.
+            self._active_tab.mode = self.mode
+            self._active_tab.page = self.page
+            self._active_tab.pending_redactions = self._pending_redactions
+            self._active_tab.search_state = self.search_state
+
+        selected = self.tab_strip.select()
+        if not selected:
+            return
+        tab = self._tabs[self.tab_strip.index(selected)]
+        self._active_tab = tab
+
+        self.path = tab.path
+        self.doc = tab.doc
+        self.viewer = tab.viewer
+        self.page = tab.page
+        self._pending_redactions = tab.pending_redactions
+        self.search_state = tab.search_state
+        self._set_mode(tab.mode)
+
+        self.find_var.set(self.search_state.query)
+        if self.search_state.matches:
+            n = len(self.search_state.matches)
+            self.find_status.config(
+                text=f"{self.search_state.index + 1}/{n}" if self.search_state.index >= 0 else "no matches"
+            )
+        else:
+            self.find_status.config(text="")
+
         self.root.title(self._title())
         self._refresh_outline()
         self.render()
-        recent.add_recent(path)
 
     def do_close(self):
-        if self.doc is None:
+        if self._active_tab is None:
             return
-        self.doc.close()
-        self.doc = None
-        self.viewer = None
-        self.path = None
-        self.body_frame.pack_forget()
-        self._show_home_screen()
+        closing_index = self.tab_strip.index(self.tab_strip.select())
+        closing_tab = self._tabs.pop(closing_index)
+        closing_frame = self._tab_frames.pop(closing_index)
+        closing_tab.doc.close()
+        self.tab_strip.forget(closing_frame)
+        closing_frame.destroy()
+
+        if self._tabs:
+            new_index = min(closing_index, len(self._tabs) - 1)
+            self._select_tab(self._tab_frames[new_index])
+        else:
+            self._active_tab = None
+            self.path = None
+            self.doc = None
+            self.viewer = None
+            self.page = None
+            self._pending_redactions = []
+            self.search_state = search.SearchState()
+            self._set_mode("view")
+            self.body_frame.pack_forget()
+            self._show_home_screen()
 
     # ------------------------------------------------------------------
     # viewer

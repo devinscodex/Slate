@@ -632,6 +632,116 @@ def test_keyboard_jk_do_nothing_while_typing_in_an_entry(tmp_path):
         root.destroy()
 
 
+# ----------------------------------------------------------------------
+# Slice 2: tabs (multiple open documents in one window)
+# ----------------------------------------------------------------------
+
+def test_opening_a_second_document_adds_a_tab_without_closing_the_first(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        first_doc = app.doc
+        second_path = str(tmp_path / "second.pdf")
+        shutil.copy(FIXTURE, second_path)
+
+        app._open_document(second_path)
+
+        assert len(app._tabs) == 2
+        assert app.doc is not first_doc  # active tab switched to the new one
+        assert not first_doc.is_closed  # the first tab's document is still open
+        assert app.path == second_path
+    finally:
+        for t in app._tabs:
+            t.doc.close()
+        root.destroy()
+
+
+def test_reopening_an_already_open_path_switches_instead_of_duplicating(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        second_path = str(tmp_path / "second.pdf")
+        shutil.copy(FIXTURE, second_path)
+        app._open_document(second_path)
+        assert len(app._tabs) == 2
+
+        app._open_document(app.path)  # reopen the currently-active one
+        assert len(app._tabs) == 2  # no new tab created
+
+        app._open_document(str(tmp_path / "doc.pdf"))  # reopen the FIRST tab's path
+        assert len(app._tabs) == 2
+        assert app.path == str(tmp_path / "doc.pdf")  # switched back to it
+    finally:
+        for t in app._tabs:
+            t.doc.close()
+        root.destroy()
+
+
+def test_switching_tabs_isolates_mode_and_pending_redactions_and_search(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        first_frame = app._tab_frames[0]
+        app._set_mode("redact")
+        app._pending_redactions.append((0, fitz.Rect(0, 0, 10, 10)))
+        app._show_find_bar()
+        app.find_var.set("Slate")
+        app._find_next()
+        assert len(app.search_state.matches) > 0
+
+        second_path = str(tmp_path / "second.pdf")
+        shutil.copy(FIXTURE, second_path)
+        app._open_document(second_path)  # switches active tab
+
+        # the new tab starts completely clean, unaffected by tab 1's state
+        assert app.mode == "view"
+        assert app._pending_redactions == []
+        assert app.search_state.matches == []
+
+        app._select_tab(first_frame)  # switch back
+
+        assert app.mode == "redact"
+        assert len(app._pending_redactions) == 1
+        assert len(app.search_state.matches) > 0
+        assert app.find_var.get() == "Slate"
+    finally:
+        for t in app._tabs:
+            t.doc.close()
+        root.destroy()
+
+
+def test_closing_one_tab_leaves_the_others_open(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        second_path = str(tmp_path / "second.pdf")
+        shutil.copy(FIXTURE, second_path)
+        app._open_document(second_path)
+        assert len(app._tabs) == 2
+        assert app.path == second_path
+
+        app.do_close()  # closes the active (second) tab
+
+        assert len(app._tabs) == 1
+        assert app.doc is not None
+        assert app.home_frame is None  # still one tab open, not back at home
+    finally:
+        for t in app._tabs:
+            t.doc.close()
+        root.destroy()
+
+
+def test_closing_the_last_tab_returns_to_home_screen(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        assert len(app._tabs) == 1
+        app.do_close()
+        assert app._tabs == []
+        assert app.doc is None
+        assert app.home_frame is not None
+    finally:
+        if app._tabs:
+            for t in app._tabs:
+                t.doc.close()
+        root.destroy()
+
+
 def test_about_dialog_shows_real_version_and_summary(tmp_path):
     root, app = _make_app(tmp_path)
     try:
