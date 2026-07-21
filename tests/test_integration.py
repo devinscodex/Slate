@@ -194,3 +194,77 @@ def test_forms_click_fills_text_field(tmp_path, monkeypatch):
     finally:
         app.doc.close()
         root.destroy()
+
+
+def test_scan_document_menu_command_finds_and_marks_ssn(tmp_path, monkeypatch):
+    path = str(tmp_path / "doc.pdf")
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "SSN: 123-45-6789", fontsize=12)
+    doc.save(path)
+    doc.close()
+
+    monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, path)
+    try:
+        assert app._pending_redactions == []
+        app.do_scan_document()
+        # do_scan_document opens a Toplevel with a "mark all" button rather
+        # than a monkeypatchable dialog function -- find and click it
+        # programmatically the same way a real user would, via its
+        # registered Tk command, since there's no simulated mouse click.
+        found_button = False
+        for child in root.winfo_children():
+            if isinstance(child, tk.Toplevel):
+                for widget in child.winfo_children():
+                    if isinstance(widget, tk.Button):
+                        widget.invoke()
+                        found_button = True
+        assert found_button, "expected a 'mark all hits' button on a real SSN hit"
+        assert len(app._pending_redactions) == 1
+        assert app._pending_redactions[0][0] == 0  # page 0
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_scan_folder_menu_command_via_real_downloads_style_layout(tmp_path, monkeypatch):
+    """Same shape as the real Downloads audit this feature was built
+    from: one clean file, one with a labeled account number split across
+    lines (the exact layout that caused the original false negative)."""
+    clean = tmp_path / "clean.pdf"
+    dirty = tmp_path / "dirty.pdf"
+    d1 = fitz.open()
+    d1.new_page().insert_text((72, 72), "nothing sensitive", fontsize=12)
+    d1.save(str(clean))
+    d1.close()
+
+    d2 = fitz.open()
+    page = d2.new_page()
+    page.insert_text((72, 72), "Account Number:", fontsize=12)
+    page.insert_text((72, 100), "9825039777", fontsize=12)
+    d2.save(str(dirty))
+    d2.close()
+
+    doc_path = str(tmp_path / "current.pdf")
+    fitz.open(str(clean)).save(doc_path)
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, doc_path)
+    try:
+        monkeypatch.setattr(slate.filedialog, "askdirectory", lambda **k: str(tmp_path))
+        app.do_scan_folder()
+        found_text = None
+        for child in root.winfo_children():
+            if isinstance(child, tk.Toplevel):
+                for widget in child.winfo_children():
+                    if isinstance(widget, tk.Text):
+                        found_text = widget.get("1.0", "end")
+        assert found_text is not None
+        assert "dirty.pdf" in found_text
+        assert "clean.pdf" not in found_text
+        assert "account-number" in found_text
+    finally:
+        app.doc.close()
+        root.destroy()

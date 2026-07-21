@@ -17,6 +17,7 @@ import forms
 import io_pdf
 import merge_split
 import redact
+import scan
 import security
 import sign
 from viewer import Viewer
@@ -77,6 +78,10 @@ class SlateApp:
         filem.add_command(label="Merge PDFs...", command=self.do_merge)
         filem.add_command(label="Split into pages...", command=self.do_split)
         filem.add_separator()
+        filem.add_command(
+            label="Scan folder for sensitive PDFs...", command=self.do_scan_folder
+        )
+        filem.add_separator()
         filem.add_command(label="Encrypt...", command=self.do_encrypt)
         filem.add_command(label="Sign (self-signed test cert)...", command=self.do_sign)
         filem.add_separator()
@@ -88,6 +93,10 @@ class SlateApp:
         editm.add_command(
             label="Apply pending redactions + Save As...",
             command=self.apply_redactions,
+        )
+        editm.add_separator()
+        editm.add_command(
+            label="Scan this document for sensitive content...", command=self.do_scan_document
         )
         editm.add_separator()
         editm.add_command(
@@ -198,12 +207,14 @@ class SlateApp:
 
         page = self.page
         if self.mode == "redact":
+            # No modal popup here on purpose: this fires on every single
+            # drag, and a blocking messagebox per mark is bad flow for a
+            # multi-region redaction pass (and made this exact code path
+            # fragile to test/automate -- a real hang was hit live during
+            # development from a dialog nothing was there to dismiss).
+            # render()'s own status bar already shows the pending count
+            # for the current page; that's the real, non-blocking feedback.
             self._pending_redactions.append((self.viewer.page_num, rect))
-            messagebox.showinfo(
-                "Redaction marked",
-                f"Region marked on page {self.viewer.page_num + 1}. Nothing is "
-                "removed yet -- use Edit > Apply pending redactions to finish.",
-            )
         elif self.mode == "annotate:highlight":
             annotate.add_highlight(page, rect)
         elif self.mode == "annotate:rect":
@@ -329,6 +340,74 @@ class SlateApp:
             io_pdf.safe_save(part, os.path.join(out_dir, f"{base}_p{i + 1}.pdf"))
             part.close()
         messagebox.showinfo("Split", f"Wrote {len(parts)} single-page files to {out_dir}")
+
+    def do_scan_document(self):
+        hits = scan.scan_document(self.doc)
+        real_hits = [h for h in hits if h["kind"] != "unscannable"]
+        unscannable_pages = [h["page"] for h in hits if h["kind"] == "unscannable"]
+
+        lines = []
+        if real_hits:
+            for h in real_hits:
+                lines.append(f"page {h['page'] + 1}: [{h['kind']}] {h['context']}")
+        else:
+            lines.append("Nothing sensitive-shaped found.")
+        if unscannable_pages:
+            pages_str = ", ".join(str(p + 1) for p in unscannable_pages)
+            lines.append(
+                f"\n{len(unscannable_pages)} page(s) have no extractable text "
+                f"(image-only? needs OCR, not checked): {pages_str}"
+            )
+
+        top = tk.Toplevel(self.root)
+        top.title("Scan results")
+        text = tk.Text(top, width=90, height=20, wrap="word")
+        text.insert("1.0", "\n".join(lines))
+        text.config(state="disabled")
+        text.pack(fill=tk.BOTH, expand=True)
+
+        markable = [h for h in real_hits if h["rect"] is not None]
+        if markable:
+            def mark_all():
+                for h in markable:
+                    self._pending_redactions.append((h["page"], h["rect"]))
+                messagebox.showinfo(
+                    "Marked", f"{len(markable)} region(s) marked for redaction -- "
+                    "use Edit > Apply pending redactions to finish."
+                )
+                top.destroy()
+                self.render()
+
+            tk.Button(top, text=f"Mark all {len(markable)} hit(s) for redaction", command=mark_all).pack(
+                pady=6
+            )
+
+    def do_scan_folder(self):
+        directory = filedialog.askdirectory(title="Choose a folder to scan for sensitive PDFs")
+        if not directory:
+            return
+        results = scan.scan_directory(directory)
+        if not results:
+            messagebox.showinfo("Scan folder", "No sensitive-shaped content found in any PDF.")
+            return
+        lines = []
+        for filename, hits in results.items():
+            real_hits = [h for h in hits if h["kind"] != "unscannable"]
+            unscannable = [h for h in hits if h["kind"] == "unscannable"]
+            parts = []
+            if real_hits:
+                kinds = ", ".join(sorted({h["kind"] for h in real_hits}))
+                parts.append(f"{len(real_hits)} hit(s): {kinds}")
+            if unscannable:
+                parts.append(f"{len(unscannable)} unscannable page(s)")
+            lines.append(f"{filename}: {'; '.join(parts)}")
+
+        top = tk.Toplevel(self.root)
+        top.title(f"Scan results — {directory}")
+        text = tk.Text(top, width=100, height=25, wrap="word")
+        text.insert("1.0", "\n".join(lines))
+        text.config(state="disabled")
+        text.pack(fill=tk.BOTH, expand=True)
 
     def _snapshot_current_edits(self) -> str:
         """Save self.doc's current in-memory state (including any

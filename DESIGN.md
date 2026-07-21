@@ -2,7 +2,7 @@
 
 A suckless PDF editor, composed from proven libraries rather than a
 reimplemented PDF engine. Full feature set: view, annotate/markup,
-merge/split, redact, sign, form-fill.
+merge/split, redact, sign, form-fill, scan for sensitive content.
 
 ## Why composition, not a new engine
 
@@ -112,6 +112,52 @@ save-as-copy before any destructive op, especially redaction.
 non-self-signed cert to matter to external recipients — v1 ships B-B
 (fine for internal sign-off), B-LT/LTA only worth building once a real
 signing cert exists.
+
+## Scan for sensitive content (`scan.py`)
+
+Started as a one-off scratch audit script (Devin asked to scan his real
+Downloads folder for anything needing redaction), promoted to a real
+feature after it found genuine sensitive content in a real file (a bank
+account + routing number in an actual UMB account-verification letter)
+and, separately, had a real false-negative during its own development.
+
+**Scope:** number-shaped financial/PII patterns only — SSN
+(`123-45-6789`), ABA routing numbers, labeled account numbers, and
+Luhn-valid credit card numbers. Does NOT catch general PII (a resume's
+phone/address with no account-shaped context), business-confidential
+content, or anything on an image-only/scanned page — same OCR gap
+already named out-of-v1 for redaction itself. A page with 0 extractable
+characters is reported as its own `unscannable` finding rather than
+silently folded into "nothing found" — those are different claims, and
+conflating them is exactly the bug this project caught in itself (next
+paragraph).
+
+**Real bug, caught auditing Devin's actual Downloads folder, not a
+hypothetical:** the first version matched a label and its value on the
+*same line* (`Account Number:\s*(\d+)`). Real PDFs routinely don't lay
+text out that way — the bank letter's own extracted text put `Account
+Number:`, a blank line, and `9825039777` as three separate lines. The
+same-line version silently reported the real file clean. Fixed by
+scanning forward a few non-blank lines after a label match instead of
+requiring the value on the same line; pinned as its own named regression
+test (`test_label_and_value_on_separate_lines_regression`) building that
+exact three-line layout, not folded into a general-case test.
+
+**UI wiring:** Edit → "Scan this document..." runs `scan.scan_document`
+against the open file and offers to mark every hit with a resolvable
+rect as a pending redaction in one click — scan and redact are meant to
+chain together, not be two disconnected features. File → "Scan folder
+for sensitive PDFs..." reuses `scan.scan_directory` for the batch-audit
+case (the actual real-world use this started from).
+
+**Real bug found wiring this into the UI, unrelated to scan.py itself:**
+`_on_release`'s redact-mode branch called a blocking `messagebox.showinfo`
+on *every single drag* — meant as "region marked" feedback, but it made
+a multi-region redaction pass annoying (a modal popup per mark) and,
+worse, made this exact code path hang in an automated test once nothing
+was there to dismiss the dialog. Fixed by removing the popup entirely —
+the status bar (`render()`) already shows the pending-redaction count
+for the current page, which is the correct non-blocking feedback.
 
 ## Fixtures
 
