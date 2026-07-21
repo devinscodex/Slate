@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Slate — entry point and UI integration (slice 8). Wires viewer,
-redact, annotate, merge_split, forms, sign, security, io_pdf together
-into one menu-driven app. Business logic lives in the per-feature
-modules; this file is glue + Tkinter widgets only.
+"""Slate — entry point and UI integration. Wires viewer, redact,
+annotate, merge_split, forms, sign, security, scan, recent, io_pdf
+together into one menu-driven app. Business logic lives in the
+per-feature modules; this file is glue + Tkinter widgets only.
 """
 import os
 import sys
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import fitz  # PyMuPDF
 from PIL import ImageTk
@@ -16,53 +16,36 @@ import annotate
 import forms
 import io_pdf
 import merge_split
+import recent
 import redact
 import scan
 import security
 import sign
 from viewer import Viewer
 
-DEFAULT_FIXTURE = "tests/fixtures/basic3page.pdf"
-
-
 class SlateApp:
-    def __init__(self, root, path):
+    def __init__(self, root, path=None):
         self.root = root
-        self.path = path
-        self.doc = fitz.open(path)
-        self.viewer = Viewer(self.doc)
+        self.path = None
+        self.doc = None
+        self.viewer = None
+        self.page = None
         self._tk_img = None  # keep a reference or Tkinter garbage-collects it
         self.mode = "view"  # view | redact | annotate:<kind> | forms
         self._drag_start = None
         self._drag_rect_id = None
         self._pending_redactions = []  # [(page_num, fitz.Rect), ...]
+        self._doc_view_built = False
+        self.home_frame = None
+        self.toc_visible = tk.BooleanVar(value=False)
 
-        root.title(self._title())
+        root.title("Slate")
         self._build_menu()
 
-        toolbar = tk.Frame(root)
-        toolbar.pack(side=tk.TOP, fill=tk.X)
-        tk.Button(toolbar, text="< Prev", command=self.prev).pack(side=tk.LEFT)
-        tk.Button(toolbar, text="Next >", command=self.next).pack(side=tk.LEFT)
-        tk.Button(toolbar, text="Zoom -", command=self.zoom_out).pack(side=tk.LEFT)
-        tk.Button(toolbar, text="Zoom +", command=self.zoom_in).pack(side=tk.LEFT)
-        self.mode_label = tk.Label(toolbar, text="mode: view", fg="blue")
-        self.mode_label.pack(side=tk.LEFT, padx=12)
-        self.status = tk.Label(toolbar, text="")
-        self.status.pack(side=tk.RIGHT, padx=8)
-
-        self.canvas = tk.Canvas(root, bg="gray80")
-        self.canvas.pack(fill=tk.BOTH, expand=True)
-        self.canvas.bind("<ButtonPress-1>", self._on_press)
-        self.canvas.bind("<B1-Motion>", self._on_drag)
-        self.canvas.bind("<ButtonRelease-1>", self._on_release)
-
-        root.bind("<Left>", lambda e: self.prev())
-        root.bind("<Right>", lambda e: self.next())
-        root.bind("<Prior>", lambda e: self.prev())
-        root.bind("<Next>", lambda e: self.next())
-
-        self.render()
+        if path:
+            self._open_document(path)
+        else:
+            self._show_home_screen()
 
     # ------------------------------------------------------------------
     # menu
@@ -72,6 +55,9 @@ class SlateApp:
 
         filem = tk.Menu(menubar, tearoff=0)
         filem.add_command(label="Open...", command=self.open_file)
+        self.recent_menu = tk.Menu(filem, tearoff=0, postcommand=self._refresh_recent_menu)
+        filem.add_cascade(label="Recent", menu=self.recent_menu)
+        filem.add_command(label="Close", command=self.do_close)
         filem.add_command(label="Save", command=self.save)
         filem.add_command(label="Save As...", command=self.save_as)
         filem.add_separator()
@@ -117,15 +103,195 @@ class SlateApp:
         editm.add_command(label="Back to View mode", command=lambda: self._set_mode("view"))
         menubar.add_cascade(label="Edit", menu=editm)
 
+        viewm = tk.Menu(menubar, tearoff=0)
+        viewm.add_checkbutton(
+            label="Table of Contents",
+            variable=self.toc_visible,
+            command=self._toggle_toc_panel,
+        )
+        menubar.add_cascade(label="View", menu=viewm)
+
         self.root.config(menu=menubar)
 
+    def _refresh_recent_menu(self):
+        self.recent_menu.delete(0, "end")
+        entries = recent.get_recent()
+        if not entries:
+            self.recent_menu.add_command(label="(no recent files)", state="disabled")
+            return
+        for e in entries:
+            label = os.path.basename(e["path"])
+            self.recent_menu.add_command(
+                label=label, command=lambda p=e["path"]: self._open_document(p)
+            )
+
     def _title(self):
+        if not self.path:
+            return "Slate"
         signed = " [SIGNED]" if sign.is_signed(self.path) else ""
         return f"Slate — {os.path.basename(self.path)}{signed}"
 
     def _set_mode(self, mode):
         self.mode = mode
         self.mode_label.config(text=f"mode: {mode}")
+
+    def _require_doc(self) -> bool:
+        if self.doc is None:
+            messagebox.showinfo("No document", "Open a PDF first (File > Open).")
+            return False
+        return True
+
+    # ------------------------------------------------------------------
+    # home screen
+    # ------------------------------------------------------------------
+    def _show_home_screen(self):
+        if self._doc_view_built:
+            self.body_frame.pack_forget()
+        if self.home_frame is not None:
+            self.home_frame.destroy()
+
+        self.root.title("Slate")
+        self.home_frame = tk.Frame(self.root, padx=30, pady=30)
+        self.home_frame.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(self.home_frame, text="Slate", font=("TkDefaultFont", 20, "bold")).pack(
+            anchor="w"
+        )
+        tk.Button(self.home_frame, text="Open PDF...", command=self.open_file).pack(
+            anchor="w", pady=(10, 16)
+        )
+
+        tk.Label(self.home_frame, text="Recently viewed", font=("TkDefaultFont", 12, "bold")).pack(
+            anchor="w"
+        )
+        entries = recent.get_recent()
+        if not entries:
+            tk.Label(self.home_frame, text="No recently viewed files", fg="gray40").pack(
+                anchor="w", pady=6
+            )
+        else:
+            listbox = tk.Listbox(self.home_frame, width=80, height=min(10, len(entries)))
+            for e in entries:
+                listbox.insert("end", e["path"])
+            listbox.pack(fill=tk.BOTH, expand=True, pady=6)
+
+            def open_selected(event=None):
+                sel = listbox.curselection()
+                if sel:
+                    self._open_document(listbox.get(sel[0]))
+
+            listbox.bind("<Double-Button-1>", open_selected)
+            listbox.bind("<Return>", open_selected)
+
+    # ------------------------------------------------------------------
+    # document view (toolbar + canvas + toc panel) -- built once, reused
+    # ------------------------------------------------------------------
+    def _ensure_doc_view_widgets(self):
+        if self._doc_view_built:
+            return
+
+        self.body_frame = tk.Frame(self.root)
+
+        toolbar = tk.Frame(self.body_frame)
+        toolbar.pack(side=tk.TOP, fill=tk.X)
+        tk.Button(toolbar, text="< Prev", command=self.prev).pack(side=tk.LEFT)
+        tk.Button(toolbar, text="Next >", command=self.next).pack(side=tk.LEFT)
+        tk.Button(toolbar, text="Zoom -", command=self.zoom_out).pack(side=tk.LEFT)
+        tk.Button(toolbar, text="Zoom +", command=self.zoom_in).pack(side=tk.LEFT)
+        self.mode_label = tk.Label(toolbar, text="mode: view", fg="blue")
+        self.mode_label.pack(side=tk.LEFT, padx=12)
+        self.status = tk.Label(toolbar, text="")
+        self.status.pack(side=tk.RIGHT, padx=8)
+
+        content = tk.Frame(self.body_frame)
+        content.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        self.toc_frame = tk.Frame(content, width=240)
+        self.toc_tree = ttk.Treeview(self.toc_frame, show="tree")
+        self.toc_tree.pack(fill=tk.BOTH, expand=True)
+        self.toc_tree.bind("<<TreeviewSelect>>", self._on_toc_select)
+        # not packed by default -- toggled via View > Table of Contents
+
+        self.canvas = tk.Canvas(content, bg="gray80")
+        self.canvas.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        self.canvas.bind("<ButtonPress-1>", self._on_press)
+        self.canvas.bind("<B1-Motion>", self._on_drag)
+        self.canvas.bind("<ButtonRelease-1>", self._on_release)
+
+        self.root.bind("<Left>", lambda e: self.prev())
+        self.root.bind("<Right>", lambda e: self.next())
+        self.root.bind("<Prior>", lambda e: self.prev())
+        self.root.bind("<Next>", lambda e: self.next())
+
+        self._doc_view_built = True
+
+    def _toggle_toc_panel(self):
+        if self.toc_visible.get():
+            self.toc_frame.pack(side=tk.LEFT, fill=tk.Y, before=self.canvas)
+        else:
+            self.toc_frame.pack_forget()
+
+    def _refresh_outline(self):
+        self.toc_tree.delete(*self.toc_tree.get_children())
+        outline = self.viewer.get_outline()
+        if not outline:
+            self.toc_tree.insert("", "end", text="(no table of contents)")
+            return
+        # stack of (level, item_id) to attach children under the right parent
+        stack = []
+        for level, title, page_num in outline:
+            item = self.toc_tree.insert(
+                "", "end", text=title, values=(page_num,), open=True
+            )
+            stack = [s for s in stack if s[0] < level]
+            parent = stack[-1][1] if stack else ""
+            if parent:
+                self.toc_tree.move(item, parent, "end")
+            stack.append((level, item))
+
+    def _on_toc_select(self, event=None):
+        sel = self.toc_tree.selection()
+        if not sel:
+            return
+        values = self.toc_tree.item(sel[0], "values")
+        if not values:
+            return
+        self.viewer.goto(int(values[0]))
+        self.render()
+
+    # ------------------------------------------------------------------
+    # opening / closing documents
+    # ------------------------------------------------------------------
+    def _open_document(self, path):
+        if self.doc is not None:
+            self.doc.close()
+
+        self.path = path
+        self.doc = fitz.open(path)
+        self.viewer = Viewer(self.doc)
+        self._pending_redactions = []
+        self.mode = "view"
+
+        self._ensure_doc_view_widgets()
+        if self.home_frame is not None:
+            self.home_frame.destroy()
+            self.home_frame = None
+        self.body_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.root.title(self._title())
+        self._refresh_outline()
+        self.render()
+        recent.add_recent(path)
+
+    def do_close(self):
+        if self.doc is None:
+            return
+        self.doc.close()
+        self.doc = None
+        self.viewer = None
+        self.path = None
+        self.body_frame.pack_forget()
+        self._show_home_screen()
 
     # ------------------------------------------------------------------
     # viewer
@@ -153,10 +319,14 @@ class SlateApp:
         )
 
     def next(self):
+        if self.viewer is None:
+            return
         self.viewer.next_page()
         self.render()
 
     def prev(self):
+        if self.viewer is None:
+            return
         self.viewer.prev_page()
         self.render()
 
@@ -275,20 +445,18 @@ class SlateApp:
         path = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
         if not path:
             return
-        self.doc.close()
-        self.path = path
-        self.doc = fitz.open(path)
-        self.viewer = Viewer(self.doc)
-        self._pending_redactions = []
-        self.root.title(self._title())
-        self.render()
+        self._open_document(path)
 
     def save(self):
+        if not self._require_doc():
+            return
         io_pdf.backup_before_write(self.path)
         io_pdf.safe_save(self.doc, self.path)
         messagebox.showinfo("Saved", f"Saved to {self.path}")
 
     def save_as(self):
+        if not self._require_doc():
+            return
         out = filedialog.asksaveasfilename(defaultextension=".pdf")
         if not out:
             return
@@ -296,6 +464,8 @@ class SlateApp:
         messagebox.showinfo("Saved", f"Saved to {out}")
 
     def apply_redactions(self):
+        if not self._require_doc():
+            return
         if not self._pending_redactions:
             messagebox.showinfo("Nothing to apply", "No redactions have been marked yet.")
             return
@@ -313,11 +483,7 @@ class SlateApp:
         redact.redact_and_save(self.doc, self._pending_redactions, out)
         self._pending_redactions = []
         messagebox.showinfo("Redacted", f"Saved redacted copy to {out}")
-        self.doc.close()
-        self.path = out
-        self.doc = fitz.open(out)
-        self.viewer = Viewer(self.doc)
-        self.render()
+        self._open_document(out)
 
     def do_merge(self):
         paths = filedialog.askopenfilenames(filetypes=[("PDF files", "*.pdf")])
@@ -331,6 +497,8 @@ class SlateApp:
         merged.close()
 
     def do_split(self):
+        if not self._require_doc():
+            return
         out_dir = filedialog.askdirectory(title="Choose output directory")
         if not out_dir:
             return
@@ -342,6 +510,8 @@ class SlateApp:
         messagebox.showinfo("Split", f"Wrote {len(parts)} single-page files to {out_dir}")
 
     def do_scan_document(self):
+        if not self._require_doc():
+            return
         hits = scan.scan_document(self.doc)
         real_hits = [h for h in hits if h["kind"] != "unscannable"]
         unscannable_pages = [h["page"] for h in hits if h["kind"] == "unscannable"]
@@ -423,6 +593,8 @@ class SlateApp:
         return snapshot
 
     def do_encrypt(self):
+        if not self._require_doc():
+            return
         owner_pw = simpledialog.askstring("Encrypt", "Owner password:", show="*", parent=self.root)
         if not owner_pw:
             return
@@ -437,6 +609,8 @@ class SlateApp:
         messagebox.showinfo("Encrypted", f"Saved encrypted copy to {out}")
 
     def do_sign(self):
+        if not self._require_doc():
+            return
         if not messagebox.askyesno(
             "Sign document",
             "This uses a throwaway self-signed test certificate (fine for "
@@ -463,11 +637,12 @@ class SlateApp:
 
 
 def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_FIXTURE
+    path = sys.argv[1] if len(sys.argv) > 1 else None
     root = tk.Tk()
     app = SlateApp(root, path)
     root.mainloop()
-    app.doc.close()
+    if app.doc is not None:
+        app.doc.close()
 
 
 if __name__ == "__main__":

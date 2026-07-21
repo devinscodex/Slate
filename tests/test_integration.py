@@ -268,3 +268,126 @@ def test_scan_folder_menu_command_via_real_downloads_style_layout(tmp_path, monk
     finally:
         app.doc.close()
         root.destroy()
+
+
+def test_launch_with_no_path_shows_home_screen_not_a_document(tmp_path, monkeypatch):
+    import recent as recent_module
+
+    monkeypatch.setattr(recent_module, "CONFIG_DIR", tmp_path / ".slate")
+    monkeypatch.setattr(recent_module, "RECENT_FILE", tmp_path / ".slate" / "recent.json")
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, path=None)
+    try:
+        assert app.doc is None
+        assert app.home_frame is not None
+        assert app._doc_view_built is False
+    finally:
+        root.destroy()
+
+
+def test_open_from_home_screen_then_close_returns_to_home_with_recent_entry(tmp_path, monkeypatch):
+    import recent as recent_module
+
+    monkeypatch.setattr(recent_module, "CONFIG_DIR", tmp_path / ".slate")
+    monkeypatch.setattr(recent_module, "RECENT_FILE", tmp_path / ".slate" / "recent.json")
+
+    path = str(tmp_path / "doc.pdf")
+    shutil.copy(FIXTURE, path)
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, path=None)
+    try:
+        assert recent_module.get_recent() == []  # nothing yet
+
+        app._open_document(path)
+        assert app.doc is not None
+        assert app.home_frame is None
+        recent_entries = recent_module.get_recent()
+        assert len(recent_entries) == 1
+        assert recent_entries[0]["path"] == os.path.abspath(path)
+
+        app.do_close()
+        assert app.doc is None
+        assert app.home_frame is not None
+        # the just-closed file should now show up in the (rebuilt) home screen
+        assert recent_module.get_recent()[0]["path"] == os.path.abspath(path)
+    finally:
+        if app.doc is not None:
+            app.doc.close()
+        root.destroy()
+
+
+def test_menu_actions_guard_against_no_document_open(tmp_path, monkeypatch):
+    """Real gap this refactor had to close: File>Save/Split/Encrypt/Sign
+    etc. used to assume a document was always open (the old code always
+    opened one in __init__). Confirm they now guard cleanly instead of
+    raising when nothing is open."""
+    import recent as recent_module
+
+    monkeypatch.setattr(recent_module, "CONFIG_DIR", tmp_path / ".slate")
+    monkeypatch.setattr(recent_module, "RECENT_FILE", tmp_path / ".slate" / "recent.json")
+    monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, path=None)
+    try:
+        # none of these should raise with no document open
+        app.save()
+        app.do_split()
+        app.apply_redactions()
+        app.do_scan_document()
+        app.do_encrypt()
+        app.do_sign()
+    finally:
+        root.destroy()
+
+
+def test_toc_panel_reflects_real_outline_and_navigates_on_click(tmp_path, monkeypatch):
+    import recent as recent_module
+
+    monkeypatch.setattr(recent_module, "CONFIG_DIR", tmp_path / ".slate")
+    monkeypatch.setattr(recent_module, "RECENT_FILE", tmp_path / ".slate" / "recent.json")
+
+    path = str(tmp_path / "withtoc.pdf")
+    doc = fitz.open()
+    for i in range(3):
+        doc.new_page().insert_text((72, 72), f"page {i}", fontsize=14)
+    doc.set_toc([[1, "Intro", 1], [1, "Middle", 2], [1, "End", 3]])
+    doc.save(path)
+    doc.close()
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, path)
+    try:
+        app.toc_visible.set(True)
+        app._toggle_toc_panel()
+        top_items = app.toc_tree.get_children()
+        titles = [app.toc_tree.item(i, "text") for i in top_items]
+        assert titles == ["Intro", "Middle", "End"]
+
+        assert app.viewer.page_num == 0
+        app.toc_tree.selection_set(top_items[2])  # "End" -> page index 2
+        app._on_toc_select()
+        assert app.viewer.page_num == 2
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_toc_panel_shows_placeholder_when_no_outline(tmp_path, monkeypatch):
+    import recent as recent_module
+
+    monkeypatch.setattr(recent_module, "CONFIG_DIR", tmp_path / ".slate")
+    monkeypatch.setattr(recent_module, "RECENT_FILE", tmp_path / ".slate" / "recent.json")
+
+    root, app = _make_app(tmp_path)  # basic3page.pdf fixture has no outline
+    try:
+        app.toc_visible.set(True)
+        app._toggle_toc_panel()
+        items = app.toc_tree.get_children()
+        assert len(items) == 1
+        assert "no table of contents" in app.toc_tree.item(items[0], "text").lower()
+    finally:
+        app.doc.close()
+        root.destroy()
