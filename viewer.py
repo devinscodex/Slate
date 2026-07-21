@@ -48,3 +48,16 @@ class Viewer:
     def zoom_out(self, step=0.25, floor=0.25):
         self.zoom = max(floor, self.zoom - step)
         return self.zoom
+
+    def get_outline(self) -> list:
+        """(level, title, page_num) for the document's real embedded
+        outline/bookmarks (PyMuPDF's `get_toc()`) -- a separate thing
+        from any visual "Table of Contents" page the document might
+        also have as regular text. `get_toc()`'s page numbers are
+        1-indexed; converted here to the 0-indexed `page_num` the rest
+        of this class already uses, confirmed directly (not assumed) via
+        a controlled `set_toc`/`get_toc` round-trip. No outline at all
+        is a real, common, non-error case -- returns an empty list, the
+        caller (UI) is responsible for showing that plainly rather than
+        an empty-looking panel."""
+        return [(level, title, page - 1) for level, title, page in self.doc.get_toc()]

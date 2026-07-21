@@ -72,3 +72,25 @@ def test_nav_bounds():
         v.next_page()
     assert v.page_num == v.page_count - 1  # clamps at last page
     doc.close()
+
+
+def test_get_outline_with_real_toc():
+    doc = fitz.open(FIXTURE)
+    # set_toc uses 1-indexed page numbers -- confirmed directly via a
+    # controlled round-trip before writing Viewer.get_outline() at all.
+    doc.set_toc([[1, "Chapter One", 1], [2, "Section 1.1", 2], [1, "Chapter Two", 3]])
+    v = Viewer(doc)
+    outline = v.get_outline()
+    assert outline == [
+        (1, "Chapter One", 0),
+        (2, "Section 1.1", 1),
+        (1, "Chapter Two", 2),
+    ]
+    doc.close()
+
+
+def test_get_outline_with_no_toc_is_empty_not_an_error():
+    doc = fitz.open(FIXTURE)  # the fixture has no outline set
+    v = Viewer(doc)
+    assert v.get_outline() == []
+    doc.close()
