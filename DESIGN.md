@@ -301,4 +301,61 @@ programmatically, never real documents. One fixture must include
 pre-existing incremental-update history (to catch the redaction/history
 gap above) and one must include a pre-existing tag tree (to confirm
 redact/merge/annotate don't silently strip it, even though authoring
-tagged PDF is out of v1).
+tagged PDF is out of v1). Same discipline applies to the one synthetic
+epub fixture used below — built at test time via `zipfile`, never
+committed as a binary.
+
+## Sumatra-parity backlog — done (v3)
+
+Devin's real question: after using SumatraPDF's TOC/recent-files panel
+as this project's own UX reference already, what else is worth peeling
+from it? Three concrete, real slices, in cheapest-to-most-structural
+order:
+
+1. **`search.py` + keyboard nav** — in-document Find (`/` or View >
+   Find...), `Return`/`Shift-Return`/`n`/`N` step through matches with
+   wraparound, current match highlighted red vs. yellow for the rest
+   (canvas overlay, redrawn every `render()`, not real annotations).
+   `j`/`k` page nav, `g`/`G` jump to first/last page. Reuses PyMuPDF's
+   own `page.search_for()` (already case-insensitive, confirmed live).
+   Real gotcha: `search_for("")` returns `None`, not `[]` — guarded
+   explicitly. All single-letter bindings are guarded on "is an Entry
+   currently focused" so they don't hijack literal search text (`n`,
+   `g` etc. are all valid characters to search for).
+2. **Tabs** — `tab.py`'s `Tab` is a plain per-document state container
+   (path/doc/viewer/page/mode/pending_redactions/search_state).
+   `ttk.Notebook` is used purely as a tab-*selector strip* — each "tab"
+   is a never-shown placeholder child frame; the single existing
+   shared toolbar/canvas/find-bar/toc keeps doing all the actual
+   rendering, unchanged. On switch, the outgoing tab's mutable fields
+   save back into its `Tab`, the incoming tab's fields load into the
+   same flat `self.doc`/`self.path`/etc. attributes every pre-existing
+   method already reads — so none of those ~30 methods needed touching,
+   and all 94 pre-tabs tests kept passing unchanged (a single open
+   document is just the one-tab case). Real bug: selecting a
+   `Notebook` tab only fires `<<NotebookTabChanged>>` on the next
+   idle-loop pass, not synchronously — fixed via a `_select_tab()`
+   helper that calls the handler directly (idempotent alongside the
+   real event, for actual interactive clicks).
+3. **Ebook formats** (EPUB/MOBI/FB2/CBZ/TXT/MD) — confirmed via
+   PyMuPDF's own docs feature matrix *and* hands-on (a real synthetic
+   epub through the unmodified `viewer.py`): PyMuPDF/MuPDF already
+   opens all of these natively. Zero new dependency, almost no new
+   code — mostly widening `open_file()`'s dialog filter. CHM is *not*
+   supported (not in the matrix; would need PyMuPDF Pro) — left out.
+   Devin's call: PDF-only Edit/File menu items (redact, sign, forms,
+   encrypt, merge/split, save) are disabled whenever the active tab's
+   document isn't a real PDF (`doc.is_pdf`), via
+   `_update_pdf_only_menu_state()` hooked into the tab-switch path —
+   automatically correct across tab switches, no extra wiring. Real
+   bug caught writing this slice's epub test: `_title()` unconditionally
+   ran `sign.is_signed()` (pyHanko) against `self.path`, which crashed
+   with "Illegal PDF header" the instant a non-PDF path was opened —
+   fixed by gating that check on `doc.is_pdf` too (signing is itself a
+   PDF-only action; a non-PDF is never "signed" by definition).
+
+**Explicitly still out of scope:** true ebook-reader extras (TTS,
+adjustable reflow/font size for epub, night mode) — these were a
+separate, earlier exploratory research thread (real Piper TTS sizing
+numbers gathered, nothing built) and stay that way unless asked for
+directly.
