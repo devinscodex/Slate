@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Slate — Design</title>
+<style>
+  body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 860px; margin: 0 auto; padding: 40px 24px 80px; color: #16150f; background: #fff; }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  h2 { font-size: 18px; margin: 32px 0 8px; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+  h3 { font-size: 15px; margin: 20px 0 6px; }
+  p, li { color: #2a2a26; }
+  code { background: #f2f1ec; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 12px 0; }
+  th, td { text-align: left; padding: 6px 10px; border: 1px solid #ddd; vertical-align: top; }
+  th { background: #f2f1ec; }
+  ul { padding-left: 22px; }
+  .meta { color: #666; font-size: 12.5px; margin-bottom: 24px; }
+</style>
+</head>
+<body>
+
+<h1>Slate — design</h1>
+<div class="meta">DESIGN.md, exported 2026-07-21. Suckless PDF editor: view, annotate/markup, merge/split, redact, sign, form-fill, scan for sensitive content.</div>
+
+<h2>Why composition, not a new engine</h2>
+<p>Full ISO 32000 parity is a multi-year effort even for funded teams (PDF.js/MuPDF/Poppler-scale). The suckless answer isn't reinventing that — it's a thin app over libraries that already do each job well, matching this project's own "wrap the real tool, don't reimplement" doctrine (same pattern as Cairn's markitdown skill).</p>
+
+<h2>Stack</h2>
+<ul>
+<li><strong>GUI:</strong> Tkinter (Python stdlib) — zero extra dependency for the toolkit itself.</li>
+<li><strong>Rendering / annotate / merge-split / forms:</strong> PyMuPDF (<code>fitz</code>).</li>
+<li><strong>Redaction:</strong> PyMuPDF's <code>apply_redactions()</code>, hardened (see below).</li>
+<li><strong>Redaction verification (independent second reader):</strong> pikepdf (QPDF-backed — a different codebase than PyMuPDF/MuPDF, never let the same engine that wrote the file grade its own redaction).</li>
+<li><strong>Signing:</strong> pyHanko (real PAdES B-B/B-T/B-LT/B-LTA, Acrobat-validation compatible — PyMuPDF's own signature-field support is basic/visual-only, not cryptographically real).</li>
+<li><strong>Encryption / password protection:</strong> pikepdf.</li>
+</ul>
+
+<h2>Redaction — the hardened save path (non-negotiable)</h2>
+<p>PyMuPDF's destructive-removal guarantee is conditional: physical removal only holds "assuming <code>Document.save()</code> with a suitable garbage option." <code>io_pdf.py</code>'s save path after any redaction must always:</p>
+<ul>
+<li><code>garbage=4, clean=True</code> — never expose a faster save that skips this; skipping it leaves orphaned, recoverable objects in the file.</li>
+<li><code>incremental=False</code> (full rewrite) — a PDF with prior incremental-update revisions keeps pre-redaction content byte-recoverable in its own revision history regardless of how clean the current revision is.</li>
+<li>Strip XMP/document metadata as part of the same hardened save — same underlying risk (content surviving in the wrong place) as the incremental-history issue, not a separate feature.</li>
+</ul>
+<p>Real, sourced bugs exist in <code>apply_redactions()</code> (PyMuPDF GitHub #3433, #2108, #3278 — over/under-redaction in certain content-stream layouts). The test harness must catch both directions, not just "is it gone."</p>
+
+<h2>Signing — sequencing constraint</h2>
+<p>PDF signatures are append-only-incremental by design: signing must be the last write to a document. <code>io_pdf.py</code> must track signed-state and warn-or-refuse further edits to an already-signed document rather than silently invalidate the signature.</p>
+
+<h2>Forms — verified findings (slice 5, corrects the original plan)</h2>
+<p><strong>Radio sibling-unset: the originally-cited gotcha is stale.</strong> The plan assumed PyMuPDF doesn't auto-unset sibling radio buttons and that <code>forms.py</code> would need to do it manually. Verified directly against the installed version (PyMuPDF 1.28.0): <code>Widget._checker()</code> already handles this correctly — setting one radio button's <code>field_value</code> to its own ON state and calling <code>.update()</code> automatically forces every sibling in the same field-name group back to <code>Off</code>. <code>forms.py</code> does nothing special; <code>tests/test_forms.py::test_radio_sibling_auto_unset</code> pins this behavior so a future PyMuPDF upgrade that regresses it gets caught immediately.</p>
+<p><strong>Real gotcha instead: radio GROUP creation, and widget page-lifetime.</strong> PyMuPDF cannot currently <em>create</em> a new interlinked radio group — adding two <code>Widget()</code> objects with a shared <code>field_name</code> via <code>add_widget()</code> raises <code>ValueError: bad xref</code> (confirmed, matches PyMuPDF GitHub discussion #2333: group creation isn't supported, only filling an existing group's values is). Not a blocker for v1 — Slate fills received forms, it doesn't author new ones from scratch — but the test fixture's radio group had to be built at the raw PDF-object level via pikepdf instead. Separately: a <code>Widget</code> holds only a <em>weak</em> reference to its parent page; letting that page object go out of scope while still holding widgets turns a later sibling-unset into a raw <code>ReferenceError</code>, not a clean update. Always keep the page bound to a named variable for as long as any of its widgets are being read or written.</p>
+
+<h2>Build order (each slice has its own standalone pass/fail check)</h2>
+<p>Redaction is proven right after the minimum viewer needed to see anything — early, not deferred to "once the UI feels done."</p>
+<table>
+<tr><th>#</th><th>Slice</th><th>Check</th></tr>
+<tr><td>0</td><td>Skeleton: venv, fossil repo, Tkinter window opens a fixture PDF</td><td>Window opens, no exceptions, page count matches</td></tr>
+<tr><td>1</td><td>Minimal viewer: render, nav, zoom</td><td>Every page of a fixture renders; checksums match expected</td></tr>
+<tr><td>2</td><td><strong>Redaction core + verification harness (the trust gate)</strong></td><td>Plant a canary string + image in a fixture; redact; assert gone via PyMuPDF's <code>get_text()</code> AND a pikepdf raw-object scan (incl. orphaned objects) AND image byte-hash absent — on both a plain fixture and one with pre-existing incremental-update history — and explicitly assert the <em>unsafe</em> save path still shows the canary, proving the safe path is load-bearing</td></tr>
+<tr><td>3</td><td>Merge/split/reorder/extract</td><td>Round-trip page count + per-page text-hash match</td></tr>
+<tr><td>4</td><td>Annotate (highlight, freetext, ink, shapes, stamp)</td><td>Add one of each, reload, enumerate <code>page.annots()</code>, confirm type/rect/contents</td></tr>
+<tr><td>5</td><td>Forms fill</td><td>One of each widget type; set, reload, confirm persisted; cross-check with an independent renderer; verify radio-sibling unsetting</td></tr>
+<tr><td>6</td><td>Signing (pyHanko, PAdES B-B)</td><td>Sign with a self-signed test cert; verify via pyHanko's own independent validation call against the saved file</td></tr>
+<tr><td>7</td><td>Security/encryption</td><td>Round-trip: correct password opens, wrong password fails, permission bits actually enforced</td></tr>
+<tr><td>8</td><td>UI integration</td><td>One real end-to-end task per feature category, single sitting, no restarts</td></tr>
+</table>
+
+<h2>Scope decisions</h2>
+<p><strong>OUT of v1:</strong> XFA (Adobe LiveCycle) forms (detect and warn, don't silently mis-save). PDF/A validation/conversion (unless a real compliance need surfaces — wrap veraPDF later, don't hand-roll). OCR for scanned PDFs (image-region redaction still works without it).</p>
+<p><strong>IN v1:</strong> opening and producing password-protected PDFs. A mandatory safe-save policy — never overwrite the original in place; auto-backup or save-as-copy before any destructive op, especially redaction.</p>
+<p><strong>Business question, not engineering:</strong> PAdES B-LT/B-LTA needs a real non-self-signed cert to matter to external recipients — v1 ships B-B (fine for internal sign-off), B-LT/LTA only worth building once a real signing cert exists.</p>
+
+<h2>Scan for sensitive content (<code>scan.py</code>)</h2>
+<p>Started as a one-off scratch audit script (Devin asked to scan his real Downloads folder for anything needing redaction), promoted to a real feature after it found genuine sensitive content in a real file (a bank account + routing number in an actual UMB account-verification letter) and, separately, had a real false-negative during its own development.</p>
+<p><strong>Scope:</strong> number-shaped financial/PII patterns only — SSN (<code>123-45-6789</code>), ABA routing numbers, labeled account numbers, and Luhn-valid credit card numbers. Does NOT catch general PII (a resume's phone/address with no account-shaped context), business-confidential content, or anything on an image-only/scanned page — same OCR gap already named out-of-v1 for redaction itself. A page with 0 extractable characters is reported as its own <code>unscannable</code> finding rather than silently folded into "nothing found" — those are different claims, and conflating them is exactly the bug this project caught in itself (next paragraph).</p>
+<p><strong>Real bug, caught auditing Devin's actual Downloads folder, not a hypothetical:</strong> the first version matched a label and its value on the <em>same line</em> (<code>Account Number:\s*(\d+)</code>). Real PDFs routinely don't lay text out that way — the bank letter's own extracted text put <code>Account Number:</code>, a blank line, and <code>9825039777</code> as three separate lines. The same-line version silently reported the real file clean. Fixed by scanning forward a few non-blank lines after a label match instead of requiring the value on the same line; pinned as its own named regression test (<code>test_label_and_value_on_separate_lines_regression</code>) building that exact three-line layout, not folded into a general-case test.</p>
+<p><strong>UI wiring:</strong> Edit → "Scan this document..." runs <code>scan.scan_document</code> against the open file and offers to mark every hit with a resolvable rect as a pending redaction in one click — scan and redact are meant to chain together, not be two disconnected features. File → "Scan folder for sensitive PDFs..." reuses <code>scan.scan_directory</code> for the batch-audit case (the actual real-world use this started from).</p>
+<p><strong>Real bug found wiring this into the UI, unrelated to scan.py itself:</strong> <code>_on_release</code>'s redact-mode branch called a blocking <code>messagebox.showinfo</code> on <em>every single drag</em> — meant as "region marked" feedback, but it made a multi-region redaction pass annoying (a modal popup per mark) and, worse, made this exact code path hang in an automated test once nothing was there to dismiss the dialog. Fixed by removing the popup entirely — the status bar (<code>render()</code>) already shows the pending-redaction count for the current page, which is the correct non-blocking feedback.</p>
+
+<h2>Fixtures</h2>
+<p><code>tests/fixtures/</code> holds small synthetic PDFs only — generated programmatically, never real documents. One fixture must include pre-existing incremental-update history (to catch the redaction/history gap above) and one must include a pre-existing tag tree (to confirm redact/merge/annotate don't silently strip it, even though authoring tagged PDF is out of v1).</p>
+
+</body>
+</html>
