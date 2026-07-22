@@ -10,8 +10,8 @@ def test_get_palette_falls_back_to_default_for_unknown_name():
     assert theme.get_palette("not-a-real-theme") == theme.THEMES[theme.DEFAULT_THEME]
 
 
-def test_default_theme_is_dark_per_devins_explicit_request():
-    assert theme.DEFAULT_THEME == "dark"
+def test_default_theme_is_mosscairn_dark_per_devins_explicit_request():
+    assert theme.DEFAULT_THEME == "mosscairn_dark"
 
 
 def test_all_themes_have_the_same_keys():
