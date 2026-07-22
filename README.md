@@ -24,3 +24,7 @@ make run
 ```
 make test
 ```
+
+## Author
+
+Copyright © 2026 Devin Dwight.
