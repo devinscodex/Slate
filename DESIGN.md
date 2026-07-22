@@ -359,3 +359,48 @@ adjustable reflow/font size for epub, night mode) — these were a
 separate, earlier exploratory research thread (real Piper TTS sizing
 numbers gathered, nothing built) and stay that way unless asked for
 directly.
+
+## Convert — office document utilities (`convert.py`)
+
+Devin's ask: MEG-relevant file converters. New "Convert" menu: PDF ->
+Markdown, PDF -> plain text, PDF -> page images (PNG, chosen DPI), and
+images -> PDF (combine scans/photos into one file, in order). All
+read-only exports work on any open document type (PDF or ebook), same
+as Scan — not gated by the PDF-only menu logic. Zero new dependencies:
+everything reuses PyMuPDF, already installed.
+
+**Real finding, not assumed:** `pymupdf4llm` looked like the obvious
+off-the-shelf PDF->Markdown choice — PyPI describes it as "minimal
+core: PyMuPDF and PyMuPDF Layout." Actually installing it (not just
+reading the page) pulled `pymupdf-layout` (a 41MB wheel) plus a full
+ONNX Runtime, numpy, protobuf, networkx — 80MB+ of transitive weight
+for a layout-detection ML model. Not suckless for what this needs.
+Installed it, inspected what actually landed, uninstalled it.
+`pdf_to_markdown` is hand-rolled instead, reusing the same span-level
+size/flags data `textedit.py` already parses for font info: heading
+level is inferred from font size *relative to the document's own
+body-text size* (not a fixed threshold, since "normal" size varies
+doc to doc), whole-line-bold text becomes `**bold**`, bullet-prefixed
+lines normalize to real `- ` markdown list items.
+
+**Real bug, caught by the UI integration test, not `convert.py`'s own
+unit tests:** the body-size heuristic originally picked the size with
+the most *lines* — which ties when a one-line title and a one-line
+body have equal line counts (a real single-paragraph document hit this
+immediately; every unit-test fixture happened to have multiple body
+lines, masking it). Fixed by weighting by total *character volume*
+instead of line count, a much more reliable "which size is actually
+the body text" signal.
+
+`images_to_pdf` uses PyMuPDF's own documented technique
+(`Document.convert_to_pdf()` per image, confirmed live before writing
+any code), one full page per image, in the given order.
+
+**Explicitly out of scope, flagged for later, not built:** DOCX/XLSX
+<-> PDF conversion. Genuinely useful for an Office-standardized shop
+like MEG, but the only real options are heavy/platform-specific
+(headless LibreOffice as an external process dependency, or MS Office
+COM automation via `pywin32` — Windows-only, needs Word/Excel actually
+installed on the machine). Given this session's live-confirmed lesson
+above about assuming a library is lightweight, this needs its own
+research pass before committing to an approach, not a quick add.
