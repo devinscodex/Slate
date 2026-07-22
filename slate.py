@@ -76,6 +76,7 @@ class SlateApp:
         self._active_tab = None
 
         root.title("Slate")
+        self._set_window_icon()
         self._build_menu()
 
         if path:
@@ -86,6 +87,20 @@ class SlateApp:
     # ------------------------------------------------------------------
     # menu
     # ------------------------------------------------------------------
+    def _set_window_icon(self):
+        """Purely cosmetic -- must never crash the app if the branding
+        asset is missing (e.g. a stripped-down deployment without
+        branding/). Keeps a reference on self (same PhotoImage-gets-
+        garbage-collected gotcha as self._tk_img in render())."""
+        icon_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "branding", "icon_b_redaction_bar.png"
+        )
+        try:
+            self._icon_img = tk.PhotoImage(file=icon_path)
+            self.root.iconphoto(True, self._icon_img)
+        except tk.TclError:
+            pass
+
     def _build_menu(self):
         menubar = tk.Menu(self.root)
 
@@ -287,11 +302,26 @@ class SlateApp:
         self.home_frame = tk.Frame(self.root, padx=30, pady=30)
         self.home_frame.pack(fill=tk.BOTH, expand=True)
 
-        tk.Label(self.home_frame, text="Slate", font=("TkDefaultFont", 20, "bold")).pack(
-            anchor="w"
-        )
+        header = tk.Frame(self.home_frame)
+        header.pack(anchor="w", fill=tk.X)
+        if getattr(self, "_icon_img", None) is not None:
+            # subsample(4) on a 256x256 source -> a crisp 64x64 logo,
+            # cheap (no PIL resize needed, this PhotoImage is already
+            # loaded for the window icon -- reused, not reloaded).
+            logo = self._icon_img.subsample(4, 4)
+            self._home_logo_img = logo  # keep a reference, same gotcha as _tk_img
+            tk.Label(header, image=logo).pack(side=tk.LEFT, padx=(0, 12))
+        title_box = tk.Frame(header)
+        title_box.pack(side=tk.LEFT, anchor="w")
+        tk.Label(
+            title_box, text=f"Slate {version.VERSION}", font=("TkDefaultFont", 20, "bold")
+        ).pack(anchor="w")
+        tk.Label(
+            title_box, text=version.SUMMARY, wraplength=460, justify="left", fg="gray30"
+        ).pack(anchor="w", pady=(4, 0))
+
         tk.Button(self.home_frame, text="Open...", command=self.open_file).pack(
-            anchor="w", pady=(10, 16)
+            anchor="w", pady=(16, 16)
         )
 
         tk.Label(self.home_frame, text="Recently viewed", font=("TkDefaultFont", 12, "bold")).pack(
@@ -303,18 +333,27 @@ class SlateApp:
                 anchor="w", pady=6
             )
         else:
-            listbox = tk.Listbox(self.home_frame, width=80, height=min(10, len(entries)))
+            self._recent_entries = entries
+            self._recent_listbox = tk.Listbox(
+                self.home_frame, width=90, height=min(10, len(entries))
+            )
             for e in entries:
-                listbox.insert("end", e["path"])
-            listbox.pack(fill=tk.BOTH, expand=True, pady=6)
+                name = os.path.basename(e["path"])
+                parent = os.path.dirname(e["path"])
+                self._recent_listbox.insert("end", f"{name}   —   {parent}")
+            self._recent_listbox.pack(fill=tk.BOTH, expand=True, pady=6)
+            self._recent_listbox.bind("<Double-Button-1>", self._open_recent_selected)
+            self._recent_listbox.bind("<Return>", self._open_recent_selected)
 
-            def open_selected(event=None):
-                sel = listbox.curselection()
-                if sel:
-                    self._open_document(listbox.get(sel[0]))
-
-            listbox.bind("<Double-Button-1>", open_selected)
-            listbox.bind("<Return>", open_selected)
+    def _open_recent_selected(self, event=None):
+        """Bound to the home screen's recent-files listbox (double-click
+        or Enter). Looks up the real path by LIST INDEX into the exact
+        entries list the listbox was built from -- the displayed text
+        is 'name — parent dir', not the raw path (real UI/UX pass
+        improvement), so this must never parse the display string."""
+        sel = self._recent_listbox.curselection()
+        if sel:
+            self._open_document(self._recent_entries[sel[0]]["path"])
 
     # ------------------------------------------------------------------
     # document view (toolbar + canvas + toc panel) -- built once, reused

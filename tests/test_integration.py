@@ -342,6 +342,48 @@ def test_launch_with_no_path_shows_home_screen_not_a_document(tmp_path, monkeypa
         root.destroy()
 
 
+def test_window_icon_loads_from_branding_without_crashing(tmp_path, monkeypatch):
+    import recent as recent_module
+
+    monkeypatch.setattr(recent_module, "CONFIG_DIR", tmp_path / ".slate")
+    monkeypatch.setattr(recent_module, "RECENT_FILE", tmp_path / ".slate" / "recent.json")
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, path=None)
+    try:
+        assert app._icon_img is not None
+        assert app._icon_img.width() == 256
+    finally:
+        root.destroy()
+
+
+def test_home_screen_shows_real_version_and_summary(tmp_path, monkeypatch):
+    import recent as recent_module
+
+    monkeypatch.setattr(recent_module, "CONFIG_DIR", tmp_path / ".slate")
+    monkeypatch.setattr(recent_module, "RECENT_FILE", tmp_path / ".slate" / "recent.json")
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, path=None)
+    try:
+        labels = [
+            w for w in app.home_frame.winfo_children()
+        ]
+        all_text = []
+
+        def collect(widget):
+            if isinstance(widget, tk.Label):
+                all_text.append(widget.cget("text"))
+            for child in widget.winfo_children():
+                collect(child)
+
+        collect(app.home_frame)
+        assert any(slate.version.VERSION in t for t in all_text)
+        assert any(t == slate.version.SUMMARY for t in all_text)
+    finally:
+        root.destroy()
+
+
 def test_open_from_home_screen_then_close_returns_to_home_with_recent_entry(tmp_path, monkeypatch):
     import recent as recent_module
 
@@ -368,6 +410,44 @@ def test_open_from_home_screen_then_close_returns_to_home_with_recent_entry(tmp_
         assert app.home_frame is not None
         # the just-closed file should now show up in the (rebuilt) home screen
         assert recent_module.get_recent()[0]["path"] == os.path.abspath(path)
+    finally:
+        if app.doc is not None:
+            app.doc.close()
+        root.destroy()
+
+
+def test_double_click_recent_entry_opens_correct_file_despite_display_formatting(tmp_path, monkeypatch):
+    """The home screen shows 'name — parent dir', not the raw path (a
+    UI/UX pass improvement) -- open_selected() looks up the real path by
+    LIST INDEX into recent.get_recent(), not by parsing the displayed
+    text. Two files with different parent dirs but confusingly similar
+    display text is exactly the case that would catch an index/lookup
+    mismatch."""
+    import recent as recent_module
+
+    monkeypatch.setattr(recent_module, "CONFIG_DIR", tmp_path / ".slate")
+    monkeypatch.setattr(recent_module, "RECENT_FILE", tmp_path / ".slate" / "recent.json")
+
+    dir_a = tmp_path / "alpha"
+    dir_b = tmp_path / "beta"
+    dir_a.mkdir()
+    dir_b.mkdir()
+    path_a = str(dir_a / "report.pdf")
+    path_b = str(dir_b / "report.pdf")  # same basename as path_a, on purpose
+    shutil.copy(FIXTURE, path_a)
+    shutil.copy(FIXTURE, path_b)
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, path=None)
+    try:
+        recent_module.add_recent(path_a)
+        recent_module.add_recent(path_b)  # most-recent-first -> [path_b, path_a]
+        app._show_home_screen()
+
+        app._recent_listbox.selection_set(1)  # second row -> path_a (the older entry)
+        app._open_recent_selected()
+
+        assert app.path == os.path.abspath(path_a)
     finally:
         if app.doc is not None:
             app.doc.close()
