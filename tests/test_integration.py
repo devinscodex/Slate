@@ -138,6 +138,8 @@ def test_dark_mode_repaints_toolbar_and_canvas(tmp_path):
 
     root, app = _make_app(tmp_path)
     try:
+        app.theme_name.set("light")
+        app._apply_theme()
         assert app.canvas.cget("bg") == theme.LIGHT["canvas_bg"]
 
         app.theme_name.set("dark")

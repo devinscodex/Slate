@@ -40,7 +40,7 @@ from pathlib import Path
 CONFIG_DIR = Path.home() / ".slate"
 PREF_FILE = CONFIG_DIR / "theme.json"
 
-DEFAULT_THEME = "light"
+DEFAULT_THEME = "dark"
 
 THEMES = {
     "light": {
