@@ -250,7 +250,7 @@ def test_unsafe_no_garbage_collection_leaks_canary(tmp_path):
 
     doc = fitz.open(src)
     _redact_canary(doc)
-    doc.save(out, garbage=0, clean=False, incremental=False)
+    io_pdf.unsafe_save_for_testing(doc, out)
     doc.close()
 
     # The current-revision text/image are gone (redaction itself worked),

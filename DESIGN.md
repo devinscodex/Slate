@@ -305,6 +305,16 @@ tagged PDF is out of v1). Same discipline applies to the one synthetic
 epub fixture used below — built at test time via `zipfile`, never
 committed as a binary.
 
+Honest exception, found during a suckless-pass audit: `basic3page.pdf`
+itself IS committed as a small (1.5KB) static binary, not generated at
+test time like the epub fixture is — an inconsistency between the
+stated convention and practice. It still satisfies the actual intent
+("never a real document" — it's fully synthetic, 3 pages of
+`insert_text`), and converting it to a generate-at-test-time fixture
+would mean rewiring ~30 call sites across `test_integration.py` for a
+purely cosmetic gain. Left as-is deliberately rather than churned for
+consistency's own sake — that tradeoff would itself be un-suckless.
+
 ## Sumatra-parity backlog — done (v3)
 
 Devin's real question: after using SumatraPDF's TOC/recent-files panel
