@@ -4,6 +4,8 @@ exist on a deployed end-user machine without fossil/git installed.
 "Rolling" here means monotonic release markers, not auto-generated.
 """
 
+AUTHOR = "Devin Dwight"
+
 VERSION = "1.1.0"
 # 1.0.0 -- v1 core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (all 4 slices: fontmatch, textedit, gate, UI)

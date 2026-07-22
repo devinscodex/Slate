@@ -315,7 +315,10 @@ class SlateApp:
         ).pack(padx=24, pady=(18, 6))
         tk.Label(
             top, text=version.SUMMARY, wraplength=360, justify="left"
-        ).pack(padx=24, pady=(0, 18))
+        ).pack(padx=24, pady=(0, 12))
+        author_label = tk.Label(top, text=f"© 2026 {version.AUTHOR}", fg="gray40")
+        author_label.slate_muted = True
+        author_label.pack(padx=24, pady=(0, 18))
         tk.Button(top, text="Close", command=top.destroy).pack(pady=(0, 14))
         self._paint_widget(top, theme.get_palette(self.theme_name.get()))
 
@@ -557,10 +560,27 @@ class SlateApp:
         self.canvas.bind("<B1-Motion>", self._on_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
 
-        self.root.bind("<Left>", lambda e: self.prev())
-        self.root.bind("<Right>", lambda e: self.next())
-        self.root.bind("<Prior>", lambda e: self.prev())
-        self.root.bind("<Next>", lambda e: self.next())
+        # All routed through the same guarded _kb_prev_page/_kb_next_page
+        # as j/k below -- a real pre-existing gap fixed while adding
+        # these: Left/Right/Up/Down/PageUp/PageDown were previously
+        # bound directly to prev()/next() with NO "am I typing
+        # somewhere" guard at all, so pressing e.g. Left to move the
+        # text cursor while typing in the Find box would ALSO flip a
+        # page underneath it.
+        self.root.bind("<Left>", self._kb_prev_page)
+        self.root.bind("<Right>", self._kb_next_page)
+        self.root.bind("<Up>", self._kb_prev_page)
+        self.root.bind("<Down>", self._kb_next_page)
+        self.root.bind("<Prior>", self._kb_prev_page)  # Page Up
+        self.root.bind("<Next>", self._kb_next_page)  # Page Down
+        # Mouse wheel: Windows/Mac deliver <MouseWheel> with a signed
+        # event.delta; X11/Linux (this dev environment) instead sends
+        # discrete Button-4 (up) / Button-5 (down) click events with no
+        # delta at all -- both bound so this is actually testable here,
+        # not just assumed to work on the real deployment target.
+        self.canvas.bind("<MouseWheel>", self._on_mouse_wheel)
+        self.canvas.bind("<Button-4>", self._kb_prev_page)
+        self.canvas.bind("<Button-5>", self._kb_next_page)
 
         # Sumatra-style keyboard nav. Guarded on "typing somewhere" (any
         # Entry has focus, e.g. the find box itself) so these don't
@@ -923,6 +943,15 @@ class SlateApp:
             return
         self.viewer.prev_page()
         self.render()
+
+    def _on_mouse_wheel(self, event):
+        """Windows/Mac only -- delivers a signed event.delta (Windows:
+        +/-120 per notch); X11 has no <MouseWheel> event at all, wheel
+        arrives as Button-4/Button-5 clicks instead (bound separately)."""
+        if event.delta > 0:
+            self._kb_prev_page()
+        else:
+            self._kb_next_page()
 
     def zoom_in(self):
         self.viewer.zoom_in()

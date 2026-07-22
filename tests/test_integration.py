@@ -25,9 +25,10 @@ REAL_EMBEDDABLE_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"
 
 
 class _FakeEvent:
-    def __init__(self, x, y):
+    def __init__(self, x, y, delta=0):
         self.x = x
         self.y = y
+        self.delta = delta
 
 
 def _drag(app, x0, y0, x1, y1):
@@ -1264,6 +1265,84 @@ def test_about_dialog_shows_real_version_and_summary(tmp_path):
                             found_summary = True
         assert found_version, "About dialog should show version.VERSION"
         assert found_summary, "About dialog should show version.SUMMARY"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_about_dialog_shows_the_author(tmp_path):
+    """Real gap Devin caught live: the About dialog showed version/
+    summary but never actually credited an author anywhere the app
+    itself surfaces (only README.md had it, invisible while just
+    running the app)."""
+    root, app = _make_app(tmp_path)
+    try:
+        app._show_about()
+        found_author = False
+        for child in root.winfo_children():
+            if isinstance(child, tk.Toplevel):
+                for widget in child.winfo_children():
+                    if isinstance(widget, tk.Label) and version.AUTHOR in widget.cget("text"):
+                        found_author = True
+        assert found_author, "About dialog should credit version.AUTHOR"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_up_down_arrows_navigate_pages(tmp_path):
+    """Real Tk limitation, same one already noted for Double-Button-1:
+    synthetic key events via event_generate don't reliably dispatch
+    without real window-manager focus in this test harness -- Up/Down
+    are bound straight to the same guarded _kb_prev_page/_kb_next_page
+    j/k already use, called directly here instead."""
+    root, app = _make_app(tmp_path)  # basic3page.pdf -- 3 pages
+    try:
+        assert app.viewer.page_num == 0
+        app._kb_next_page()
+        assert app.viewer.page_num == 1
+        app._kb_prev_page()
+        assert app.viewer.page_num == 0
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_up_down_do_nothing_while_typing_in_an_entry(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app._show_find_bar()
+        app._find_entry.focus_set()
+        root.update()
+        assert app.viewer.page_num == 0
+        app._kb_next_page()  # guarded -- focus is in the find entry
+        assert app.viewer.page_num == 0
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_mouse_wheel_navigates_pages_both_platform_styles(tmp_path):
+    """X11 (this dev environment) delivers wheel input as discrete
+    Button-4/Button-5 clicks bound straight to _kb_prev_page/
+    _kb_next_page; Windows/Mac instead deliver a single <MouseWheel>
+    event with a signed delta, handled by _on_mouse_wheel. Both are
+    real code paths in slate.py, exercised directly here (see the
+    event_generate limitation noted above) rather than only through
+    whichever one X11 can actually simulate."""
+    root, app = _make_app(tmp_path)
+    try:
+        assert app.viewer.page_num == 0
+
+        app._kb_next_page()  # X11 Button-5 wiring
+        assert app.viewer.page_num == 1
+        app._kb_prev_page()  # X11 Button-4 wiring
+        assert app.viewer.page_num == 0
+
+        app._on_mouse_wheel(_FakeEvent(0, 0, delta=-120))  # Windows/Mac wheel-down
+        assert app.viewer.page_num == 1
+        app._on_mouse_wheel(_FakeEvent(0, 0, delta=120))  # Windows/Mac wheel-up
+        assert app.viewer.page_num == 0
     finally:
         app.doc.close()
         root.destroy()
