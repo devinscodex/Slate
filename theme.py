@@ -20,10 +20,19 @@ Palette sources, verified live (not from memory) before writing these,
 Devin's ask: Solarized -- ethanschoonover.com/solarized (official base
 tones/blue accent); Gruvbox -- the project's own colors/gruvbox.vim
 source; Flexoki -- stephango.com/flexoki (Steph Ango's own published
-hex values). "Runestone" (Devin's own in-development CSS theme) isn't
-included yet -- its actual colors aren't available in this codebase or
-conversation to source from; needs the real hex values from Devin
-before it can be added for real rather than guessed.
+hex values). Mosscairn ("our custom Runestone CSS theme") -- Devin's
+own hand-built Obsidian snippet, read directly from
+runestone/.obsidian/snippets/mosscairn.css: light is "faded parchment"
+(--color-base-00 #a39a84 page, moss-green rgb(88,118,58) accent), dark
+is "watchtower night" (--color-base-00 #00242e deep teal page,
+lamplight-moss rgb(163,183,42) accent). That file only overrides
+Obsidian's raw --color-base-* palette + accent/link colors inside its
+.theme-dark block, not the semantic --background-* variables (those
+inherit Obsidian's own dark-theme defaults there) -- so the dark
+mapping below reads color-base-00/05/10/20/50/100 directly as the
+nearest equivalent to Slate's own bg/entry_bg/button_bg/muted_fg/fg
+roles, the same relative-position pattern the light block spells out
+explicitly.
 """
 import json
 from pathlib import Path
@@ -78,6 +87,16 @@ THEMES = {
         "entry_bg": "#fffcf0", "canvas_bg": "#fffcf0",
         "select_bg": "#205ea6", "muted_fg": "#b7b5ac", "is_dark": False,
     },
+    "mosscairn_dark": {
+        "bg": "#05313d", "fg": "#e8e4d0", "button_bg": "#093947",
+        "entry_bg": "#022a35", "canvas_bg": "#00242e",
+        "select_bg": "#a3b72a", "muted_fg": "#657b83", "is_dark": True,
+    },
+    "mosscairn_light": {
+        "bg": "#948b78", "fg": "#1c1a16", "button_bg": "#8a816f",
+        "entry_bg": "#8f8674", "canvas_bg": "#a39a84",
+        "select_bg": "#58763a", "muted_fg": "#433f39", "is_dark": False,
+    },
 }
 
 # Display label -> internal THEMES key, in menu order.
@@ -90,6 +109,8 @@ THEME_LABELS = {
     "Gruvbox Light": "gruvbox_light",
     "Flexoki Dark": "flexoki_dark",
     "Flexoki Light": "flexoki_light",
+    "Mosscairn Dark": "mosscairn_dark",
+    "Mosscairn Light": "mosscairn_light",
 }
 
 # Kept as plain names too (not just THEMES["light"]/["dark"]) -- several

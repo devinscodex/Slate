@@ -26,6 +26,21 @@ def test_every_theme_label_maps_to_a_real_theme():
         assert name in theme.THEMES, label
 
 
+def test_mosscairn_matches_the_real_runestone_css_snippet():
+    """Sourced directly from runestone/.obsidian/snippets/mosscairn.css,
+    not guessed -- spot-check a few of its own named colors survived
+    the mapping into Slate's palette shape correctly."""
+    dark = theme.THEMES["mosscairn_dark"]
+    assert dark["canvas_bg"] == "#00242e"  # --color-base-00, "deep teal base"
+    assert dark["select_bg"] == "#a3b72a"  # lamplight-moss rgb(163,183,42)
+    assert dark["is_dark"] is True
+
+    light = theme.THEMES["mosscairn_light"]
+    assert light["canvas_bg"] == "#a39a84"  # --color-base-00, "faded paper face"
+    assert light["select_bg"] == "#58763a"  # moss rgb(88,118,58)
+    assert light["is_dark"] is False
+
+
 def test_named_theme_palettes_are_real_and_distinct():
     """Solarized/Gruvbox/Flexoki -- confirm each is actually a distinct
     palette (not accidentally aliased to light/dark or to each other)
