@@ -147,6 +147,34 @@ def test_dark_mode_theme_applies_to_a_freshly_opened_dialog(tmp_path):
         root.destroy()
 
 
+def test_toggling_dark_mode_persists_and_a_fresh_launch_starts_dark_no_flash(tmp_path):
+    """The real ask this fixes: without persistence, every launch starts
+    light and visibly flashes to dark once a saved preference applies.
+    root.configure(bg=...) for the loaded preference happens as the
+    very first line of __init__, before any other widget -- confirmed
+    here by checking a BRAND NEW app instance's root bg matches DARK
+    immediately, with no separate _apply_theme() call needed first."""
+    import theme
+
+    root, app = _make_app(tmp_path)
+    try:
+        app.dark_mode.set(True)
+        app._on_dark_mode_toggled()
+        assert theme.load_preference() is True
+    finally:
+        app.doc.close()
+        root.destroy()
+
+    root2 = tk.Tk()
+    app2 = slate.SlateApp(root2, path=None)
+    try:
+        assert app2.dark_mode.get() is True
+        assert root2.cget("bg") == theme.DARK["bg"]
+    finally:
+        root2.destroy()
+        theme.save_preference(False)  # leave clean for any test that runs after
+
+
 def test_mode_indicator_turns_red_in_redact_mode_and_resets_after(tmp_path):
     root, app = _make_app(tmp_path)
     try:

@@ -15,6 +15,11 @@ own light/dark OS theme, not this toggle. Everything else (toolbar,
 canvas, home screen, dialogs, tabs, TOC) is drawn by Tk itself and
 themes correctly on every platform.
 """
+import json
+from pathlib import Path
+
+CONFIG_DIR = Path.home() / ".slate"
+PREF_FILE = CONFIG_DIR / "theme.json"
 
 LIGHT = {
     # Real bug caught live: "SystemButtonFace" is a Windows-only Tk
@@ -44,3 +49,22 @@ DARK = {
 
 def palette(dark: bool) -> dict:
     return DARK if dark else LIGHT
+
+
+def load_preference() -> bool:
+    """Persisted across launches (~/.slate/theme.json, same convention
+    as recent.py/gate.py) -- without this, every launch starts light
+    and then visibly flashes to dark the moment the app applies a
+    saved preference, which is exactly the jarring effect this exists
+    to avoid. Missing/corrupt file -> light, not an error."""
+    if not PREF_FILE.exists():
+        return False
+    try:
+        return json.loads(PREF_FILE.read_text()).get("dark", False)
+    except (json.JSONDecodeError, OSError):
+        return False
+
+
+def save_preference(dark: bool):
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    PREF_FILE.write_text(json.dumps({"dark": dark}))

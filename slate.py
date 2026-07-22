@@ -5,6 +5,7 @@ together into one menu-driven app. Business logic lives in the
 per-feature modules; this file is glue + Tkinter widgets only.
 """
 import os
+import platform
 import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -53,6 +54,12 @@ _EDIT_PDF_ONLY_LABELS = [
 class SlateApp:
     def __init__(self, root, path=None):
         self.root = root
+        # Set before any other widget exists (even before root.title())
+        # so the very first paint already uses the right color -- real
+        # ask (Devin): loading light and then visibly flashing to dark
+        # a moment later, once a saved preference applies, is exactly
+        # the jarring effect this line order avoids.
+        root.configure(bg=theme.palette(theme.load_preference())["bg"])
         self.path = None
         self.doc = None
         self.viewer = None
@@ -65,7 +72,7 @@ class SlateApp:
         self._doc_view_built = False
         self.home_frame = None
         self.toc_visible = tk.BooleanVar(value=False)
-        self.dark_mode = tk.BooleanVar(value=False)
+        self.dark_mode = tk.BooleanVar(value=theme.load_preference())
         # Gated feature (DESIGN.md's "Text editing"): a local UX gate,
         # not real access control -- re-locks every restart on purpose.
         self._textedit_unlocked_this_session = False
@@ -106,6 +113,36 @@ class SlateApp:
         except tk.TclError:
             pass
 
+    def _on_dark_mode_toggled(self):
+        theme.save_preference(self.dark_mode.get())
+        self._apply_theme()
+
+    def _apply_native_titlebar_theme(self):
+        """The window title bar itself is drawn by the OS, not Tk --
+        genuinely an "outer" component no amount of widget.configure()
+        can touch. Windows 10 (2004+)/11 support a real, documented DWM
+        attribute for this (DWMWA_USE_IMMERSIVE_DARK_MODE = 20).
+        Best-effort only: wrapped broadly because ctypes.windll doesn't
+        exist at all off Windows, and older Windows builds don't
+        support this attribute -- either way, failing soft just means
+        the title bar stays whatever it already was, never a crash.
+        NOT live-verified against a real Windows box (this dev
+        environment is Linux/WSL2) -- same "built against the
+        documented API, needs an actual machine to confirm" caveat as
+        fontmatch.py's Windows registry path.
+        """
+        if platform.system() != "Windows":
+            return
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            value = ctypes.c_int(1 if self.dark_mode.get() else 0)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, 20, ctypes.byref(value), ctypes.sizeof(value)
+            )
+        except Exception:
+            pass
+
     def _apply_theme(self):
         """Recursively repaints every widget currently in the tree, so
         it works uniformly whether called at startup, on a live toggle,
@@ -121,6 +158,7 @@ class SlateApp:
         colors = theme.palette(self.dark_mode.get())
         self.root.configure(bg=colors["bg"])
         self._paint_widget(self.root, colors)
+        self._apply_native_titlebar_theme()
 
         style = ttk.Style()
         style.theme_use("clam")
@@ -243,7 +281,7 @@ class SlateApp:
         viewm.add_command(label="Find... (/)", command=self._show_find_bar)
         viewm.add_separator()
         viewm.add_checkbutton(
-            label="Dark Mode", variable=self.dark_mode, command=self._apply_theme
+            label="Dark Mode", variable=self.dark_mode, command=self._on_dark_mode_toggled
         )
         menubar.add_cascade(label="View", menu=viewm)
 
