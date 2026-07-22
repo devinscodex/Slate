@@ -866,6 +866,104 @@ def test_menu_state_updates_correctly_switching_between_pdf_and_epub_tabs(tmp_pa
         root.destroy()
 
 
+# ----------------------------------------------------------------------
+# Convert: office-doc utilities (PDF <-> markdown/text/images) via the
+# real menu commands
+# ----------------------------------------------------------------------
+
+def test_export_markdown_menu_command_writes_real_heading_and_body(tmp_path, monkeypatch):
+    path = str(tmp_path / "doc.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 60), "Report Title", fontsize=24, fontname="helv")
+    page.insert_text((72, 100), "A body sentence.", fontsize=12, fontname="helv")
+    doc.save(path)
+    doc.close()
+
+    out = str(tmp_path / "out.md")
+    root = tk.Tk()
+    app = slate.SlateApp(root, path)
+    try:
+        monkeypatch.setattr(slate.filedialog, "asksaveasfilename", lambda **k: out)
+        monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
+        app.do_export_markdown()
+        assert os.path.exists(out)
+        content = open(out).read()
+        assert "# Report Title" in content
+        assert "A body sentence." in content
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_export_text_menu_command_writes_real_text(tmp_path, monkeypatch):
+    out = str(tmp_path / "out.txt")
+    root, app = _make_app(tmp_path)  # basic3page.pdf
+    try:
+        monkeypatch.setattr(slate.filedialog, "asksaveasfilename", lambda **k: out)
+        monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
+        app.do_export_text()
+        assert os.path.exists(out)
+        assert "Slate fixture page 1" in open(out).read()
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_export_images_menu_command_writes_one_png_per_page(tmp_path, monkeypatch):
+    out_dir = str(tmp_path / "images_out")
+    root, app = _make_app(tmp_path)  # basic3page.pdf -- 3 pages
+    try:
+        monkeypatch.setattr(slate.filedialog, "askdirectory", lambda **k: out_dir)
+        monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
+        app.do_export_images()
+        written = sorted(os.listdir(out_dir))
+        assert len(written) == 3
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_import_images_menu_command_creates_and_opens_a_new_pdf(tmp_path, monkeypatch):
+    from PIL import Image
+
+    img_paths = []
+    for i in range(2):
+        p = str(tmp_path / f"scan{i}.png")
+        Image.new("RGB", (200, 300), (i * 50, 0, 0)).save(p)
+        img_paths.append(p)
+
+    out_pdf = str(tmp_path / "combined.pdf")
+    root, app = _make_app(tmp_path)
+    try:
+        original_tab_count = len(app._tabs)
+        monkeypatch.setattr(slate.filedialog, "askopenfilenames", lambda **k: tuple(img_paths))
+        monkeypatch.setattr(slate.filedialog, "asksaveasfilename", lambda **k: out_pdf)
+        monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
+
+        app.do_import_images()
+        assert os.path.exists(out_pdf)
+        assert len(app._tabs) == original_tab_count + 1  # opened as a new tab
+        assert app.path == out_pdf
+        assert app.doc.page_count == 2
+    finally:
+        for t in app._tabs:
+            t.doc.close()
+        root.destroy()
+
+
+def test_convert_menu_actions_guard_against_no_document_open(tmp_path, monkeypatch):
+    monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
+    root = tk.Tk()
+    app = slate.SlateApp(root, path=None)
+    try:
+        app.do_export_markdown()
+        app.do_export_text()
+        app.do_export_images()
+    finally:
+        root.destroy()
+
+
 def test_about_dialog_shows_real_version_and_summary(tmp_path):
     root, app = _make_app(tmp_path)
     try:

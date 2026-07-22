@@ -13,6 +13,7 @@ import fitz  # PyMuPDF
 from PIL import ImageTk
 
 import annotate
+import convert
 import forms
 import gate
 import io_pdf
@@ -151,6 +152,14 @@ class SlateApp:
         viewm.add_separator()
         viewm.add_command(label="Find... (/)", command=self._show_find_bar)
         menubar.add_cascade(label="View", menu=viewm)
+
+        convertm = tk.Menu(menubar, tearoff=0)
+        convertm.add_command(label="Export to Markdown...", command=self.do_export_markdown)
+        convertm.add_command(label="Export as plain text...", command=self.do_export_text)
+        convertm.add_command(label="Export pages as images...", command=self.do_export_images)
+        convertm.add_separator()
+        convertm.add_command(label="Import images as PDF...", command=self.do_import_images)
+        menubar.add_cascade(label="Convert", menu=convertm)
 
         helpm = tk.Menu(menubar, tearoff=0)
         helpm.add_command(label="About Slate...", command=self._show_about)
@@ -945,6 +954,59 @@ class SlateApp:
         text.insert("1.0", "\n".join(lines))
         text.config(state="disabled")
         text.pack(fill=tk.BOTH, expand=True)
+
+    # ------------------------------------------------------------------
+    # convert (office-doc utilities: PDF <-> markdown/text/images) --
+    # read-only exports work on any open document (PDF or ebook), same
+    # as Scan; not gated by _update_pdf_only_menu_state.
+    # ------------------------------------------------------------------
+    def do_export_markdown(self):
+        if not self._require_doc():
+            return
+        out = filedialog.asksaveasfilename(defaultextension=".md", title="Export to Markdown as")
+        if not out:
+            return
+        md = convert.pdf_to_markdown(self.doc)
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(md)
+        messagebox.showinfo("Exported", f"Saved Markdown to {out}")
+
+    def do_export_text(self):
+        if not self._require_doc():
+            return
+        out = filedialog.asksaveasfilename(defaultextension=".txt", title="Export as plain text as")
+        if not out:
+            return
+        text = convert.pdf_to_text(self.doc)
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(text)
+        messagebox.showinfo("Exported", f"Saved text to {out}")
+
+    def do_export_images(self):
+        if not self._require_doc():
+            return
+        out_dir = filedialog.askdirectory(title="Choose output directory for page images")
+        if not out_dir:
+            return
+        base_name = os.path.splitext(os.path.basename(self.path))[0]
+        written = convert.pdf_to_images(self.doc, out_dir, base_name)
+        messagebox.showinfo("Exported", f"Wrote {len(written)} image(s) to {out_dir}")
+
+    def do_import_images(self):
+        paths = filedialog.askopenfilenames(
+            title="Choose images to combine into a PDF (in order)",
+            filetypes=[("Image files", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp")],
+        )
+        if not paths:
+            return
+        out = filedialog.asksaveasfilename(defaultextension=".pdf", title="Save combined PDF as")
+        if not out:
+            return
+        pdf = convert.images_to_pdf(list(paths))
+        io_pdf.safe_save(pdf, out)
+        pdf.close()
+        messagebox.showinfo("Imported", f"Saved {len(paths)} image(s) as {out}")
+        self._open_document(out)
 
     def _snapshot_current_edits(self) -> str:
         """Save self.doc's current in-memory state (including any
