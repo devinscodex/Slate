@@ -12,6 +12,7 @@ import zipfile
 
 import fitz
 import tkinter as tk
+from PIL import ImageColor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import gate  # noqa: E402
@@ -95,14 +96,21 @@ def _make_app(tmp_path, fixture=FIXTURE):
     return root, app
 
 
-def test_dark_theme_inverts_the_actual_page_pixels_not_just_chrome(tmp_path, monkeypatch):
-    """Real gap Devin caught live: theming Slate's own widgets dark
-    still left the rendered PDF page a blinding white rectangle -- the
-    part that matters most, since it's most of the screen. render()
-    must invert the actual page image for "is_dark" themes, not just
-    recolor the surrounding UI. ImageTk.PhotoImage exposes no way to
-    read pixels back, so this intercepts what gets passed INTO it
-    instead."""
+def test_render_recolors_the_page_to_match_the_active_theme_not_just_chrome(tmp_path, monkeypatch):
+    """Real gap Devin caught live, twice: (1) theming Slate's own
+    widgets dark still left the rendered PDF page a blinding white
+    rectangle, and (2) a first-attempt fix (a flat RGB invert) only
+    looked right for the plain built-in "dark" theme -- every OTHER
+    light-toned named theme (Mosscairn/Solarized/Gruvbox/Flexoki Light)
+    still rendered a plain white page that didn't match its own tinted
+    chrome at all ("want document to match", "same as text editors
+    when using themes"). Fixed with ImageOps.colorize: the page's own
+    light<->dark tones map onto the active theme's canvas_bg<->fg pair,
+    one mechanism for every theme, light or dark alike. ImageTk.
+    PhotoImage exposes no way to read pixels back, so this intercepts
+    what gets passed INTO it instead."""
+    import theme
+
     root, app = _make_app(tmp_path)
     try:
         captured = {}
@@ -114,39 +122,12 @@ def test_dark_theme_inverts_the_actual_page_pixels_not_just_chrome(tmp_path, mon
 
         monkeypatch.setattr(slate.ImageTk, "PhotoImage", spy)
 
-        app.render()
-        light_pixel = captured["img"].convert("RGB").getpixel((5, 5))
-        assert light_pixel == (255, 255, 255)  # real page background, un-inverted
-
-        app.theme_name.set("dark")
-        app._on_theme_changed()
-        dark_pixel = captured["img"].convert("RGB").getpixel((5, 5))
-        assert dark_pixel == (0, 0, 0)  # same spot, inverted
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_light_toned_named_themes_do_not_invert_the_page(tmp_path, monkeypatch):
-    """Solarized Light/Gruvbox Light/Flexoki Light are all real, distinct
-    palettes but none of them are "is_dark" -- the page must stay
-    un-inverted on those, only genuinely dark-toned themes invert it."""
-    root, app = _make_app(tmp_path)
-    try:
-        captured = {}
-        real_photoimage = slate.ImageTk.PhotoImage
-
-        def spy(img, *a, **k):
-            captured["img"] = img.copy()
-            return real_photoimage(img, *a, **k)
-
-        monkeypatch.setattr(slate.ImageTk, "PhotoImage", spy)
-
-        for name in ("solarized_light", "gruvbox_light", "flexoki_light"):
+        for name in theme.THEMES:
             app.theme_name.set(name)
             app._on_theme_changed()
             pixel = captured["img"].convert("RGB").getpixel((5, 5))
-            assert pixel == (255, 255, 255), f"{name} should not invert the page"
+            expected = ImageColor.getrgb(theme.THEMES[name]["canvas_bg"])
+            assert pixel == expected, f"{name}'s page background should match its own canvas_bg"
     finally:
         app.doc.close()
         root.destroy()

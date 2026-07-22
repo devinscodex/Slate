@@ -49,7 +49,12 @@ THEMES = {
         # "#d9d9d9" is Tk's own actual compiled-in default widget gray,
         # portable everywhere.
         "bg": "#d9d9d9", "fg": "black", "button_bg": "#d9d9d9",
-        "entry_bg": "white", "canvas_bg": "gray80",
+        # "gray80" (Tk-style name) isn't recognized by PIL's ImageColor
+        # (confirmed live) -- render() recolors the page via
+        # ImageOps.colorize using these same values, so every color
+        # here needs to work in both Tk and PIL. "#cccccc" is gray80's
+        # own real RGB value (204,204,204), portable everywhere.
+        "entry_bg": "white", "canvas_bg": "#cccccc",
         "select_bg": "#cce4ff", "muted_fg": "gray40", "is_dark": False,
     },
     "dark": {

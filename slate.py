@@ -575,6 +575,14 @@ class SlateApp:
         self.root.bind("<Key-slash>", self._kb_open_find)
 
         self._doc_view_built = True
+        # Real bug caught live: these widgets are built lazily, on first
+        # document open -- _apply_theme() only ran once already, in
+        # __init__, BEFORE any of them existed (their constructors'
+        # hardcoded defaults, e.g. the canvas's bg="gray80", would
+        # otherwise silently stick forever for an app launched directly
+        # with a path, since nothing re-themes them until the user
+        # manually re-picks a theme later).
+        self._apply_theme()
 
     def _typing_in_entry(self) -> bool:
         return isinstance(self.root.focus_get(), tk.Entry)
@@ -861,16 +869,21 @@ class SlateApp:
         # the fix -- always use it, never re-index self.doc directly.
         self.page = self.doc[self.viewer.page_num]
         img = self.viewer.render_page()
-        if theme.get_palette(self.theme_name.get())["is_dark"]:
-            # Real gap Devin caught live: theming Slate's own chrome dark
-            # still left the actual page a blinding white rectangle --
-            # the part that matters most for eye comfort, since it's
-            # most of the visible screen. Same simple full-RGB-invert
-            # "night mode" approach Sumatra's own color-inversion feature
-            # uses (not a smart hue-preserving invert -- photos/images on
-            # the page invert too, an accepted simple tradeoff, matching
-            # that real precedent rather than a fancier scheme).
-            img = ImageOps.invert(img.convert("RGB"))
+        # Real gap Devin caught live: a raw invert (the first attempt)
+        # only reads right for the plain built-in "dark" theme --  it
+        # leaves every LIGHT-toned named theme's page pure white, not
+        # tinted to that theme's own paper color, so the reading
+        # surface doesn't match the chrome at all ("want document to
+        # match" a themed page, "same as text editors when using
+        # themes"). ImageOps.colorize maps the page's own light->dark
+        # tones onto the theme's canvas_bg->fg pair instead of a flat
+        # invert -- one mechanism for every theme, light or dark alike
+        # (for the plain "light" theme this is a near no-op, black->
+        # black and white->near-white). Photos/images on the page
+        # recolor too, same accepted simple tradeoff as Sumatra's own
+        # basic color-inversion feature, just via a nicer mapping.
+        colors = theme.get_palette(self.theme_name.get())
+        img = ImageOps.colorize(img.convert("L"), black=colors["fg"], white=colors["canvas_bg"])
         self._tk_img = ImageTk.PhotoImage(img)
         self.canvas.delete("all")
         self.canvas.config(width=img.width, height=img.height)
