@@ -9,6 +9,21 @@ from PIL import Image
 
 import convert
 
+# A real bold TTF file to embed for the bold-detection test -- real
+# bug caught on an actual Windows smoke test: this used to hardcode a
+# Linux-only path. fontmatch.find_system_font() can't resolve compound
+# names like "DejaVu Sans Bold" (correctly -- that's its strict
+# same-family matching working as designed, confirmed live), so this
+# is a small, explicit, existence-checked candidate list instead of a
+# single hardcoded assumption; skips gracefully if this specific
+# machine has none of them, rather than failing outright.
+_BOLD_FONT_CANDIDATES = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",  # Linux (Debian/Ubuntu)
+    "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",  # Linux (Fedora)
+    r"C:\Windows\Fonts\arialbd.ttf",  # Windows
+]
+_BOLD_FONT_PATH = next((p for p in _BOLD_FONT_CANDIDATES if os.path.exists(p)), None)
+
 
 def _make_doc_with_heading_body_and_bullets():
     doc = fitz.open()

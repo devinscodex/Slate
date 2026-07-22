@@ -16,6 +16,7 @@ from PIL import ImageOps, ImageTk
 
 import annotate
 import convert
+import epubfix
 import forms
 import gate
 import io_pdf
@@ -774,7 +775,16 @@ class SlateApp:
                 self._select_tab(self._tab_frames[i])  # already open -- just switch to it
                 return
 
-        doc = fitz.open(path)
+        open_path = path
+        if path.lower().endswith(".epub"):
+            try:
+                open_path = epubfix.fix_epub_encoding_conflicts(path)
+            except Exception:
+                open_path = path  # fail soft -- open the original rather than block on this
+        doc = fitz.open(open_path)
+        # Tab keeps the ORIGINAL path (tab label/title/recent-files all
+        # show the real filename) even when doc was actually opened
+        # from a corrected temp copy.
         new_tab = tabmodule.Tab(path, doc, Viewer(doc))
         self._tabs.append(new_tab)
 

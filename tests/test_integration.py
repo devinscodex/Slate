@@ -1101,6 +1101,55 @@ def test_opening_an_epub_renders_real_pages_toc_and_text(tmp_path):
         root.destroy()
 
 
+def test_opening_an_epub_with_a_conflicting_charset_is_auto_corrected(tmp_path):
+    """Real bug found live opening an actual epub (Brandon Sanderson's
+    'The Way of Kings') -- a chapter's meta charset disagreed with its
+    own XML encoding declaration, mangling smart quotes/ellipses into
+    mojibake. _open_document must route .epub opens through
+    epubfix.fix_epub_encoding_conflicts() so this class of file opens
+    correctly, while the tab/title/recent-files still show the
+    ORIGINAL path, not the corrected temp copy's generated name."""
+    import zipfile
+
+    epub_path = str(tmp_path / "mangled.epub")
+    smart_quote_utf8 = "“Hello”".encode("utf-8")
+    html = (
+        b'<?xml version="1.0" encoding="UTF-8"?>'
+        b'<html xmlns="http://www.w3.org/1999/xhtml"><head>'
+        b'<meta charset="iso-8859-1"/></head>'
+        b"<body><p>" + smart_quote_utf8 + b"</p></body></html>"
+    )
+    with zipfile.ZipFile(epub_path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+        z.writestr(
+            "META-INF/container.xml",
+            '<?xml version="1.0"?><container version="1.0" '
+            'xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+            '<rootfiles><rootfile full-path="OEBPS/content.opf" '
+            'media-type="application/oebps-package+xml"/></rootfiles></container>',
+        )
+        z.writestr(
+            "OEBPS/content.opf",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="2.0">'
+            '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Test</dc:title>'
+            '<dc:language>en</dc:language>'
+            '<dc:identifier id="BookId">urn:uuid:test</dc:identifier></metadata>'
+            '<manifest><item id="ch1" href="ch01.html" media-type="application/xhtml+xml"/></manifest>'
+            '<spine><itemref idref="ch1"/></spine></package>',
+        )
+        z.writestr("OEBPS/ch01.html", html)
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, epub_path)
+    try:
+        assert "“Hello”" in app.page.get_text()  # corrected, not mojibake
+        assert app.path == epub_path  # tab/title show the ORIGINAL path, not a temp name
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_pdf_only_menu_items_disabled_for_an_open_ebook(tmp_path):
     epub_path = str(tmp_path / "book.epub")
     _build_test_epub(epub_path)
