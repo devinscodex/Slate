@@ -7,6 +7,7 @@ per-feature modules; this file is glue + Tkinter widgets only.
 import os
 import platform
 import sys
+import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
@@ -28,8 +29,10 @@ import sign
 import tab as tabmodule
 import textedit
 import theme
+import tts
 import version
 from viewer import Viewer
+from playback import Player as TTSPlayer
 
 _TAB_CLOSE_GLYPH = "×"  # visual hint only -- middle-click actually closes, see _on_tab_strip_click
 
@@ -73,6 +76,11 @@ class SlateApp:
         self.home_frame = None
         self.toc_visible = tk.BooleanVar(value=False)
         self.theme_name = tk.StringVar(value=theme.load_preference())
+        # Read Aloud (TTS): app-wide, not per-tab -- reading one document
+        # while switching tabs isn't a supported combination in v1.
+        self.tts_voice = tk.StringVar(value="northern_english_male")
+        self.tts_speed = tk.DoubleVar(value=1.0)  # user-facing multiplier, not Piper's length_scale directly
+        self.tts_player = TTSPlayer()
         # Gated feature (DESIGN.md's "Text editing"): a local UX gate,
         # not real access control -- re-locks every restart on purpose.
         self._textedit_unlocked_this_session = False
@@ -299,6 +307,23 @@ class SlateApp:
         convertm.add_separator()
         convertm.add_command(label="Import images as PDF...", command=self.do_import_images)
         menubar.add_cascade(label="Convert", menu=convertm)
+
+        readm = tk.Menu(menubar, tearoff=0)
+        voicem = tk.Menu(readm, tearoff=0)
+        for voice_id, info in tts.VOICES.items():
+            voicem.add_radiobutton(
+                label=info["label"], variable=self.tts_voice, value=voice_id,
+            )
+        readm.add_cascade(label="Voice", menu=voicem)
+        speedm = tk.Menu(readm, tearoff=0)
+        for speed in (0.75, 1.0, 1.25, 1.5, 2.0):
+            speedm.add_radiobutton(label=f"{speed}x", variable=self.tts_speed, value=speed)
+        readm.add_cascade(label="Speed", menu=speedm)
+        readm.add_separator()
+        readm.add_command(label="Read this page", command=self.do_read_page)
+        readm.add_command(label="Pause / Resume", command=self.do_tts_pause_resume)
+        readm.add_command(label="Stop", command=self.do_tts_stop)
+        menubar.add_cascade(label="Read Aloud", menu=readm)
 
         helpm = tk.Menu(menubar, tearoff=0)
         helpm.add_command(label="About Slate...", command=self._show_about)
@@ -1265,6 +1290,109 @@ class SlateApp:
         pdf.close()
         messagebox.showinfo("Imported", f"Saved {len(paths)} image(s) as {out}")
         self._open_document(out)
+
+    # ------------------------------------------------------------------
+    # Read Aloud (TTS)
+    # ------------------------------------------------------------------
+    def _ensure_voice_available(self, voice_id: str) -> bool:
+        """True if usable (already bundled/downloaded, or just
+        downloaded now). Downloads run on a background thread with a
+        real progress dialog -- these are ~60MB fetches, blocking the
+        UI for that would be bad. wait_window() makes this call itself
+        synchronous from the caller's point of view even though the
+        download isn't."""
+        if tts.is_available(voice_id):
+            return True
+
+        label = tts.VOICES[voice_id]["label"]
+        if not messagebox.askyesno(
+            "Download voice?",
+            f"'{label}' has not been downloaded yet (~60MB, one-time, "
+            f"cached for future use). Download it now?",
+        ):
+            return False
+
+        progress_top = tk.Toplevel(self.root)
+        progress_top.title(f"Downloading {label}...")
+        progress_top.resizable(False, False)
+        progress_var = tk.DoubleVar(value=0.0)
+        ttk.Progressbar(progress_top, variable=progress_var, maximum=100, length=300).pack(
+            padx=20, pady=(20, 8)
+        )
+        status_label = tk.Label(progress_top, text="Starting...")
+        status_label.pack(pady=(0, 16))
+        self._paint_widget(progress_top, theme.get_palette(self.theme_name.get()))
+
+        result = {"done": False, "error": None}
+        # Real bug caught live: Tkinter is not thread-safe -- calling
+        # self.root.after(...) FROM the worker thread (as the progress
+        # callback originally did) raised "main thread is not in main
+        # loop". The worker now only ever writes to this plain dict
+        # (simple attribute assignment, safe enough for a single-
+        # producer/single-consumer read); poll(), scheduled via
+        # self.root.after() and therefore always running on the MAIN
+        # thread, is the only thing that ever touches real widgets.
+        progress = {"pct": 0.0}
+
+        def on_progress(done_bytes, total_bytes):
+            progress["pct"] = (done_bytes / total_bytes * 100) if total_bytes else 0.0
+
+        def worker():
+            try:
+                tts.download_voice(voice_id, progress_callback=on_progress)
+            except Exception as e:
+                result["error"] = str(e)
+            result["done"] = True
+
+        def poll():
+            progress_var.set(progress["pct"])
+            status_label.config(text=f"{progress['pct']:.0f}%")
+            if result["done"]:
+                if progress_top.winfo_exists():
+                    progress_top.destroy()
+                return
+            self.root.after(100, poll)
+
+        threading.Thread(target=worker, daemon=True).start()
+        poll()
+        self.root.wait_window(progress_top)
+
+        if result["error"]:
+            messagebox.showinfo("Download failed", result["error"])
+            return False
+        return tts.is_available(voice_id)
+
+    def do_read_page(self):
+        if not self._require_doc():
+            return
+        text = self.page.get_text().strip()
+        if not text:
+            messagebox.showinfo("Nothing to read", "This page has no extractable text.")
+            return
+
+        voice_id = self.tts_voice.get()
+        if not self._ensure_voice_available(voice_id):
+            return
+
+        length_scale = 1.0 / self.tts_speed.get()
+        try:
+            audio, sample_rate, _width, channels = tts.synthesize(text, voice_id, length_scale)
+            self.tts_player.load(audio, sample_rate, channels)
+            self.tts_player.play()
+        except Exception as e:
+            messagebox.showinfo("Playback failed", str(e))
+
+    def do_tts_pause_resume(self):
+        if self.tts_player.is_playing():
+            self.tts_player.pause()
+        else:
+            try:
+                self.tts_player.play()
+            except Exception as e:
+                messagebox.showinfo("Playback failed", str(e))
+
+    def do_tts_stop(self):
+        self.tts_player.stop()
 
     def _snapshot_current_edits(self) -> str:
         """Save self.doc's current in-memory state (including any

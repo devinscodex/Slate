@@ -1248,6 +1248,115 @@ def test_convert_menu_actions_guard_against_no_document_open(tmp_path, monkeypat
         root.destroy()
 
 
+# ----------------------------------------------------------------------
+# Read Aloud (TTS)
+# ----------------------------------------------------------------------
+
+def test_read_page_guards_against_no_document_open(tmp_path, monkeypatch):
+    monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
+    root = tk.Tk()
+    app = slate.SlateApp(root, path=None)
+    try:
+        app.do_read_page()  # must not raise
+    finally:
+        root.destroy()
+
+
+def test_read_page_with_no_extractable_text_shows_nothing_to_read(tmp_path, monkeypatch):
+    path = str(tmp_path / "blank.pdf")
+    doc = fitz.open()
+    doc.new_page()  # a real page, deliberately no text on it
+    doc.save(path)
+    doc.close()
+
+    seen = {}
+    monkeypatch.setattr(
+        slate.messagebox, "showinfo", lambda title, msg: seen.update(title=title, msg=msg)
+    )
+    root = tk.Tk()
+    app = slate.SlateApp(root, path)
+    try:
+        app.do_read_page()
+        assert seen.get("title") == "Nothing to read"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_read_page_synthesizes_with_the_bundled_voice_and_reports_the_real_no_device_error(tmp_path, monkeypatch):
+    """This dev environment has zero real audio output devices (see
+    playback.py's own docstring) -- do_read_page must still run real
+    synthesis against the bundled voice (proving that half genuinely
+    works) and then fail SOFT on the play() call with a real message,
+    not crash the app. Confirms the actual PortAudioError path, not a
+    mocked one."""
+    seen = {}
+    monkeypatch.setattr(
+        slate.messagebox, "showinfo", lambda title, msg: seen.update(title=title, msg=msg)
+    )
+    root, app = _make_app(tmp_path)  # basic3page.pdf -- has real text
+    try:
+        app.tts_voice.set("northern_english_male")  # bundled, no download needed
+        app.do_read_page()
+        assert seen.get("title") == "Playback failed"
+        assert "PortAudio" in seen.get("msg", "") or "device" in seen.get("msg", "").lower()
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_read_page_offers_to_download_a_non_bundled_voice(tmp_path, monkeypatch):
+    """Real download flow, network mocked (same pattern as test_tts.py)
+    -- confirms the confirm-dialog + progress-dialog + actual file
+    placement all wire together correctly through the real UI action,
+    not just tts.download_voice() in isolation."""
+    import tts as tts_module
+
+    def fake_urlretrieve(url, filename, reporthook=None):
+        with open(filename, "wb") as f:
+            f.write(b"fake model bytes" if url.endswith(".onnx") else b"{}")
+        if reporthook is not None:
+            reporthook(1, 10, 10)
+
+    monkeypatch.setattr(tts_module.urllib.request, "urlretrieve", fake_urlretrieve)
+    monkeypatch.setattr(slate.messagebox, "askyesno", lambda *a, **k: True)
+    monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
+
+    root, app = _make_app(tmp_path)
+    try:
+        assert tts_module.is_available("alba") is False
+        app.tts_voice.set("alba")
+        app.do_read_page()  # will still fail at the real play() call (no device) -- that's fine
+        assert tts_module.is_available("alba") is True  # but the download itself really happened
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_declining_the_download_prompt_does_not_download_or_crash(tmp_path, monkeypatch):
+    import tts as tts_module
+
+    monkeypatch.setattr(slate.messagebox, "askyesno", lambda *a, **k: False)
+    root, app = _make_app(tmp_path)
+    try:
+        app.tts_voice.set("southern_english_female")
+        app.do_read_page()  # must not raise
+        assert tts_module.is_available("southern_english_female") is False
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_pause_resume_and_stop_do_not_raise_with_nothing_loaded(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app.do_tts_pause_resume()  # nothing loaded/playing -- must not raise
+        app.do_tts_stop()
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_about_dialog_shows_real_version_and_summary(tmp_path):
     root, app = _make_app(tmp_path)
     try:
