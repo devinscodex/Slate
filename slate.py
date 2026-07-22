@@ -29,6 +29,8 @@ import textedit
 import version
 from viewer import Viewer
 
+_TAB_CLOSE_GLYPH = "×"  # visual hint only -- middle-click actually closes, see _on_tab_strip_click
+
 # Menu labels that only make sense for a real PDF (mutation/signing/
 # forms/etc) -- disabled whenever the active tab's document isn't one.
 # PyMuPDF/MuPDF (confirmed live + via its own docs feature matrix) also
@@ -219,7 +221,18 @@ class SlateApp:
 
     def _set_mode(self, mode):
         self.mode = mode
-        self.mode_label.config(text=f"mode: {mode}")
+        if mode == "redact":
+            # Real safety nudge, not just cosmetics: redact is the one
+            # mode where a mis-drag has irreversible consequences
+            # (DESIGN.md's redaction section) -- the mode indicator
+            # should not look identical to every harmless mode.
+            self.mode_label.config(
+                text=f"mode: {mode}", fg="white", bg="#c0392b", padx=6
+            )
+        else:
+            self.mode_label.config(
+                text=f"mode: {mode}", fg="blue", bg=self._mode_label_default_bg, padx=0
+            )
 
     def _require_doc(self) -> bool:
         if self.doc is None:
@@ -375,6 +388,7 @@ class SlateApp:
         self.tab_strip = ttk.Notebook(self.body_frame, height=1)
         self.tab_strip.pack(side=tk.TOP, fill=tk.X)
         self.tab_strip.bind("<<NotebookTabChanged>>", self._on_tab_strip_changed)
+        self.tab_strip.bind("<Button-2>", self._on_tab_strip_click)
 
         toolbar = tk.Frame(self.body_frame)
         toolbar.pack(side=tk.TOP, fill=tk.X)
@@ -384,6 +398,7 @@ class SlateApp:
         tk.Button(toolbar, text="Zoom +", command=self.zoom_in).pack(side=tk.LEFT)
         self.mode_label = tk.Label(toolbar, text="mode: view", fg="blue")
         self.mode_label.pack(side=tk.LEFT, padx=12)
+        self._mode_label_default_bg = self.mode_label.cget("bg")
         self.status = tk.Label(toolbar, text="")
         self.status.pack(side=tk.RIGHT, padx=8)
 
@@ -592,7 +607,7 @@ class SlateApp:
         self.body_frame.pack(fill=tk.BOTH, expand=True)
 
         placeholder = tk.Frame(self.tab_strip)  # never shown -- a pure tab-strip entry
-        self.tab_strip.add(placeholder, text=os.path.basename(path))
+        self.tab_strip.add(placeholder, text=f"{os.path.basename(path)}  {_TAB_CLOSE_GLYPH}")
         self._tab_frames.append(placeholder)
         self._select_tab(placeholder)
 
@@ -660,15 +675,39 @@ class SlateApp:
     def do_close(self):
         if self._active_tab is None:
             return
-        closing_index = self.tab_strip.index(self.tab_strip.select())
-        closing_tab = self._tabs.pop(closing_index)
-        closing_frame = self._tab_frames.pop(closing_index)
+        self._close_tab_by_index(self.tab_strip.index(self.tab_strip.select()))
+
+    def _on_tab_strip_click(self, event):
+        """Middle-click closes a tab (same convention as Chrome/Firefox).
+        Real finding while building this: ttk.Notebook.bbox() returns
+        (0,0,0,0) for every tab in this dev environment (confirmed
+        across both the 'default' and 'clam' themes) despite the
+        widget being mapped with real, non-zero dimensions -- breaking
+        any "click within N px of the tab's right edge" hit-test a
+        visible per-tab (x) button would need. identify()/index() at a
+        coordinate DO work correctly here, so the close action is
+        anchored to those instead of to unreliable per-tab pixel
+        bounds. The trailing close glyph in each tab's label is a
+        visual hint only, not an actual separate click target."""
+        try:
+            index = self.tab_strip.index(f"@{event.x},{event.y}")
+        except tk.TclError:
+            return
+        self._close_tab_by_index(index)
+
+    def _close_tab_by_index(self, index):
+        closing_tab = self._tabs.pop(index)
+        closing_frame = self._tab_frames.pop(index)
+        was_active = closing_tab is self._active_tab
         closing_tab.doc.close()
         self.tab_strip.forget(closing_frame)
         closing_frame.destroy()
 
+        if not was_active:
+            return  # closed a background tab -- nothing currently displayed changes
+
         if self._tabs:
-            new_index = min(closing_index, len(self._tabs) - 1)
+            new_index = min(index, len(self._tabs) - 1)
             self._select_tab(self._tab_frames[new_index])
         else:
             self._active_tab = None

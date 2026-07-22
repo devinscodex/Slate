@@ -95,6 +95,26 @@ def _make_app(tmp_path, fixture=FIXTURE):
     return root, app
 
 
+def test_mode_indicator_turns_red_in_redact_mode_and_resets_after(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        neutral_bg = app.mode_label.cget("bg")
+
+        app._set_mode("redact")
+        assert app.mode_label.cget("bg") == "#c0392b"
+        assert app.mode_label.cget("fg") == "white"
+
+        app._set_mode("view")
+        assert app.mode_label.cget("bg") == neutral_bg
+        assert app.mode_label.cget("fg") == "blue"
+
+        app._set_mode("annotate:highlight")
+        assert app.mode_label.cget("bg") == neutral_bg  # only redact gets the warning color
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_redact_drag_marks_region_then_apply_removes_content(tmp_path, monkeypatch):
     root, app = _make_app(tmp_path)
     try:
@@ -854,6 +874,49 @@ def test_closing_one_tab_leaves_the_others_open(tmp_path):
         assert len(app._tabs) == 1
         assert app.doc is not None
         assert app.home_frame is None  # still one tab open, not back at home
+    finally:
+        for t in app._tabs:
+            t.doc.close()
+        root.destroy()
+
+
+def test_middle_click_closes_that_tab(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        second_path = str(tmp_path / "second.pdf")
+        shutil.copy(FIXTURE, second_path)
+        app._open_document(second_path)
+        assert len(app._tabs) == 2
+        root.update()
+
+        # any point that identify()/index() resolves to tab 0 -- real
+        # per-tab pixel bounds (bbox()) are confirmed unreliable in this
+        # environment (see _on_tab_strip_click's docstring), so this
+        # deliberately doesn't depend on them.
+        assert app.tab_strip.index("@10,10") == 0
+        app._on_tab_strip_click(_FakeEvent(10, 10))
+
+        assert len(app._tabs) == 1
+    finally:
+        for t in app._tabs:
+            t.doc.close()
+        root.destroy()
+
+
+def test_middle_click_on_a_background_tab_does_not_disturb_the_active_tab(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        second_path = str(tmp_path / "second.pdf")
+        shutil.copy(FIXTURE, second_path)
+        app._open_document(second_path)  # tab 0 is now in the background
+        assert app.path == second_path
+        root.update()
+
+        assert app.tab_strip.index("@10,10") == 0  # the background tab
+        app._on_tab_strip_click(_FakeEvent(10, 10))
+
+        assert len(app._tabs) == 1
+        assert app.path == second_path  # still on the tab we were already on
     finally:
         for t in app._tabs:
             t.doc.close()
