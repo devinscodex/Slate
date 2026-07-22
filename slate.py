@@ -26,6 +26,7 @@ import security
 import sign
 import tab as tabmodule
 import textedit
+import theme
 import version
 from viewer import Viewer
 
@@ -64,6 +65,7 @@ class SlateApp:
         self._doc_view_built = False
         self.home_frame = None
         self.toc_visible = tk.BooleanVar(value=False)
+        self.dark_mode = tk.BooleanVar(value=False)
         # Gated feature (DESIGN.md's "Text editing"): a local UX gate,
         # not real access control -- re-locks every restart on purpose.
         self._textedit_unlocked_this_session = False
@@ -80,6 +82,7 @@ class SlateApp:
         root.title("Slate")
         self._set_window_icon()
         self._build_menu()
+        self._apply_theme()  # establishes the ttk 'clam' baseline even in light mode
 
         if path:
             self._open_document(path)
@@ -102,6 +105,76 @@ class SlateApp:
             self.root.iconphoto(True, self._icon_img)
         except tk.TclError:
             pass
+
+    def _apply_theme(self):
+        """Recursively repaints every widget currently in the tree, so
+        it works uniformly whether called at startup, on a live toggle,
+        or after opening a fresh dialog -- one mechanism instead of
+        theming persistent widgets (toolbar/canvas/tabs) and freshly-
+        built ones (home screen) two different ways.
+
+        Real platform constraint (theme.py's own docstring, not
+        repeated in full here): tk.Menu dropdown popups are drawn by
+        the native Win32 renderer on Windows and ignore these colors
+        there -- harmless to set anyway, and correct on Linux/X11.
+        """
+        colors = theme.palette(self.dark_mode.get())
+        self.root.configure(bg=colors["bg"])
+        self._paint_widget(self.root, colors)
+
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("TNotebook", background=colors["bg"], borderwidth=0)
+        style.configure(
+            "TNotebook.Tab", background=colors["button_bg"], foreground=colors["fg"]
+        )
+        style.map("TNotebook.Tab", background=[("selected", colors["select_bg"])])
+        style.configure(
+            "Treeview",
+            background=colors["entry_bg"],
+            foreground=colors["fg"],
+            fieldbackground=colors["entry_bg"],
+        )
+
+        if hasattr(self, "mode_label"):
+            self._set_mode(self.mode)  # reassert redact's red badge over the generic pass
+
+    def _paint_widget(self, widget, colors):
+        if widget is getattr(self, "mode_label", None):
+            pass  # _set_mode owns this widget's colors, reasserted after the walk
+        elif getattr(widget, "slate_muted", False):
+            widget.configure(bg=colors["bg"], fg=colors["muted_fg"])
+        else:
+            cls = widget.winfo_class()
+            try:
+                if cls in ("Toplevel", "Tk"):
+                    widget.configure(bg=colors["bg"])  # no -fg option on these, unlike Frame/Label
+                elif cls in ("Frame", "Label"):
+                    widget.configure(bg=colors["bg"], fg=colors["fg"])
+                elif cls == "Button":
+                    widget.configure(
+                        bg=colors["button_bg"], fg=colors["fg"], activebackground=colors["select_bg"]
+                    )
+                elif cls == "Canvas":
+                    widget.configure(bg=colors["canvas_bg"])
+                elif cls == "Listbox":
+                    widget.configure(
+                        bg=colors["entry_bg"], fg=colors["fg"], selectbackground=colors["select_bg"]
+                    )
+                elif cls in ("Entry", "Text"):
+                    widget.configure(
+                        bg=colors["entry_bg"], fg=colors["fg"], insertbackground=colors["fg"]
+                    )
+                elif cls == "Menu":
+                    widget.configure(
+                        bg=colors["bg"], fg=colors["fg"],
+                        activebackground=colors["select_bg"], activeforeground=colors["fg"],
+                    )
+            except tk.TclError:
+                pass  # some widget/option combos (e.g. Label with no fg option in this state) -- skip, cosmetic only
+
+        for child in widget.winfo_children():
+            self._paint_widget(child, colors)
 
     def _build_menu(self):
         menubar = tk.Menu(self.root)
@@ -168,6 +241,10 @@ class SlateApp:
         )
         viewm.add_separator()
         viewm.add_command(label="Find... (/)", command=self._show_find_bar)
+        viewm.add_separator()
+        viewm.add_checkbutton(
+            label="Dark Mode", variable=self.dark_mode, command=self._apply_theme
+        )
         menubar.add_cascade(label="View", menu=viewm)
 
         convertm = tk.Menu(menubar, tearoff=0)
@@ -195,6 +272,7 @@ class SlateApp:
             top, text=version.SUMMARY, wraplength=360, justify="left"
         ).pack(padx=24, pady=(0, 18))
         tk.Button(top, text="Close", command=top.destroy).pack(pady=(0, 14))
+        self._paint_widget(top, theme.palette(self.dark_mode.get()))
 
     def _refresh_recent_menu(self):
         self.recent_menu.delete(0, "end")
@@ -329,9 +407,11 @@ class SlateApp:
         tk.Label(
             title_box, text=f"Slate {version.VERSION}", font=("TkDefaultFont", 20, "bold")
         ).pack(anchor="w")
-        tk.Label(
+        tagline = tk.Label(
             title_box, text=version.SUMMARY, wraplength=460, justify="left", fg="gray30"
-        ).pack(anchor="w", pady=(4, 0))
+        )
+        tagline.slate_muted = True  # theme walker keeps this dimmer than normal text
+        tagline.pack(anchor="w", pady=(4, 0))
 
         tk.Button(self.home_frame, text="Open...", command=self.open_file).pack(
             anchor="w", pady=(16, 16)
@@ -342,9 +422,9 @@ class SlateApp:
         )
         entries = recent.get_recent()
         if not entries:
-            tk.Label(self.home_frame, text="No recently viewed files", fg="gray40").pack(
-                anchor="w", pady=6
-            )
+            no_files_label = tk.Label(self.home_frame, text="No recently viewed files", fg="gray40")
+            no_files_label.slate_muted = True
+            no_files_label.pack(anchor="w", pady=6)
         else:
             self._recent_entries = entries
             self._recent_listbox = tk.Listbox(
@@ -1006,6 +1086,8 @@ class SlateApp:
                 pady=6
             )
 
+        self._paint_widget(top, theme.palette(self.dark_mode.get()))
+
     def do_scan_folder(self):
         directory = filedialog.askdirectory(title="Choose a folder to scan for sensitive PDFs")
         if not directory:
@@ -1032,6 +1114,7 @@ class SlateApp:
         text.insert("1.0", "\n".join(lines))
         text.config(state="disabled")
         text.pack(fill=tk.BOTH, expand=True)
+        self._paint_widget(top, theme.palette(self.dark_mode.get()))
 
     # ------------------------------------------------------------------
     # convert (office-doc utilities: PDF <-> markdown/text/images) --

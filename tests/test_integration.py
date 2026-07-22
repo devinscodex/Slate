@@ -95,6 +95,58 @@ def _make_app(tmp_path, fixture=FIXTURE):
     return root, app
 
 
+def test_dark_mode_repaints_toolbar_and_canvas(tmp_path):
+    import theme
+
+    root, app = _make_app(tmp_path)
+    try:
+        assert app.canvas.cget("bg") == theme.LIGHT["canvas_bg"]
+
+        app.dark_mode.set(True)
+        app._apply_theme()
+        assert app.canvas.cget("bg") == theme.DARK["canvas_bg"]
+        assert app.root.cget("bg") == theme.DARK["bg"]
+
+        app.dark_mode.set(False)
+        app._apply_theme()
+        assert app.canvas.cget("bg") == theme.LIGHT["canvas_bg"]
+        assert app.root.cget("bg") == theme.LIGHT["bg"]
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_dark_mode_toggle_does_not_break_the_redact_mode_badge(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app._set_mode("redact")
+        app.dark_mode.set(True)
+        app._apply_theme()
+        # dark mode must not clobber the redact safety-color -- reasserted
+        # after the generic repaint pass
+        assert app.mode_label.cget("bg") == "#c0392b"
+        assert app.mode_label.cget("fg") == "white"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_dark_mode_theme_applies_to_a_freshly_opened_dialog(tmp_path):
+    import theme
+
+    root, app = _make_app(tmp_path)
+    try:
+        app.dark_mode.set(True)
+        app._apply_theme()
+        app._show_about()
+
+        about_top = [w for w in root.winfo_children() if isinstance(w, tk.Toplevel)][0]
+        assert about_top.cget("bg") == theme.DARK["bg"]
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_mode_indicator_turns_red_in_redact_mode_and_resets_after(tmp_path):
     root, app = _make_app(tmp_path)
     try:
