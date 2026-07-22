@@ -95,6 +95,63 @@ def _make_app(tmp_path, fixture=FIXTURE):
     return root, app
 
 
+def test_dark_theme_inverts_the_actual_page_pixels_not_just_chrome(tmp_path, monkeypatch):
+    """Real gap Devin caught live: theming Slate's own widgets dark
+    still left the rendered PDF page a blinding white rectangle -- the
+    part that matters most, since it's most of the screen. render()
+    must invert the actual page image for "is_dark" themes, not just
+    recolor the surrounding UI. ImageTk.PhotoImage exposes no way to
+    read pixels back, so this intercepts what gets passed INTO it
+    instead."""
+    root, app = _make_app(tmp_path)
+    try:
+        captured = {}
+        real_photoimage = slate.ImageTk.PhotoImage
+
+        def spy(img, *a, **k):
+            captured["img"] = img.copy()
+            return real_photoimage(img, *a, **k)
+
+        monkeypatch.setattr(slate.ImageTk, "PhotoImage", spy)
+
+        app.render()
+        light_pixel = captured["img"].convert("RGB").getpixel((5, 5))
+        assert light_pixel == (255, 255, 255)  # real page background, un-inverted
+
+        app.theme_name.set("dark")
+        app._on_theme_changed()
+        dark_pixel = captured["img"].convert("RGB").getpixel((5, 5))
+        assert dark_pixel == (0, 0, 0)  # same spot, inverted
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_light_toned_named_themes_do_not_invert_the_page(tmp_path, monkeypatch):
+    """Solarized Light/Gruvbox Light/Flexoki Light are all real, distinct
+    palettes but none of them are "is_dark" -- the page must stay
+    un-inverted on those, only genuinely dark-toned themes invert it."""
+    root, app = _make_app(tmp_path)
+    try:
+        captured = {}
+        real_photoimage = slate.ImageTk.PhotoImage
+
+        def spy(img, *a, **k):
+            captured["img"] = img.copy()
+            return real_photoimage(img, *a, **k)
+
+        monkeypatch.setattr(slate.ImageTk, "PhotoImage", spy)
+
+        for name in ("solarized_light", "gruvbox_light", "flexoki_light"):
+            app.theme_name.set(name)
+            app._on_theme_changed()
+            pixel = captured["img"].convert("RGB").getpixel((5, 5))
+            assert pixel == (255, 255, 255), f"{name} should not invert the page"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_dark_mode_repaints_toolbar_and_canvas(tmp_path):
     import theme
 
@@ -102,15 +159,35 @@ def test_dark_mode_repaints_toolbar_and_canvas(tmp_path):
     try:
         assert app.canvas.cget("bg") == theme.LIGHT["canvas_bg"]
 
-        app.dark_mode.set(True)
+        app.theme_name.set("dark")
         app._apply_theme()
         assert app.canvas.cget("bg") == theme.DARK["canvas_bg"]
         assert app.root.cget("bg") == theme.DARK["bg"]
 
-        app.dark_mode.set(False)
+        app.theme_name.set("light")
         app._apply_theme()
         assert app.canvas.cget("bg") == theme.LIGHT["canvas_bg"]
         assert app.root.cget("bg") == theme.LIGHT["bg"]
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_named_themes_produce_visibly_distinct_colors(tmp_path):
+    """Solarized/Gruvbox/Flexoki are real, separately-sourced palettes,
+    not aliases of light/dark with different names -- confirm they
+    actually paint different colors from each other and from the
+    built-in light/dark pair."""
+    import theme
+
+    root, app = _make_app(tmp_path)
+    try:
+        seen_bg = set()
+        for name in theme.THEMES:
+            app.theme_name.set(name)
+            app._apply_theme()
+            seen_bg.add(app.canvas.cget("bg"))
+        assert len(seen_bg) == len(theme.THEMES)  # every theme's canvas_bg is unique
     finally:
         app.doc.close()
         root.destroy()
@@ -120,7 +197,7 @@ def test_dark_mode_toggle_does_not_break_the_redact_mode_badge(tmp_path):
     root, app = _make_app(tmp_path)
     try:
         app._set_mode("redact")
-        app.dark_mode.set(True)
+        app.theme_name.set("dark")
         app._apply_theme()
         # dark mode must not clobber the redact safety-color -- reasserted
         # after the generic repaint pass
@@ -136,7 +213,7 @@ def test_dark_mode_theme_applies_to_a_freshly_opened_dialog(tmp_path):
 
     root, app = _make_app(tmp_path)
     try:
-        app.dark_mode.set(True)
+        app.theme_name.set("dark")
         app._apply_theme()
         app._show_about()
 
@@ -147,20 +224,20 @@ def test_dark_mode_theme_applies_to_a_freshly_opened_dialog(tmp_path):
         root.destroy()
 
 
-def test_toggling_dark_mode_persists_and_a_fresh_launch_starts_dark_no_flash(tmp_path):
+def test_toggling_theme_persists_and_a_fresh_launch_starts_dark_no_flash(tmp_path):
     """The real ask this fixes: without persistence, every launch starts
-    light and visibly flashes to dark once a saved preference applies.
-    root.configure(bg=...) for the loaded preference happens as the
-    very first line of __init__, before any other widget -- confirmed
+    on the default theme and visibly flashes to the saved one a moment
+    later. root.configure(bg=...) for the loaded preference happens as
+    the very first line of __init__, before any other widget -- confirmed
     here by checking a BRAND NEW app instance's root bg matches DARK
     immediately, with no separate _apply_theme() call needed first."""
     import theme
 
     root, app = _make_app(tmp_path)
     try:
-        app.dark_mode.set(True)
-        app._on_dark_mode_toggled()
-        assert theme.load_preference() is True
+        app.theme_name.set("dark")
+        app._on_theme_changed()
+        assert theme.load_preference() == "dark"
     finally:
         app.doc.close()
         root.destroy()
@@ -168,11 +245,11 @@ def test_toggling_dark_mode_persists_and_a_fresh_launch_starts_dark_no_flash(tmp
     root2 = tk.Tk()
     app2 = slate.SlateApp(root2, path=None)
     try:
-        assert app2.dark_mode.get() is True
+        assert app2.theme_name.get() == "dark"
         assert root2.cget("bg") == theme.DARK["bg"]
     finally:
         root2.destroy()
-        theme.save_preference(False)  # leave clean for any test that runs after
+        theme.save_preference("light")  # leave clean for any test that runs after
 
 
 def test_mode_indicator_turns_red_in_redact_mode_and_resets_after(tmp_path):

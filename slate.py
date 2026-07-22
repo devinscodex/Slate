@@ -11,7 +11,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import fitz  # PyMuPDF
-from PIL import ImageTk
+from PIL import ImageOps, ImageTk
 
 import annotate
 import convert
@@ -59,7 +59,7 @@ class SlateApp:
         # ask (Devin): loading light and then visibly flashing to dark
         # a moment later, once a saved preference applies, is exactly
         # the jarring effect this line order avoids.
-        root.configure(bg=theme.palette(theme.load_preference())["bg"])
+        root.configure(bg=theme.get_palette(theme.load_preference())["bg"])
         self.path = None
         self.doc = None
         self.viewer = None
@@ -72,7 +72,7 @@ class SlateApp:
         self._doc_view_built = False
         self.home_frame = None
         self.toc_visible = tk.BooleanVar(value=False)
-        self.dark_mode = tk.BooleanVar(value=theme.load_preference())
+        self.theme_name = tk.StringVar(value=theme.load_preference())
         # Gated feature (DESIGN.md's "Text editing"): a local UX gate,
         # not real access control -- re-locks every restart on purpose.
         self._textedit_unlocked_this_session = False
@@ -113,9 +113,11 @@ class SlateApp:
         except tk.TclError:
             pass
 
-    def _on_dark_mode_toggled(self):
-        theme.save_preference(self.dark_mode.get())
+    def _on_theme_changed(self):
+        theme.save_preference(self.theme_name.get())
         self._apply_theme()
+        if self.doc is not None:
+            self.render()  # re-invert the currently-visible page immediately, not on next nav
 
     def _apply_native_titlebar_theme(self):
         """The window title bar itself is drawn by the OS, not Tk --
@@ -136,7 +138,8 @@ class SlateApp:
         try:
             import ctypes
             hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
-            value = ctypes.c_int(1 if self.dark_mode.get() else 0)
+            is_dark = theme.get_palette(self.theme_name.get())["is_dark"]
+            value = ctypes.c_int(1 if is_dark else 0)
             ctypes.windll.dwmapi.DwmSetWindowAttribute(
                 hwnd, 20, ctypes.byref(value), ctypes.sizeof(value)
             )
@@ -155,7 +158,7 @@ class SlateApp:
         the native Win32 renderer on Windows and ignore these colors
         there -- harmless to set anyway, and correct on Linux/X11.
         """
-        colors = theme.palette(self.dark_mode.get())
+        colors = theme.get_palette(self.theme_name.get())
         self.root.configure(bg=colors["bg"])
         self._paint_widget(self.root, colors)
         self._apply_native_titlebar_theme()
@@ -280,9 +283,13 @@ class SlateApp:
         viewm.add_separator()
         viewm.add_command(label="Find... (/)", command=self._show_find_bar)
         viewm.add_separator()
-        viewm.add_checkbutton(
-            label="Dark Mode", variable=self.dark_mode, command=self._on_dark_mode_toggled
-        )
+        thememenu = tk.Menu(viewm, tearoff=0)
+        for label, name in theme.THEME_LABELS.items():
+            thememenu.add_radiobutton(
+                label=label, variable=self.theme_name, value=name,
+                command=self._on_theme_changed,
+            )
+        viewm.add_cascade(label="Theme", menu=thememenu)
         menubar.add_cascade(label="View", menu=viewm)
 
         convertm = tk.Menu(menubar, tearoff=0)
@@ -310,7 +317,7 @@ class SlateApp:
             top, text=version.SUMMARY, wraplength=360, justify="left"
         ).pack(padx=24, pady=(0, 18))
         tk.Button(top, text="Close", command=top.destroy).pack(pady=(0, 14))
-        self._paint_widget(top, theme.palette(self.dark_mode.get()))
+        self._paint_widget(top, theme.get_palette(self.theme_name.get()))
 
     def _refresh_recent_menu(self):
         self.recent_menu.delete(0, "end")
@@ -854,6 +861,16 @@ class SlateApp:
         # the fix -- always use it, never re-index self.doc directly.
         self.page = self.doc[self.viewer.page_num]
         img = self.viewer.render_page()
+        if theme.get_palette(self.theme_name.get())["is_dark"]:
+            # Real gap Devin caught live: theming Slate's own chrome dark
+            # still left the actual page a blinding white rectangle --
+            # the part that matters most for eye comfort, since it's
+            # most of the visible screen. Same simple full-RGB-invert
+            # "night mode" approach Sumatra's own color-inversion feature
+            # uses (not a smart hue-preserving invert -- photos/images on
+            # the page invert too, an accepted simple tradeoff, matching
+            # that real precedent rather than a fancier scheme).
+            img = ImageOps.invert(img.convert("RGB"))
         self._tk_img = ImageTk.PhotoImage(img)
         self.canvas.delete("all")
         self.canvas.config(width=img.width, height=img.height)
@@ -1124,7 +1141,7 @@ class SlateApp:
                 pady=6
             )
 
-        self._paint_widget(top, theme.palette(self.dark_mode.get()))
+        self._paint_widget(top, theme.get_palette(self.theme_name.get()))
 
     def do_scan_folder(self):
         directory = filedialog.askdirectory(title="Choose a folder to scan for sensitive PDFs")
@@ -1152,7 +1169,7 @@ class SlateApp:
         text.insert("1.0", "\n".join(lines))
         text.config(state="disabled")
         text.pack(fill=tk.BOTH, expand=True)
-        self._paint_widget(top, theme.palette(self.dark_mode.get()))
+        self._paint_widget(top, theme.get_palette(self.theme_name.get()))
 
     # ------------------------------------------------------------------
     # convert (office-doc utilities: PDF <-> markdown/text/images) --

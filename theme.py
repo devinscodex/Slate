@@ -1,8 +1,9 @@
-"""Light/dark color palettes for Slate's UI. Pure data + a pure lookup
-function -- no Tkinter imports here on purpose, so this stays trivially
-testable without a display. slate.py owns actually walking the widget
-tree and applying these colors (recursive tk widget config + a ttk.Style
-pass for Notebook/Treeview).
+"""Named color themes for Slate's UI. Pure data + pure lookup functions
+-- no Tkinter imports here on purpose, so this stays trivially testable
+without a display. slate.py owns actually walking the widget tree and
+applying these colors (recursive tk widget config + a ttk.Style pass
+for Notebook/Treeview) and inverting the rendered page image for
+"is_dark" themes.
 
 Real, verified platform constraint, not assumed: on Windows, tk.Menu's
 dropdown popups are drawn by the native Win32 menu renderer, which
@@ -11,9 +12,18 @@ does NOT respect Tk's bg/fg/activebackground options the way X11 does
 these colors here is harmless (Windows just ignores them) and correct
 on Linux/X11 (this dev environment), but the actual File/Edit/View
 dropdown appearance on a real Windows deployment will follow Windows'
-own light/dark OS theme, not this toggle. Everything else (toolbar,
+own light/dark OS theme, not this picker. Everything else (toolbar,
 canvas, home screen, dialogs, tabs, TOC) is drawn by Tk itself and
 themes correctly on every platform.
+
+Palette sources, verified live (not from memory) before writing these,
+Devin's ask: Solarized -- ethanschoonover.com/solarized (official base
+tones/blue accent); Gruvbox -- the project's own colors/gruvbox.vim
+source; Flexoki -- stephango.com/flexoki (Steph Ango's own published
+hex values). "Runestone" (Devin's own in-development CSS theme) isn't
+included yet -- its actual colors aren't available in this codebase or
+conversation to source from; needs the real hex values from Devin
+before it can be added for real rather than guessed.
 """
 import json
 from pathlib import Path
@@ -21,50 +31,93 @@ from pathlib import Path
 CONFIG_DIR = Path.home() / ".slate"
 PREF_FILE = CONFIG_DIR / "theme.json"
 
-LIGHT = {
-    # Real bug caught live: "SystemButtonFace" is a Windows-only Tk
-    # symbolic color name -- crashes with "unknown color name" on
-    # Linux/X11 Tk (confirmed directly, not assumed). "#d9d9d9" is
-    # Tk's own actual compiled-in default widget gray, portable
-    # everywhere.
-    "bg": "#d9d9d9",
-    "fg": "black",
-    "button_bg": "#d9d9d9",
-    "entry_bg": "white",
-    "canvas_bg": "gray80",
-    "select_bg": "#cce4ff",
-    "muted_fg": "gray40",
+DEFAULT_THEME = "light"
+
+THEMES = {
+    "light": {
+        # "SystemButtonFace" (Windows-only Tk symbolic name) crashed
+        # with "unknown color name" on Linux/X11 Tk, confirmed live --
+        # "#d9d9d9" is Tk's own actual compiled-in default widget gray,
+        # portable everywhere.
+        "bg": "#d9d9d9", "fg": "black", "button_bg": "#d9d9d9",
+        "entry_bg": "white", "canvas_bg": "gray80",
+        "select_bg": "#cce4ff", "muted_fg": "gray40", "is_dark": False,
+    },
+    "dark": {
+        "bg": "#2b2b2b", "fg": "#e8e8e8", "button_bg": "#3c3c3c",
+        "entry_bg": "#1e1e1e", "canvas_bg": "#1a1a1a",
+        "select_bg": "#3a5a7a", "muted_fg": "#9a9a9a", "is_dark": True,
+    },
+    "solarized_dark": {
+        "bg": "#002b36", "fg": "#839496", "button_bg": "#073642",
+        "entry_bg": "#073642", "canvas_bg": "#002b36",
+        "select_bg": "#268bd2", "muted_fg": "#586e75", "is_dark": True,
+    },
+    "solarized_light": {
+        "bg": "#fdf6e3", "fg": "#657b83", "button_bg": "#eee8d5",
+        "entry_bg": "#fdf6e3", "canvas_bg": "#fdf6e3",
+        "select_bg": "#268bd2", "muted_fg": "#93a1a1", "is_dark": False,
+    },
+    "gruvbox_dark": {
+        "bg": "#282828", "fg": "#ebdbb2", "button_bg": "#3c3836",
+        "entry_bg": "#1d2021", "canvas_bg": "#282828",
+        "select_bg": "#83a598", "muted_fg": "#928374", "is_dark": True,
+    },
+    "gruvbox_light": {
+        "bg": "#fbf1c7", "fg": "#3c3836", "button_bg": "#ebdbb2",
+        "entry_bg": "#fbf1c7", "canvas_bg": "#fbf1c7",
+        "select_bg": "#83a598", "muted_fg": "#928374", "is_dark": False,
+    },
+    "flexoki_dark": {
+        "bg": "#1c1b1a", "fg": "#e6e4d9", "button_bg": "#282726",
+        "entry_bg": "#100f0f", "canvas_bg": "#1c1b1a",
+        "select_bg": "#205ea6", "muted_fg": "#6f6e69", "is_dark": True,
+    },
+    "flexoki_light": {
+        "bg": "#fffcf0", "fg": "#100f0f", "button_bg": "#f2f0e5",
+        "entry_bg": "#fffcf0", "canvas_bg": "#fffcf0",
+        "select_bg": "#205ea6", "muted_fg": "#b7b5ac", "is_dark": False,
+    },
 }
 
-DARK = {
-    "bg": "#2b2b2b",
-    "fg": "#e8e8e8",
-    "button_bg": "#3c3c3c",
-    "entry_bg": "#1e1e1e",
-    "canvas_bg": "#1a1a1a",
-    "select_bg": "#3a5a7a",
-    "muted_fg": "#9a9a9a",
+# Display label -> internal THEMES key, in menu order.
+THEME_LABELS = {
+    "Light": "light",
+    "Dark": "dark",
+    "Solarized Dark": "solarized_dark",
+    "Solarized Light": "solarized_light",
+    "Gruvbox Dark": "gruvbox_dark",
+    "Gruvbox Light": "gruvbox_light",
+    "Flexoki Dark": "flexoki_dark",
+    "Flexoki Light": "flexoki_light",
 }
 
+# Kept as plain names too (not just THEMES["light"]/["dark"]) -- several
+# tests already reference these directly, and it's a reasonable stable
+# alias for the two built-in defaults either way.
+LIGHT = THEMES["light"]
+DARK = THEMES["dark"]
 
-def palette(dark: bool) -> dict:
-    return DARK if dark else LIGHT
+
+def get_palette(name: str) -> dict:
+    return THEMES.get(name, THEMES[DEFAULT_THEME])
 
 
-def load_preference() -> bool:
+def load_preference() -> str:
     """Persisted across launches (~/.slate/theme.json, same convention
-    as recent.py/gate.py) -- without this, every launch starts light
-    and then visibly flashes to dark the moment the app applies a
-    saved preference, which is exactly the jarring effect this exists
-    to avoid. Missing/corrupt file -> light, not an error."""
+    as recent.py/gate.py) -- without this, every launch starts on the
+    default theme and visibly flashes to the saved one a moment later,
+    which is exactly the jarring effect this exists to avoid. Missing/
+    corrupt/unrecognized-theme-name file -> the default, not an error."""
     if not PREF_FILE.exists():
-        return False
+        return DEFAULT_THEME
     try:
-        return json.loads(PREF_FILE.read_text()).get("dark", False)
+        name = json.loads(PREF_FILE.read_text()).get("theme", DEFAULT_THEME)
     except (json.JSONDecodeError, OSError):
-        return False
+        return DEFAULT_THEME
+    return name if name in THEMES else DEFAULT_THEME
 
 
-def save_preference(dark: bool):
+def save_preference(name: str):
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    PREF_FILE.write_text(json.dumps({"dark": dark}))
+    PREF_FILE.write_text(json.dumps({"theme": name}))
