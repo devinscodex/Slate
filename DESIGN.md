@@ -414,3 +414,82 @@ COM automation via `pywin32` — Windows-only, needs Word/Excel actually
 installed on the machine). Given this session's live-confirmed lesson
 above about assuming a library is lightweight, this needs its own
 research pass before committing to an approach, not a quick add.
+
+## Read Aloud — text-to-speech (`tts.py`, `playback.py`)
+
+Devin's ask, after real research into whether a ~250MB size budget for
+"quality (limited), voices of my choice" was workable (it was — see
+the earlier "if we grow to about 250mb" exchange). Piper TTS: engine is
+GPL-3.0-or-later, voices are MIT-licensed, both confirmed live via
+HuggingFace's own package/model metadata, not assumed. Zero-cost, FOSS,
+own-forever — no paid alternative was needed.
+
+**Voice selection was Devin's own real listening test, not a guess** —
+3 rounds, each testing something different:
+1. A plain sentence, across 25 real named voices (multi-speaker corpora
+   like arctic/libritts/vctk excluded — those bundle dozens of speakers
+   per model, not a single named voice, and Devin asked for "named").
+2. A numbers/punctuation/date/currency stress-test passage, sorted into
+   real `like`/`no-like` piles. Found a real, non-obvious pattern:
+   quality tier (low vs medium) wasn't the deciding factor at all (2 of
+   the "like" picks were low-tier) — British-accented voices had a much
+   higher like-rate (4/5) than American ones (3/9) in this voice set,
+   and "robotic"/"choppy" (Devin's own words) explained most rejects.
+3. A public-domain narrative passage (opening of *Pride and Prejudice*)
+   across the finalists, to test sustained reading, not just a single
+   line.
+
+Final four: **northern_english_male** (GB male, medium, 22kHz — the
+bundled default), **alba** (GB female, medium, 22kHz), **southern_english_female**
+(GB female, low, 16kHz), **danny** (US male, low, 16kHz). The two
+low-tier voices both hit a real "missing phoneme from id map" warning
+on round 2's harder passage (a stress-mark symbol) — not disqualifying,
+but a real, live-confirmed quality wrinkle those two specifically carry.
+
+**Distribution, Devin's real call:** only `northern_english_male`
+(~60.3MB) ships bundled in the repo (`voices/`) as the zero-setup
+default. The other three download on first use into `~/.slate/tts-voices/`
+(same config convention as `recent.py`/`gate.py`/`theme.py`) rather than
+permanently carrying ~180MB in the repo that most installs would never
+touch. Small real preview clips for all four (`voices/previews/`, a few
+hundred KB each, same passage across all four) ship bundled so a voice
+can be sampled before committing to its full download.
+
+**Playback, a real gap Piper itself doesn't solve:** Piper only
+*synthesizes* audio, it doesn't play it. `sounddevice`+`soundfile` add
+almost no new weight — numpy (already required by `onnxruntime`, which
+`piper-tts` itself needs) means the actual new footprint is a few
+hundred KB plus a small native audio library. `sounddevice` has no
+built-in pause/resume (only start/stop of a stream) — `playback.py`'s
+`Player` implements real pause (holds position, resumes from exactly
+there) via a streaming callback tracking position + a paused flag
+directly.
+
+**Speed control** reuses Piper's own real `length_scale` synthesis
+parameter (confirmed via `SynthesisConfig`'s actual signature, not
+assumed) rather than needing separate audio time-stretching — the
+UI's speed multiplier maps to `length_scale = 1 / speed`.
+
+**Real bug caught live, before it reached a commit:** the download
+progress callback originally called `self.root.after(...)` directly
+from the background download thread — Tkinter is not thread-safe, and
+this raised `main thread is not in main loop` the first time an actual
+download ran through the real UI path (not caught by `tts.py`'s own
+unit tests, which mock the network entirely and never exercise real
+threading). Fixed by having the worker thread only ever write to a
+plain shared dict; `poll()` — scheduled via `self.root.after()`, so it
+always runs on the main thread — is the only thing that touches real
+widgets.
+
+**NOT live-verified against real audio hardware:** this dev environment
+(WSL2) exposes zero audio output devices even with `libportaudio2`
+installed (confirmed live: `sd.query_devices()` returns empty) — a WSL
+passthrough gap, not a defect in this code. The real Windows deployment
+has no such issue (`sounddevice`'s wheel bundles PortAudio with normal
+native device access). The playback callback's own position/pause LOGIC
+is still fully real-tested, by calling it directly with synthetic
+buffers — same technique already used for the Windows-only font-
+registry and DWM-titlebar code that can't be exercised on this box
+either. `do_read_page()`'s real synthesis path IS fully exercised
+end-to-end against the actual bundled model; only the final "make
+sound come out of speakers" step is the untestable part here.
