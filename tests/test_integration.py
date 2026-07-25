@@ -11,17 +11,31 @@ import sys
 import zipfile
 
 import fitz
+import pytest
 import tkinter as tk
+from tkinter import ttk
 from PIL import ImageColor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import gate  # noqa: E402
 import slate  # noqa: E402
 import sign  # noqa: E402
+import theme  # noqa: E402
 import version  # noqa: E402
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "basic3page.pdf")
-REAL_EMBEDDABLE_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"
+
+# A real embeddable TTF for the text-edit "reusable font" tests. Real
+# bug caught on an actual Windows smoke test: this used to hardcode a
+# Linux-only path, which fitz.Page.insert_font() then failed to open
+# there. A small existence-checked candidate list instead of one
+# hardcoded assumption -- same fix already applied to test_convert.py.
+_EMBEDDABLE_FONT_CANDIDATES = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",  # Linux (Debian/Ubuntu)
+    "/usr/share/fonts/dejavu/DejaVuSerif.ttf",  # Linux (Fedora)
+    r"C:\Windows\Fonts\times.ttf",  # Windows
+]
+REAL_EMBEDDABLE_FONT = next((p for p in _EMBEDDABLE_FONT_CANDIDATES if os.path.exists(p)), None)
 
 
 class _FakeEvent:
@@ -29,6 +43,22 @@ class _FakeEvent:
         self.x = x
         self.y = y
         self.delta = delta
+
+
+def _wait_until(condition, root, timeout=10):
+    """Pumps the real Tk event loop (root.update()) until condition()
+    is true or timeout -- for background-thread work (TTS synthesis,
+    voice downloads) that no longer completes synchronously within a
+    single call. Real Tk limitation already hit elsewhere in this
+    suite: synthetic events don't reliably dispatch without a genuine
+    running mainloop, but plain root.update() calls in a loop do pump
+    real after()-scheduled callbacks correctly."""
+    import time
+
+    end = time.time() + timeout
+    while not condition() and time.time() < end:
+        root.update()
+        time.sleep(0.02)
 
 
 def _drag(app, x0, y0, x1, y1):
@@ -102,7 +132,7 @@ def test_render_recolors_the_page_to_match_the_active_theme_not_just_chrome(tmp_
     widgets dark still left the rendered PDF page a blinding white
     rectangle, and (2) a first-attempt fix (a flat RGB invert) only
     looked right for the plain built-in "dark" theme -- every OTHER
-    light-toned named theme (Mosscairn/Solarized/Gruvbox/Flexoki Light)
+    light-toned named theme (Inkbone/Solarized Light)
     still rendered a plain white page that didn't match its own tinted
     chrome at all ("want document to match", "same as text editors
     when using themes"). Fixed with ImageOps.colorize: the page's own
@@ -158,8 +188,8 @@ def test_dark_mode_repaints_toolbar_and_canvas(tmp_path):
 
 
 def test_named_themes_produce_visibly_distinct_colors(tmp_path):
-    """Solarized/Gruvbox/Flexoki are real, separately-sourced palettes,
-    not aliases of light/dark with different names -- confirm they
+    """Solarized and Standard(Flexoki) are real, separately-sourced
+    palettes, not aliases of light/dark with different names -- confirm they
     actually paint different colors from each other and from the
     built-in light/dark pair."""
     import theme
@@ -751,6 +781,8 @@ def test_textedit_click_edits_real_text_and_persists_on_reopen(tmp_path, monkeyp
     non-subsetted font (same fixture-building pattern as
     test_textedit.py's reusable-tier fixture), click through the real
     canvas handler, and confirm the change actually persisted to disk."""
+    if REAL_EMBEDDABLE_FONT is None:
+        pytest.skip("no known real embeddable font found on this machine")
     path = str(tmp_path / "editable.pdf")
     doc = fitz.open()
     page = doc.new_page()
@@ -773,7 +805,11 @@ def test_textedit_click_edits_real_text_and_persists_on_reopen(tmp_path, monkeyp
         out = str(tmp_path / "edited_via_app.pdf")
         slate.io_pdf.safe_save(app.doc, out)
         reread = fitz.open(out)
-        text = reread[0].get_text()
+        # Real font-file-specific quirk caught on an actual Windows smoke
+        # test: some embedded fonts render inserted spaces as U+00A0
+        # (non-breaking) rather than a regular ASCII space -- neither is
+        # wrong, this cares about the words, not the exact whitespace byte.
+        text = reread[0].get_text().replace("\xa0", " ")
         assert "replaced wording now" in text
         assert "original wording here" not in text
         reread.close()
@@ -1332,13 +1368,21 @@ def test_read_page_with_no_extractable_text_shows_nothing_to_read(tmp_path, monk
         root.destroy()
 
 
-def test_read_page_synthesizes_with_the_bundled_voice_and_reports_the_real_no_device_error(tmp_path, monkeypatch):
-    """This dev environment has zero real audio output devices (see
-    playback.py's own docstring) -- do_read_page must still run real
-    synthesis against the bundled voice (proving that half genuinely
-    works) and then fail SOFT on the play() call with a real message,
-    not crash the app. Confirms the actual PortAudioError path, not a
-    mocked one."""
+def test_read_page_synthesizes_with_the_bundled_voice_and_handles_playback_for_real(tmp_path, monkeypatch):
+    """Real synthesis against the bundled voice, through the actual
+    do_read_page() path (background thread + poll(), not mocked).
+    What SHOULD happen next genuinely depends on whether this machine
+    has a real audio output device -- checked here at test time via
+    sounddevice's own device query, not assumed from the OS name.
+    Real finding: this environment's dev box (WSL2) has zero audio
+    devices (confirmed via sd.query_devices()), so playback there
+    fails soft with a real PortAudioError message -- but a real
+    Windows machine WITH actual speakers (confirmed live, Devin heard
+    it) synthesizes AND plays successfully, no error at all. Both are
+    correct outcomes for their respective machines; this test asserts
+    whichever one this machine should actually produce."""
+    import sounddevice as sd
+
     seen = {}
     monkeypatch.setattr(
         slate.messagebox, "showinfo", lambda title, msg: seen.update(title=title, msg=msg)
@@ -1346,9 +1390,15 @@ def test_read_page_synthesizes_with_the_bundled_voice_and_reports_the_real_no_de
     root, app = _make_app(tmp_path)  # basic3page.pdf -- has real text
     try:
         app.tts_voice.set("northern_english_male")  # bundled, no download needed
-        app.do_read_page()
-        assert seen.get("title") == "Playback failed"
-        assert "PortAudio" in seen.get("msg", "") or "device" in seen.get("msg", "").lower()
+        app.do_read_page()  # synthesis now runs on a background thread
+        _wait_until(lambda: not getattr(app, "_tts_synthesizing", False), root)
+
+        has_real_device = len(sd.query_devices()) > 0
+        if has_real_device:
+            assert seen == {}  # real hardware -- synthesis AND playback both succeeded
+        else:
+            assert seen.get("title") == "Playback failed"
+            assert "PortAudio" in seen.get("msg", "") or "device" in seen.get("msg", "").lower()
     finally:
         app.doc.close()
         root.destroy()
@@ -1373,10 +1423,15 @@ def test_read_page_offers_to_download_a_non_bundled_voice(tmp_path, monkeypatch)
 
     root, app = _make_app(tmp_path)
     try:
-        assert tts_module.is_available("alba") is False
-        app.tts_voice.set("alba")
+        # southern_english_female, not alba -- alba is bundled now
+        # (Devin, 2026-07-25: two bundled voices, male+female same
+        # tier), so it's no longer a genuine "not yet downloaded"
+        # example for this test's premise.
+        assert tts_module.is_available("southern_english_female") is False
+        app.tts_voice.set("southern_english_female")
         app.do_read_page()  # will still fail at the real play() call (no device) -- that's fine
-        assert tts_module.is_available("alba") is True  # but the download itself really happened
+        assert tts_module.is_available("southern_english_female") is True  # but the download itself really happened
+        _wait_until(lambda: not getattr(app, "_tts_synthesizing", False), root)
     finally:
         app.doc.close()
         root.destroy()
@@ -1406,7 +1461,17 @@ def test_pause_resume_and_stop_do_not_raise_with_nothing_loaded(tmp_path):
         root.destroy()
 
 
+def _all_descendants(widget):
+    for child in widget.winfo_children():
+        yield child
+        yield from _all_descendants(child)
+
+
 def test_about_dialog_shows_real_version_and_summary(tmp_path):
+    """Real fix, 2026-07-25: the version Label moved one level deeper
+    (top -> header -> Label) when the icon was added alongside the
+    title -- searches all descendants now, not just direct children,
+    so this doesn't re-break on the next layout tweak either."""
     root, app = _make_app(tmp_path)
     try:
         app._show_about()
@@ -1414,7 +1479,7 @@ def test_about_dialog_shows_real_version_and_summary(tmp_path):
         found_summary = False
         for child in root.winfo_children():
             if isinstance(child, tk.Toplevel):
-                for widget in child.winfo_children():
+                for widget in _all_descendants(child):
                     if isinstance(widget, tk.Label):
                         text = widget.cget("text")
                         if version.VERSION in text:
@@ -1501,6 +1566,673 @@ def test_mouse_wheel_navigates_pages_both_platform_styles(tmp_path):
         assert app.viewer.page_num == 1
         app._on_mouse_wheel(_FakeEvent(0, 0, delta=120))  # Windows/Mac wheel-up
         assert app.viewer.page_num == 0
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_view_mode_drag_selects_text_not_a_rectangle(tmp_path):
+    """Default interaction (Devin, 2026-07-25: "default to arrow/select
+    text over rectangle select") -- a click-drag in the default "view"
+    mode selects real text (word bboxes intersecting the drag rect),
+    it does NOT create a redaction mark or leave a stray drag-rectangle
+    behind. basic3page.pdf page 1's real text: "Slate fixture page 1"."""
+    root, app = _make_app(tmp_path)
+    try:
+        assert app.mode == "view"  # the actual default, confirmed
+        z = app.viewer.zoom
+        _drag(app, int(70 * z), int(55 * z), int(148 * z), int(78 * z))
+        selected = [w[4] for w in app._selected_words]
+        assert selected == ["Slate", "fixture"]
+        assert app._selected_text() == "Slate fixture"
+        # Real, not a redaction -- view-mode drags must never populate this.
+        assert app._pending_redactions == []
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_new_click_in_view_mode_clears_previous_selection(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        z = app.viewer.zoom
+        _drag(app, int(70 * z), int(55 * z), int(148 * z), int(78 * z))
+        assert app._selected_words != []
+
+        app._on_press(_FakeEvent(int(10 * z), int(10 * z)))  # a plain click elsewhere
+        assert app._selected_words == []
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_page_navigation_clears_a_stale_selection(tmp_path):
+    """A selection's word-rects belong to the page they were made on --
+    carrying them across a page turn would draw/copy the wrong page's
+    words (or crash on an out-of-range page)."""
+    root, app = _make_app(tmp_path)
+    try:
+        z = app.viewer.zoom
+        _drag(app, int(70 * z), int(55 * z), int(148 * z), int(78 * z))
+        assert app._selected_words != []
+
+        app.next()
+        assert app._selected_words == []
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_copy_selection_puts_real_text_on_the_clipboard(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        z = app.viewer.zoom
+        _drag(app, int(70 * z), int(55 * z), int(148 * z), int(78 * z))
+        app._copy_selection()
+        assert root.clipboard_get() == "Slate fixture"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_copy_with_no_selection_does_not_raise(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app._copy_selection()  # nothing selected -- must be a safe no-op
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_redact_mode_drag_still_marks_a_rectangle_not_text(tmp_path):
+    """The behavior change is scoped to view mode only -- redact/
+    annotate modes must keep their original rectangle-drag semantics."""
+    root, app = _make_app(tmp_path)
+    try:
+        app._set_mode("redact")
+        z = app.viewer.zoom
+        _drag(app, int(70 * z), int(55 * z), int(148 * z), int(78 * z))
+        assert len(app._pending_redactions) == 1
+        assert app._selected_words == []
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_toc_panel_toggles_off_then_on_again_stays_left_of_canvas(tmp_path):
+    """Real correctness point for the PanedWindow conversion (Devin,
+    2026-07-25: "TOC should be drag resizeable too please") --
+    PanedWindow.add() appends to the END by default, so re-showing the
+    TOC after hiding it would land it AFTER (right of) the canvas pane
+    without the explicit before=self.canvas fix in _toggle_toc_panel."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.toc_visible.set(True)
+        app._toggle_toc_panel()
+        app.toc_visible.set(False)
+        app._toggle_toc_panel()
+        app.toc_visible.set(True)
+        app._toggle_toc_panel()
+
+        panes = [str(p) for p in app._content_frame.panes()]
+        assert panes.index(str(app.toc_frame)) < panes.index(str(app._canvas_frame))
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_windows_app_user_model_id_is_a_safe_noop_off_windows():
+    """This dev environment is Linux -- confirms the platform guard
+    fails soft (no crash) rather than exercising the real Windows
+    ctypes call, which needs an actual Windows box (same untested-off-
+    platform caveat as _apply_native_titlebar_theme)."""
+    slate._set_windows_app_user_model_id()  # must not raise
+
+
+def test_window_icon_ico_generated_from_the_chosen_branding_png(tmp_path):
+    """branding/slate.ico must actually exist and be a real multi-
+    resolution icon (not just a renamed PNG) -- iconbitmap() on
+    Windows silently no-ops on a malformed .ico, so this is worth a
+    real structural check rather than trusting the generation step ran
+    correctly by assumption."""
+    from PIL import Image
+    ico_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "branding", "slate.ico")
+    assert os.path.exists(ico_path)
+    with Image.open(ico_path) as im:
+        assert im.format == "ICO"
+        sizes = {s for s in im.info.get("sizes", [])}
+        assert (256, 256) in sizes
+        assert (16, 16) in sizes
+
+
+def test_scrollregion_is_set_to_the_rendered_page_size(tmp_path):
+    """Real gap Devin caught, 2026-07-25 ("and a h/v scrollbar"): a
+    zoomed-in page previously had no scrollregion at all -- it just
+    silently clipped past the visible canvas with no way to reach the
+    rest. render() must always set one to the actual image size."""
+    root, app = _make_app(tmp_path)
+    try:
+        region = [float(v) for v in app.canvas.cget("scrollregion").split()]
+        img = app.viewer.render_page()
+        assert region == [0.0, 0.0, float(img.width), float(img.height)]
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_drag_selection_accounts_for_scroll_offset(tmp_path):
+    """Real, subtle bug this same change could have introduced:
+    event.x/event.y are VIEWPORT-relative, not canvas-space -- adding
+    real scrolling means a raw, unconverted event.x/event.y would
+    silently select/redact the WRONG region once the view is scrolled
+    away from (0,0). _event_canvas_xy's canvasx()/canvasy() conversion
+    is what this test actually exercises: scroll the canvas first,
+    then confirm a drag at the SAME raw pixel position that worked at
+    zero scroll now resolves through the offset to the correct words
+    ("Slate fixture", same target as the zero-scroll selection test)."""
+    root, app = _make_app(tmp_path)
+    try:
+        z = app.viewer.zoom
+        app.canvas.config(width=50, height=50)  # force a viewport smaller than the page, so scrolling is real
+        root.update()
+        app.canvas.xview_moveto(0.5)
+        app.canvas.yview_moveto(0.3)
+        root.update()
+        offset_x = app.canvas.canvasx(0)
+        offset_y = app.canvas.canvasy(0)
+        assert offset_x != 0 or offset_y != 0  # confirm the scroll actually took effect
+
+        # Same PDF-space target rect as the zero-scroll test
+        # (70,55)-(148,78), expressed here in VIEWPORT-relative coords
+        # by subtracting the real scroll offset -- exactly what a user
+        # clicking at that visual spot on a scrolled canvas would send.
+        vx0, vy0 = int(70 * z - offset_x), int(55 * z - offset_y)
+        vx1, vy1 = int(148 * z - offset_x), int(78 * z - offset_y)
+        _drag(app, vx0, vy0, vx1, vy1)
+
+        selected = [w[4] for w in app._selected_words]
+        assert selected == ["Slate", "fixture"]
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_page_entry_box_reflects_current_page_and_total(tmp_path):
+    """Foxit/Acrobat-style centered page box (Devin, 2026-07-25: "move
+    the current page / total page UI element to the top-center...
+    mimic Foxit's UI"). basic3page.pdf has 3 pages."""
+    root, app = _make_app(tmp_path)
+    try:
+        assert app.page_entry_var.get() == "1"
+        assert app.page_total_label.cget("text") == "of 3"
+
+        app.next()
+        assert app.page_entry_var.get() == "2"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_typing_a_valid_page_number_and_enter_jumps_there(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app.page_entry_var.set("3")
+        app._goto_page_entry()
+        assert app.viewer.page_num == 2  # 0-indexed internally
+        assert app.page_entry_var.get() == "3"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_out_of_range_page_number_clamps_instead_of_crashing(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app.page_entry_var.set("999")
+        app._goto_page_entry()
+        assert app.viewer.page_num == 2  # clamped to the last real page (3)
+        assert app.page_entry_var.get() == "3"
+
+        app.page_entry_var.set("0")
+        app._goto_page_entry()
+        assert app.viewer.page_num == 0  # clamped to the first page
+        assert app.page_entry_var.get() == "1"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_non_numeric_page_entry_reverts_without_crashing(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app.next()  # real page 2
+        app.page_entry_var.set("not a number")
+        app._goto_page_entry()  # must not raise
+        assert app.viewer.page_num == 1  # unchanged
+        assert app.page_entry_var.get() == "2"  # reverted to the real current page
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_ctrl_w_closes_the_active_tab(tmp_path):
+    """Devin, 2026-07-25: "ctrl+w close tab (and other CUA keybinds)"."""
+    root, app = _make_app(tmp_path)
+    try:
+        second_path = str(tmp_path / "second.pdf")
+        shutil.copy(FIXTURE, second_path)
+        app._open_document(second_path)
+        assert len(app._tabs) == 2
+
+        app.do_close()  # what <Control-w> is bound to
+        assert len(app._tabs) == 1
+    finally:
+        for t in app._tabs:
+            t.doc.close()
+        root.destroy()
+
+
+def test_ctrl_tab_cycles_forward_and_wraps_around(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        for name in ("second.pdf", "third.pdf"):
+            p = str(tmp_path / name)
+            shutil.copy(FIXTURE, p)
+            app._open_document(p)
+        assert len(app._tabs) == 3
+        assert app.tab_strip.index(app.tab_strip.select()) == 2  # opening a doc activates it
+
+        app._kb_next_tab()
+        assert app.tab_strip.index(app.tab_strip.select()) == 0  # wraps around
+
+        app._kb_next_tab()
+        assert app.tab_strip.index(app.tab_strip.select()) == 1
+    finally:
+        for t in app._tabs:
+            t.doc.close()
+        root.destroy()
+
+
+def test_ctrl_shift_tab_cycles_backward_and_wraps_around(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        second_path = str(tmp_path / "second.pdf")
+        shutil.copy(FIXTURE, second_path)
+        app._open_document(second_path)
+        assert app.tab_strip.index(app.tab_strip.select()) == 1
+
+        app._kb_prev_tab()
+        assert app.tab_strip.index(app.tab_strip.select()) == 0
+
+        app._kb_prev_tab()
+        assert app.tab_strip.index(app.tab_strip.select()) == 1  # wraps around
+    finally:
+        for t in app._tabs:
+            t.doc.close()
+        root.destroy()
+
+
+def test_tab_cycle_with_only_one_tab_does_not_raise(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app._kb_next_tab()  # must not raise -- nothing to cycle to
+        app._kb_prev_tab()
+        assert len(app._tabs) == 1
+    finally:
+        for t in app._tabs:
+            t.doc.close()
+        root.destroy()
+
+
+def test_startup_schedules_a_silent_update_check(tmp_path, monkeypatch):
+    """Devin, 2026-07-25: "auto-checks for updates" -- confirms the
+    real app wires this up (not just updatecheck.py in isolation),
+    without hitting the real network or blocking startup."""
+    calls = []
+    monkeypatch.setattr(
+        "updatecheck.check_for_update",
+        lambda current, timeout=5.0: (calls.append(current) or
+                                       {"checked": False, "update_available": False,
+                                        "latest_version": None, "url": None, "error": "not configured"}),
+    )
+    root, app = _make_app(tmp_path)
+    try:
+        _wait_until(lambda: len(calls) > 0, root, timeout=5)
+        assert calls == [version.VERSION]
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_manual_check_shows_up_to_date_dialog(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "updatecheck.check_for_update",
+        lambda current, timeout=5.0: {"checked": True, "update_available": False,
+                                       "latest_version": current, "url": None, "error": None},
+    )
+    shown = []
+    monkeypatch.setattr(slate.messagebox, "showinfo", lambda title, msg: shown.append((title, msg)))
+    root, app = _make_app(tmp_path)
+    try:
+        app._check_for_updates(silent_if_current=False)
+        _wait_until(lambda: len(shown) > 0, root, timeout=5)
+        assert shown[0][0] == "Up to date"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_manual_check_reports_a_real_error_not_silently(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "updatecheck.check_for_update",
+        lambda current, timeout=5.0: {"checked": False, "update_available": False,
+                                       "latest_version": None, "url": None, "error": "network unreachable"},
+    )
+    shown = []
+    monkeypatch.setattr(slate.messagebox, "showinfo", lambda title, msg: shown.append((title, msg)))
+    root, app = _make_app(tmp_path)
+    try:
+        app._check_for_updates(silent_if_current=False)
+        _wait_until(lambda: len(shown) > 0, root, timeout=5)
+        assert shown[0] == ("Update check failed", "network unreachable")
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_startup_check_stays_silent_when_up_to_date(tmp_path, monkeypatch):
+    """The silent_if_current=True startup path must NOT pop a dialog
+    on every single launch just because the version is current --
+    only real news (an update) or a manual check should ever show UI."""
+    monkeypatch.setattr(
+        "updatecheck.check_for_update",
+        lambda current, timeout=5.0: {"checked": True, "update_available": False,
+                                       "latest_version": current, "url": None, "error": None},
+    )
+    shown = []
+    monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: shown.append(a))
+    monkeypatch.setattr(slate.messagebox, "askyesno", lambda *a, **k: shown.append(a))
+    root, app = _make_app(tmp_path)
+    try:
+        root.update()
+        import time
+        time.sleep(2.3)  # past the real 2s startup delay
+        root.update()
+        assert shown == []
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_startup_check_prompts_when_update_is_real(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "updatecheck.check_for_update",
+        lambda current, timeout=5.0: {"checked": True, "update_available": True,
+                                       "latest_version": "v9.9.9", "url": "https://example.com", "error": None},
+    )
+    asked = []
+    monkeypatch.setattr(slate.messagebox, "askyesno", lambda title, msg: asked.append((title, msg)) or False)
+    root, app = _make_app(tmp_path)
+    try:
+        root.update()
+        import time
+        time.sleep(2.3)
+        root.update()
+        assert len(asked) == 1
+        assert asked[0][0] == "Update available"
+        assert "v9.9.9" in asked[0][1]
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_ctrl_scroll_zooms_instead_of_navigating_pages(tmp_path):
+    """Devin, 2026-07-25: "Ctrl+scroll = zoom in/out"."""
+    root, app = _make_app(tmp_path)
+    try:
+        z0 = app.viewer.zoom
+        app._on_ctrl_mouse_wheel(_FakeEvent(0, 0, delta=120))  # Windows/Mac zoom-in
+        assert app.viewer.zoom > z0
+        assert app.viewer.page_num == 0  # did NOT change page
+
+        z1 = app.viewer.zoom
+        app._on_ctrl_mouse_wheel(_FakeEvent(0, 0, delta=-120))  # zoom-out
+        assert app.viewer.zoom < z1
+        assert app.viewer.page_num == 0
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_chrome_cascade_colors_menubar_tabstrip_toolbar_as_three_real_steps(tmp_path):
+    """Devin, 2026-07-25: "make menu bar cascade down in color from
+    window bar down to tabs, to toolbar making it aesthetic." Real
+    regression guard that the actual running widgets get the actual
+    three cascade steps -- menubar=menubar_bg, tabstrip (ttk Notebook's
+    own background)=tabstrip_bg, toolbar+scrollbars=toolbar_bg -- not
+    just that theme.py's data shape is right (test_theme.py already
+    covers that part)."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.theme_name.set("inkbone_dark")
+        app._apply_theme()
+        colors = theme.get_palette("inkbone_dark")
+
+        assert str(app.menubar.cget("bg")) == colors["menubar_bg"]
+        assert ttk.Style().lookup("TNotebook", "background") == colors["tabstrip_bg"]
+        assert str(app.toolbar.cget("bg")) == colors["toolbar_bg"]
+        assert str(app._vscroll.cget("background")) == colors["toolbar_bg"]
+        assert str(app._hscroll.cget("background")) == colors["toolbar_bg"]
+        # real 3-step gradient, not one flat color reused everywhere
+        assert len({colors["menubar_bg"], colors["tabstrip_bg"], colors["toolbar_bg"]}) == 3
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_tabs_never_use_select_bg_active_or_inactive(tmp_path):
+    """Devin, 2026-07-25: "remove the sepia from the tabs... come up
+    with a better, more creative solution." Real regression guard: tab
+    styling must never reference select_bg again -- inactive uses
+    button_bg/muted_fg, active uses bg/fg (blends into the content
+    area instead of a filled color block)."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.theme_name.set("inkbone_dark")
+        app._apply_theme()
+        colors = theme.get_palette("inkbone_dark")
+
+        style = ttk.Style()
+        base_bg = style.lookup("TNotebook.Tab", "background")
+        base_fg = style.lookup("TNotebook.Tab", "foreground")
+        assert base_bg == colors["button_bg"]
+        assert base_fg == colors["muted_fg"]
+
+        selected_bg = style.lookup("TNotebook.Tab", "background", ("selected",))
+        selected_fg = style.lookup("TNotebook.Tab", "foreground", ("selected",))
+        assert selected_bg == colors["bg"]
+        assert selected_fg == colors["fg"]
+        # the real point of this test: neither state is select_bg
+        assert colors["select_bg"] not in (base_bg, selected_bg)
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_mode_label_survives_the_chrome_theming_pass(tmp_path):
+    """_apply_chrome_theme's generic toolbar walk touches mode_label
+    too (it's inside the toolbar subtree) -- _set_mode's own reassert
+    right after must still win, same as it already did for the
+    generic _paint_widget pass."""
+    root, app = _make_app(tmp_path)
+    try:
+        app._set_mode("redact")
+        app._apply_theme()
+        assert app.mode_label.cget("bg") == "#c0392b"  # redact's own badge color, not chrome_bg
+        assert app.mode_label.cget("fg") == "white"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_toc_panel_is_visible_by_default_on_document_open(tmp_path):
+    """Devin, 2026-07-25: "default TOC view = true.\""""
+    root, app = _make_app(tmp_path)
+    try:
+        assert app.toc_visible.get() is True
+        panes = [str(p) for p in app._content_frame.panes()]
+        assert str(app.toc_frame) in panes
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_home_screen_matches_the_active_theme(tmp_path):
+    """Real bug caught live (Devin's screenshot, 2026-07-25): the home
+    screen never themed itself at all -- __init__ calls _apply_theme()
+    BEFORE _show_home_screen() ever builds home_frame, so it always
+    rendered plain default Tk light styling regardless of the active
+    theme. Covers both real call sites: fresh launch with no path, and
+    closing the last tab back to home."""
+    root = tk.Tk()
+    app = slate.SlateApp(root, None)  # no path -- launches straight to home screen
+    try:
+        app.theme_name.set("inkbone_dark")
+        app._on_theme_changed()
+        colors = theme.get_palette("inkbone_dark")
+        assert str(app.home_frame.cget("bg")) == colors["bg"]
+
+        # second call site: open a doc, close its only tab, back to home
+        second_path = str(tmp_path / "doc.pdf")
+        shutil.copy(FIXTURE, second_path)
+        app._open_document(second_path)
+        app.do_close()
+        assert app.home_frame is not None
+        assert str(app.home_frame.cget("bg")) == colors["bg"]
+    finally:
+        if app.doc is not None:
+            app.doc.close()
+        root.destroy()
+
+
+def test_toc_selected_row_uses_theme_highlight_not_ttks_default_blue(tmp_path):
+    """Real bug caught live (Devin, 2026-07-25: "the highlight in TOC
+    is blue, i want that to be inkbone green") -- Treeview's selected-
+    row color was never explicitly styled at all, riding ttk's own
+    'clam' theme built-in default regardless of Slate's actual palette."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.theme_name.set("inkbone_dark")
+        app._apply_theme()
+        colors = theme.get_palette("inkbone_dark")
+        style = ttk.Style()
+        assert style.lookup("Treeview", "background", ("selected",)) == colors["highlight_bg"]
+        assert style.lookup("Treeview", "foreground", ("selected",)) == colors["bg"]
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_about_dialog_has_a_fixed_green_accent_regardless_of_theme(tmp_path, monkeypatch):
+    """Devin, 2026-07-25: "please add a permanent, clever hint of
+    inkbone green on the about page please" -- must stay green even
+    under Solarized, whose real accent is blue."""
+    monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
+    root, app = _make_app(tmp_path)
+    try:
+        app.theme_name.set("solarized_dark")
+        app._apply_theme()
+        app._show_about()
+        about = root.winfo_children()[-1]  # the just-opened Toplevel
+        accent_bars = [
+            w for w in about.winfo_children()
+            if w.winfo_class() == "Frame" and str(w.cget("bg")) == "#62a945"
+        ]
+        assert len(accent_bars) == 1
+        about.destroy()
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_f2_opens_command_palette_listing_all_themes(tmp_path):
+    """Devin, 2026-07-25: "is there an easier way for me to change the
+    theme please? f2 command palette or something?\""""
+    root, app = _make_app(tmp_path)
+    try:
+        app._show_command_palette()
+        palette = root.winfo_children()[-1]
+        listbox = [w for w in palette.winfo_children() if isinstance(w, tk.Listbox)][0]
+        entries = listbox.get(0, tk.END)
+        assert len(entries) == len(theme.THEME_LABELS)
+        assert any("Inkbone Dark" in e for e in entries)
+        palette.destroy()
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_command_palette_filters_live_as_you_type(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app._show_command_palette()
+        palette = root.winfo_children()[-1]
+        entry = [w for w in palette.winfo_children() if isinstance(w, tk.Entry)][0]
+        listbox = [w for w in palette.winfo_children() if isinstance(w, tk.Listbox)][0]
+
+        entry.insert(0, "solarized")
+        root.update()
+        entries = listbox.get(0, tk.END)
+        assert len(entries) == 2  # Solarized Light + Solarized Dark
+        assert all("Solarized" in e for e in entries)
+        palette.destroy()
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_selecting_a_theme_in_command_palette_applies_it_and_closes(tmp_path):
+    """Real synthetic <Double-Button-1> events don't reliably fire
+    without genuine window-manager focus in this test harness (same
+    documented limitation as elsewhere in this suite) -- exercises the
+    real code the double-click binds to directly instead."""
+    root, app = _make_app(tmp_path)
+    try:
+        app._apply_command_palette_theme("solarized_dark")
+        assert app.theme_name.get() == "solarized_dark"
+        assert theme.load_preference() == "solarized_dark"  # real persisted, not just the var
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_page_box_prev_next_mini_buttons_navigate(tmp_path):
+    """Devin, 2026-07-25: "easier to change pages, not just text box
+    (which i still like the input to go straight a page number)" --
+    real click-path buttons alongside the entry, typed-number-jump
+    behavior untouched."""
+    root, app = _make_app(tmp_path)
+    try:
+        buttons = [
+            w for w in app.toolbar.winfo_children()[1].winfo_children()
+            if isinstance(w, tk.Button)
+        ]
+        labels = {b.cget("text") for b in buttons}
+        assert labels == {"◀", "▶"}
+        assert app.viewer.page_num == 0
+
+        next_btn = [b for b in buttons if b.cget("text") == "▶"][0]
+        next_btn.invoke()
+        assert app.viewer.page_num == 1
+
+        prev_btn = [b for b in buttons if b.cget("text") == "◀"][0]
+        prev_btn.invoke()
+        assert app.viewer.page_num == 0
+
+        # typed-number jump still works, unaffected by the new buttons
+        app.page_entry_var.set("3")
+        app._goto_page_entry()
+        assert app.viewer.page_num == 2
     finally:
         app.doc.close()
         root.destroy()

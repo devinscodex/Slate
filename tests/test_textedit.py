@@ -14,10 +14,40 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import fontmatch  # noqa: E402
 import textedit  # noqa: E402
 
-REAL_EMBEDDABLE_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"
+# Real bug caught on an actual Windows smoke test: this used to
+# hardcode a Linux-only path, which fitz.Page.insert_font() then
+# failed to open there. A small existence-checked candidate list
+# instead of one hardcoded assumption -- same fix as test_convert.py/
+# test_integration.py.
+_EMBEDDABLE_FONT_CANDIDATES = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",  # Linux (Debian/Ubuntu)
+    "/usr/share/fonts/dejavu/DejaVuSerif.ttf",  # Linux (Fedora)
+    r"C:\Windows\Fonts\times.ttf",  # Windows
+]
+REAL_EMBEDDABLE_FONT = next((p for p in _EMBEDDABLE_FONT_CANDIDATES if os.path.exists(p)), None)
+# The font's own internal name (what PyMuPDF reports as span["font"]),
+# derived from whichever real font was actually resolved above rather
+# than hardcoded -- "DejaVuSerif" on Linux, "Times New Roman" on
+# Windows, etc.
+REAL_EMBEDDABLE_FONT_NAME = (
+    fitz.Font(fontfile=REAL_EMBEDDABLE_FONT).name if REAL_EMBEDDABLE_FONT else None
+)
+
+
+def _normalize_spaces(text: str) -> str:
+    """Real font-file-specific quirk caught on an actual Windows smoke
+    test: PyMuPDF/MuPDF renders inserted spaces as regular ASCII spaces
+    for some embedded fonts (DejaVuSerif on Linux) but as non-breaking
+    spaces (U+00A0) for others (Times New Roman on Windows) -- neither
+    is wrong, just a real difference in how each font's own glyph table
+    is interpreted. Assertions here care about the WORDS, not the exact
+    whitespace byte, so this normalizes before comparing."""
+    return text.replace("\xa0", " ")
 
 
 def _make_reusable_fixture(path, text="The quick brown fox jumps over the lazy dog."):
+    if REAL_EMBEDDABLE_FONT is None:
+        pytest.skip("no known real embeddable font found on this machine")
     doc = fitz.open()
     page = doc.new_page()
     page.insert_font(fontname="F1", fontfile=REAL_EMBEDDABLE_FONT)
@@ -46,8 +76,8 @@ def test_detect_span_finds_text_at_a_point_and_misses_elsewhere(tmp_path):
 
     span = textedit.detect_span(page, fitz.Point(80, 95))
     assert span is not None
-    assert "quick brown fox" in span["text"]
-    assert span["font"] == "DejaVuSerif"  # PyMuPDF's internal font name, not the resource alias "F1"
+    assert "quick brown fox" in _normalize_spaces(span["text"])
+    assert span["font"] == REAL_EMBEDDABLE_FONT_NAME  # PyMuPDF's internal font name, not the resource alias "F1"
 
     nothing = textedit.detect_span(page, fitz.Point(80, 500))
     assert nothing is None
@@ -112,7 +142,7 @@ def test_edit_text_reusable_tier_end_to_end(tmp_path):
     doc.close()
 
     reread = fitz.open(out)
-    text = reread[0].get_text()
+    text = _normalize_spaces(reread[0].get_text())
     assert "slow purple wolf" in text
     assert "quick brown fox" not in text
     # confirm it's still using a real embedded (non-substitute) font
@@ -134,7 +164,7 @@ def test_edit_text_substitute_tier_end_to_end(tmp_path):
     doc.close()
 
     reread = fitz.open(out)
-    text = reread[0].get_text()
+    text = _normalize_spaces(reread[0].get_text())
     assert "Different words entirely" in text
     assert "quick brown fox" not in text
     reread.close()
@@ -157,7 +187,7 @@ def test_edit_text_shrinks_to_fit_longer_replacement(tmp_path):
     doc.close()
 
     reread = fitz.open(out)
-    assert "Longer text here." in reread[0].get_text()
+    assert "Longer text here." in _normalize_spaces(reread[0].get_text())
     reread.close()
 
 

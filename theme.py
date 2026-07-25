@@ -16,23 +16,30 @@ own light/dark OS theme, not this picker. Everything else (toolbar,
 canvas, home screen, dialogs, tabs, TOC) is drawn by Tk itself and
 themes correctly on every platform.
 
-Palette sources, verified live (not from memory) before writing these,
-Devin's ask: Solarized -- ethanschoonover.com/solarized (official base
-tones/blue accent); Gruvbox -- the project's own colors/gruvbox.vim
-source; Flexoki -- stephango.com/flexoki (Steph Ango's own published
-hex values). Mosscairn ("our custom Runestone CSS theme") -- Devin's
-own hand-built Obsidian snippet, read directly from
-runestone/.obsidian/snippets/mosscairn.css: light is "faded parchment"
-(--color-base-00 #a39a84 page, moss-green rgb(88,118,58) accent), dark
-is "watchtower night" (--color-base-00 #00242e deep teal page,
-lamplight-moss rgb(163,183,42) accent). That file only overrides
-Obsidian's raw --color-base-* palette + accent/link colors inside its
-.theme-dark block, not the semantic --background-* variables (those
-inherit Obsidian's own dark-theme defaults there) -- so the dark
-mapping below reads color-base-00/05/10/20/50/100 directly as the
-nearest equivalent to Slate's own bg/entry_bg/button_bg/muted_fg/fg
-roles, the same relative-position pattern the light block spells out
-explicitly.
+Roster consolidation (Devin, 2026-07-25): "make standard light/dark
+modes the same as Flexoki, and get rid of Flexoki as a separate
+option, also delete Gruvbox themes... main will be Dark/Light,
+Solarized Light/Dark, Inkbone Light/Dark." Down from 5 families (10
+variants) to 3 families (6 variants) -- "light"/"dark" now carry
+Flexoki's real published values directly (stephango.com/flexoki,
+verified live before the original entries were written); Solarized
+unchanged (ethanschoonover.com/solarized); Inkbone unchanged (Cairn's
+own presentation palette, cairn/presentation/eisenhower-board-2026-07
+-24-inkbone.html's real CSS) -- both already documented in full at
+their own dated entries below.
+
+Chrome cascade (Devin, 2026-07-25, same request): "make menu bar
+cascade down in color from window bar down to tabs, to toolbar making
+it aesthetic," applied to all 3 core families. One consistent rule
+across all 6 variants, not a per-theme special case: menubar_bg = bg
+(the extreme closest to the OS title bar), toolbar_bg = button_bg (the
+extreme closest to the content/card level), tabstrip_bg = the exact
+RGB midpoint between them -- a real 3-step visual gradient from top to
+bottom, not three arbitrary picks. Scrollbars share toolbar_bg/fg
+(same visual "closest to content" band, no 4th tone). menubar_fg/
+toolbar_fg both use the theme's own fg -- readable against either
+cascade extreme in every family tested here (all have real contrast
+margin between fg and both bg/button_bg).
 """
 import json
 from pathlib import Path
@@ -40,82 +47,181 @@ from pathlib import Path
 CONFIG_DIR = Path.home() / ".slate"
 PREF_FILE = CONFIG_DIR / "theme.json"
 
-DEFAULT_THEME = "dark"
+# inkbone_dark, not plain "dark" -- Devin, 2026-07-25: "inkbone-dark
+# will be our default (dark slate, heavy black pure night noir ink)
+# theme." Supersedes the earlier 2026-07-17 "Dark, explicit request"
+# ruling this same DEFAULT_THEME line documented before.
+DEFAULT_THEME = "inkbone_dark"
 
-THEMES = {
-    "light": {
-        # "SystemButtonFace" (Windows-only Tk symbolic name) crashed
-        # with "unknown color name" on Linux/X11 Tk, confirmed live --
-        # "#d9d9d9" is Tk's own actual compiled-in default widget gray,
-        # portable everywhere.
-        "bg": "#d9d9d9", "fg": "black", "button_bg": "#d9d9d9",
-        # "gray80" (Tk-style name) isn't recognized by PIL's ImageColor
-        # (confirmed live) -- render() recolors the page via
-        # ImageOps.colorize using these same values, so every color
-        # here needs to work in both Tk and PIL. "#cccccc" is gray80's
-        # own real RGB value (204,204,204), portable everywhere.
-        "entry_bg": "white", "canvas_bg": "#cccccc",
-        "select_bg": "#cce4ff", "muted_fg": "gray40", "is_dark": False,
-    },
-    "dark": {
-        "bg": "#2b2b2b", "fg": "#e8e8e8", "button_bg": "#3c3c3c",
-        "entry_bg": "#1e1e1e", "canvas_bg": "#1a1a1a",
-        "select_bg": "#3a5a7a", "muted_fg": "#9a9a9a", "is_dark": True,
-    },
-    "solarized_dark": {
-        "bg": "#002b36", "fg": "#839496", "button_bg": "#073642",
-        "entry_bg": "#073642", "canvas_bg": "#002b36",
-        "select_bg": "#268bd2", "muted_fg": "#586e75", "is_dark": True,
-    },
-    "solarized_light": {
-        "bg": "#fdf6e3", "fg": "#657b83", "button_bg": "#eee8d5",
-        "entry_bg": "#fdf6e3", "canvas_bg": "#fdf6e3",
-        "select_bg": "#268bd2", "muted_fg": "#93a1a1", "is_dark": False,
-    },
-    "gruvbox_dark": {
-        "bg": "#282828", "fg": "#ebdbb2", "button_bg": "#3c3836",
-        "entry_bg": "#1d2021", "canvas_bg": "#282828",
-        "select_bg": "#83a598", "muted_fg": "#928374", "is_dark": True,
-    },
-    "gruvbox_light": {
-        "bg": "#fbf1c7", "fg": "#3c3836", "button_bg": "#ebdbb2",
-        "entry_bg": "#fbf1c7", "canvas_bg": "#fbf1c7",
-        "select_bg": "#83a598", "muted_fg": "#928374", "is_dark": False,
-    },
-    "flexoki_dark": {
-        "bg": "#1c1b1a", "fg": "#e6e4d9", "button_bg": "#282726",
-        "entry_bg": "#100f0f", "canvas_bg": "#1c1b1a",
-        "select_bg": "#205ea6", "muted_fg": "#6f6e69", "is_dark": True,
-    },
-    "flexoki_light": {
-        "bg": "#fffcf0", "fg": "#100f0f", "button_bg": "#f2f0e5",
-        "entry_bg": "#fffcf0", "canvas_bg": "#fffcf0",
-        "select_bg": "#205ea6", "muted_fg": "#b7b5ac", "is_dark": False,
-    },
-    "mosscairn_dark": {
-        "bg": "#05313d", "fg": "#e8e4d0", "button_bg": "#093947",
-        "entry_bg": "#022a35", "canvas_bg": "#00242e",
-        "select_bg": "#a3b72a", "muted_fg": "#657b83", "is_dark": True,
-    },
-    "mosscairn_light": {
-        "bg": "#948b78", "fg": "#1c1a16", "button_bg": "#8a816f",
-        "entry_bg": "#8f8674", "canvas_bg": "#a39a84",
-        "select_bg": "#58763a", "muted_fg": "#433f39", "is_dark": False,
-    },
+
+def _hex_to_rgb(hexval: str):
+    return tuple(int(hexval[i:i + 2], 16) for i in (1, 3, 5))
+
+
+def _rgb_to_hex(rgb) -> str:
+    return "#" + "".join(f"{max(0, min(255, c)):02x}" for c in rgb)
+
+
+def _midpoint(hex_a: str, hex_b: str) -> str:
+    """Exact RGB midpoint between two hex colors."""
+    a, b = _hex_to_rgb(hex_a), _hex_to_rgb(hex_b)
+    return _rgb_to_hex(tuple((x + y) // 2 for x, y in zip(a, b)))
+
+
+def _lerp_toward_fg(bg: str, fg: str, fraction: float) -> str:
+    """Interpolates a fixed FRACTION of the way from bg toward fg.
+    Real fix (Devin, 2026-07-25, live screenshot review: "menubar
+    doesn't cascade in hue/darkness") for a real perceptual bug in the
+    first cascade formula: anchoring toolbar_bg to button_bg produced
+    mathematically-distinct but VISUALLY IDENTICAL steps for
+    inkbone_dark specifically (bg=#0e0c0a, button_bg=#1c1815 -- both so
+    close to pure black the human eye can't tell them apart, even
+    though the hex values genuinely differ). Interpolating toward fg
+    instead guarantees a REAL, always-visible step, because bg/fg
+    contrast is guaranteed high by definition of a working theme (that
+    contrast is what makes body text readable) -- the cascade rides
+    that same guaranteed contrast instead of depending on how far apart
+    bg and button_bg happen to be in each theme."""
+    a, b = _hex_to_rgb(bg), _hex_to_rgb(fg)
+    return _rgb_to_hex(tuple(round(x + fraction * (y - x)) for x, y in zip(a, b)))
+
+
+def _with_chrome_cascade(palette: dict) -> dict:
+    """menubar_bg=bg (0% toward fg, right against the OS title bar),
+    tabstrip_bg=8% toward fg, toolbar_bg=16% toward fg (closest to the
+    content/card level) -- one consistent, self-computing rule for
+    every "core" family (Standard/Inkbone/Solarized), riding the
+    theme's own guaranteed bg<->fg contrast rather than button_bg
+    (which button_bg keeps for its own original role: tab fills,
+    general Button widgets -- unaffected by this cascade now)."""
+    palette = dict(palette)
+    bg, fg = palette["bg"], palette["fg"]
+    palette["menubar_bg"] = bg
+    palette["menubar_fg"] = fg
+    palette["tabstrip_bg"] = _lerp_toward_fg(bg, fg, 0.08)
+    palette["toolbar_bg"] = _lerp_toward_fg(bg, fg, 0.16)
+    palette["toolbar_fg"] = fg
+    return palette
+
+
+# Flexoki's real published values (stephango.com/flexoki, verified live
+# 2026-07-24) -- now Standard light/dark directly, not a separate
+# option (Devin, 2026-07-25). Accent color swapped from Flexoki's own
+# blue (#205ea6) to Inkbone's green same day, real live feedback:
+# "only request for standard is to use inkbone green instead of blue
+# for standard if possible" -- green is Slate's real house accent now,
+# shared across Standard and Inkbone; Solarized keeps its own blue
+# identity untouched (not asked to change).
+#
+# bg/button_bg lightened off the real Flexoki spec, same day, second
+# real ask after seeing it live: real Flexoki bg (#1c1b1a) IS
+# numerically lighter than Inkbone Dark's bg (#0e0c0a) -- confirmed,
+# a real ~14-unit-per-channel gap -- but Devin asked again after
+# looking at it running ("make standard dark lighter in contrast to
+# inkbone dark"), meaning that gap doesn't read as different enough on
+# an actual screen. Live perception wins over a first-pass "the numbers
+# already differ" answer -- same class of override as the Solarized
+# saga this same session, just resolved in the opposite direction
+# (there, a later explicit "match official spec" instruction won over
+# an earlier aesthetic tweak; here, a SECOND live look overrides a
+# FIRST "no change needed, already on spec" verdict). entry_bg
+# (#100f0f, real Flexoki's own deliberately-darker input-field tone)
+# stays untouched -- this is about the general page/chrome tone Devin
+# was actually looking at, not that separate, intentional design
+# choice.
+_STANDARD_DARK = {
+    "bg": "#3a3937", "fg": "#e6e4d9", "button_bg": "#484744",
+    "entry_bg": "#100f0f", "canvas_bg": "#3a3937",
+    "select_bg": "#62a945", "muted_fg": "#6f6e69", "is_dark": True,
+    "highlight_bg": "#62a945",
+}
+_STANDARD_LIGHT = {
+    "bg": "#fffcf0", "fg": "#100f0f", "button_bg": "#f2f0e5",
+    "entry_bg": "#fffcf0", "canvas_bg": "#fffcf0",
+    "select_bg": "#4a7637", "muted_fg": "#b7b5ac", "is_dark": False,
+    "highlight_bg": "#4a7637",
 }
 
-# Display label -> internal THEMES key, in menu order.
+# Solarized -- real official values, ethanschoonover.com/solarized,
+# verified live 2026-07-25 (not memory): dark mode's real relationship
+# is base03:base0 for bg:fg per the design's own stated principle,
+# base02 for the secondary/UI surface. Restored to the true published
+# hex here -- an EARLIER same-night pass had desaturated bg/button_bg
+# off-spec toward a neutral charcoal (a live aesthetic complaint, "the
+# paper is too blue"), but Devin's follow-up instruction explicitly
+# asks to match "the spirit of solarized... refer to official repos,"
+# which supersedes that earlier ad-hoc call -- Solarized's blue-black
+# identity IS the spec, not a bug to soften. fg/muted_fg were already
+# correct (base0/base01) and are unchanged.
+_SOLARIZED_DARK = {
+    "bg": "#002b36", "fg": "#839496", "button_bg": "#073642",
+    "entry_bg": "#073642", "canvas_bg": "#002b36",
+    "select_bg": "#268bd2", "muted_fg": "#586e75", "is_dark": True,
+    "highlight_bg": "#268bd2",
+}
+_SOLARIZED_LIGHT = {
+    "bg": "#fdf6e3", "fg": "#657b83", "button_bg": "#eee8d5",
+    "entry_bg": "#fdf6e3", "canvas_bg": "#fdf6e3",
+    "select_bg": "#268bd2", "muted_fg": "#93a1a1", "is_dark": False,
+    "highlight_bg": "#268bd2",
+}
+
+# Inkbone -- Cairn's own presentation palette, read directly from
+# cairn/presentation/eisenhower-board-2026-07-24-inkbone.html's real
+# CSS rather than guessed: dark is "night-noir" (#0e0c0a page, #ede6d6
+# text), light is "bone-paper" (source values #ece3d1/#e4dac5 -- see
+# below, since diverged). card/callout surface maps to button_bg;
+# header/muted text maps to muted_fg; the kicker/primary accent green
+# maps to highlight_bg (and select_bg, its original non-tab role).
+#
+# Manga-essence pass (2026-07-25): green is a MINIMAL, pure accent --
+# lives only in select_bg/highlight_bg, never tabs or chrome. Tabs no
+# longer touch a filled color block at all: inactive = button_bg/
+# muted_fg (recedes), active = bg/fg (blends straight into the content
+# area below it, distinguished by bright text alone) -- see slate.py's
+# TNotebook.Tab style.
+#
+# "No brown tones at all with dark slate... save those for our light
+# mode" (2026-07-25, real correction after a first chrome attempt used
+# a warm tan) -- inkbone_dark's muted_fg also moved off a technically-
+# brownish sourced value (#a89786) to a true neutral gray (#8f8f8f);
+# brown/sepia now lives ONLY in inkbone_light, which was independently
+# darkened the same day ("darker white/light elements," said multiple
+# times) off the pale sourced tone toward a real, deeper, more
+# saturated sepia-tan -- Devin's own design call ("or whatever you
+# believe will fit"), not sourced like the rest of this family.
+_INKBONE_DARK = {
+    "bg": "#0e0c0a", "fg": "#ede6d6", "button_bg": "#1c1815",
+    "entry_bg": "#0e0c0a", "canvas_bg": "#0e0c0a",
+    "select_bg": "#62a945", "muted_fg": "#8f8f8f", "is_dark": True,
+    "highlight_bg": "#62a945",
+}
+_INKBONE_LIGHT = {
+    "bg": "#c9b896", "fg": "#211c17", "button_bg": "#b8a67e",
+    "entry_bg": "#c9b896", "canvas_bg": "#c9b896",
+    "select_bg": "#4a7637", "muted_fg": "#5c4f3a", "is_dark": False,
+    "highlight_bg": "#4a7637",
+}
+
+THEMES = {
+    "light": _with_chrome_cascade(_STANDARD_LIGHT),
+    "dark": _with_chrome_cascade(_STANDARD_DARK),
+    "inkbone_light": _with_chrome_cascade(_INKBONE_LIGHT),
+    "inkbone_dark": _with_chrome_cascade(_INKBONE_DARK),
+    "solarized_light": _with_chrome_cascade(_SOLARIZED_LIGHT),
+    "solarized_dark": _with_chrome_cascade(_SOLARIZED_DARK),
+}
+
+# Display label -> internal THEMES key, in menu order. Devin's stated
+# work order 2026-07-25 ("in order: Standard, Inkbone, Solarized")
+# applied as the real menu order too.
 THEME_LABELS = {
     "Light": "light",
     "Dark": "dark",
-    "Solarized Dark": "solarized_dark",
+    "Inkbone Light": "inkbone_light",
+    "Inkbone Dark": "inkbone_dark",
     "Solarized Light": "solarized_light",
-    "Gruvbox Dark": "gruvbox_dark",
-    "Gruvbox Light": "gruvbox_light",
-    "Flexoki Dark": "flexoki_dark",
-    "Flexoki Light": "flexoki_light",
-    "Mosscairn Dark": "mosscairn_dark",
-    "Mosscairn Light": "mosscairn_light",
+    "Solarized Dark": "solarized_dark",
 }
 
 # Kept as plain names too (not just THEMES["light"]/["dark"]) -- several

@@ -16,20 +16,28 @@ def test_every_voice_has_the_same_metadata_shape():
         assert required_keys == set(info.keys()), voice_id
 
 
-def test_exactly_one_voice_is_bundled():
-    bundled = [v for v, info in tts.VOICES.items() if info["bundled"]]
-    assert bundled == ["northern_english_male"]
+def test_exactly_two_voices_are_bundled_one_male_one_female_same_tier():
+    """Devin, 2026-07-25 (exe/installer pass): "bundled default male/
+    female voice (same freq)... option to DL the other two." One male
+    (northern_english_male) + one female (alba), both real Piper
+    "medium" quality / 22050Hz -- deliberately the same tier so
+    neither sounds like the "downgraded" option out of the box."""
+    bundled = {v for v, info in tts.VOICES.items() if info["bundled"]}
+    assert bundled == {"northern_english_male", "alba"}
+    assert tts.VOICES["northern_english_male"]["sample_rate"] == tts.VOICES["alba"]["sample_rate"]
 
 
-def test_bundled_voice_is_actually_available_without_downloading():
-    assert tts.is_available("northern_english_male") is True
-    assert tts.get_model_path("northern_english_male") is not None
-    assert os.path.exists(tts.get_model_path("northern_english_male"))
+def test_bundled_voices_are_actually_available_without_downloading():
+    for voice_id in ("northern_english_male", "alba"):
+        assert tts.is_available(voice_id) is True
+        assert tts.get_model_path(voice_id) is not None
+        assert os.path.exists(tts.get_model_path(voice_id))
 
 
-def test_non_bundled_voice_is_not_available_until_downloaded():
-    assert tts.is_available("alba") is False
-    assert tts.get_model_path("alba") is None
+def test_non_bundled_voices_are_not_available_until_downloaded():
+    for voice_id in ("southern_english_female", "danny"):
+        assert tts.is_available(voice_id) is False
+        assert tts.get_model_path(voice_id) is None
 
 
 def test_every_voice_has_a_real_bundled_preview_clip():
@@ -55,10 +63,13 @@ def test_download_voice_writes_onnx_and_json_then_becomes_available(tmp_path, mo
 
     monkeypatch.setattr(tts.urllib.request, "urlretrieve", fake_urlretrieve)
 
-    assert tts.is_available("alba") is False
-    result_path = tts.download_voice("alba")
-    assert tts.is_available("alba") is True
-    assert result_path == tts.get_model_path("alba")
+    # southern_english_female, not alba -- alba is bundled now (Devin,
+    # 2026-07-25: two bundled voices, male+female same tier), so it's
+    # no longer a genuine "not yet downloaded" example.
+    assert tts.is_available("southern_english_female") is False
+    result_path = tts.download_voice("southern_english_female")
+    assert tts.is_available("southern_english_female") is True
+    assert result_path == tts.get_model_path("southern_english_female")
     assert os.path.exists(result_path)
     assert os.path.exists(result_path + ".json")
     # downloaded via a .part temp name, not left behind after success
@@ -80,8 +91,9 @@ def test_download_voice_reports_progress(monkeypatch):
 
 
 def test_synthesize_unavailable_voice_raises_clear_error():
+    # southern_english_female, not alba -- alba is bundled now.
     with pytest.raises(ValueError, match="not been downloaded"):
-        tts.synthesize("hello", "alba")
+        tts.synthesize("hello", "southern_english_female")
 
 
 def test_synthesize_bundled_voice_produces_real_audio():
@@ -103,3 +115,18 @@ def test_synthesize_length_scale_changes_audio_duration():
     fast_audio, _, _, _ = tts.synthesize("This is a somewhat longer test sentence.", "northern_english_male", length_scale=0.7)
     slow_audio, _, _, _ = tts.synthesize("This is a somewhat longer test sentence.", "northern_english_male", length_scale=1.5)
     assert len(slow_audio) > len(fast_audio)
+
+
+def test_synthesize_caches_the_loaded_voice_across_calls():
+    """Real perf bug caught live: PiperVoice.load() alone takes ~1.2s
+    (loading the ~60MB model + building an onnxruntime session) --
+    reloading it on every call meant every 'Read this page' repaid
+    that cost even for the same voice back-to-back. Confirms the same
+    PiperVoice object is reused, not a fresh one built each time."""
+    tts._voice_cache.clear()  # isolate from whatever earlier tests already warmed
+    tts.synthesize("First call.", "northern_english_male")
+    assert "northern_english_male" in tts._voice_cache
+    first_instance = tts._voice_cache["northern_english_male"]
+
+    tts.synthesize("Second call.", "northern_english_male")
+    assert tts._voice_cache["northern_english_male"] is first_instance  # same object, not reloaded

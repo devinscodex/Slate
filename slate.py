@@ -6,9 +6,11 @@ per-feature modules; this file is glue + Tkinter widgets only.
 """
 import os
 import platform
+import queue
 import sys
 import threading
 import tkinter as tk
+import webbrowser
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import fitz  # PyMuPDF
@@ -27,10 +29,12 @@ import scan
 import search
 import security
 import sign
+import singleinstance
 import tab as tabmodule
 import textedit
 import theme
 import tts
+import updatecheck
 import version
 from viewer import Viewer
 from playback import Player as TTSPlayer
@@ -73,9 +77,17 @@ class SlateApp:
         self._drag_start = None
         self._drag_rect_id = None
         self._pending_redactions = []  # [(page_num, fitz.Rect), ...]
+        # Text selection (view mode default -- Devin's ask, 2026-07-25:
+        # "default to arrow/select text over rectangle select"). Each
+        # entry is a fitz word tuple (x0, y0, x1, y1, word, block_no,
+        # line_no, word_no) -- page.get_text("words") already returns
+        # words in natural reading order, so the selected subset stays
+        # correctly ordered without re-sorting by geometry.
+        self._selected_words = []
         self._doc_view_built = False
         self.home_frame = None
-        self.toc_visible = tk.BooleanVar(value=False)
+        # Devin, 2026-07-25: "default TOC view = true."
+        self.toc_visible = tk.BooleanVar(value=True)
         self.theme_name = tk.StringVar(value=theme.load_preference())
         # Read Aloud (TTS): app-wide, not per-tab -- reading one document
         # while switching tabs isn't a supported combination in v1.
@@ -105,6 +117,12 @@ class SlateApp:
         else:
             self._show_home_screen()
 
+        # Auto-check on launch (Devin, 2026-07-25: "auto-checks for
+        # updates"). Delayed 2s so it never competes with initial
+        # doc-load/render for the same event loop; silent unless
+        # there's real news (see _check_for_updates's docstring).
+        self.root.after(2000, lambda: self._check_for_updates(silent_if_current=True))
+
     # ------------------------------------------------------------------
     # menu
     # ------------------------------------------------------------------
@@ -112,15 +130,33 @@ class SlateApp:
         """Purely cosmetic -- must never crash the app if the branding
         asset is missing (e.g. a stripped-down deployment without
         branding/). Keeps a reference on self (same PhotoImage-gets-
-        garbage-collected gotcha as self._tk_img in render())."""
-        icon_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "branding", "icon_b_redaction_bar.png"
-        )
+        garbage-collected gotcha as self._tk_img in render()).
+
+        iconphoto() alone (the original implementation) sets the
+        in-app titlebar icon reasonably well cross-platform, but real
+        Windows TASKBAR icons are a separate, Windows-specific
+        mechanism -- iconbitmap(default=...) with a real multi-
+        resolution .ico (branding/slate.ico, generated from
+        icon_b_redaction_bar.png via Pillow's ICO writer) is what
+        Windows actually reads for the taskbar/Alt-Tab icon. Devin,
+        2026-07-25: "make the icon(s) official in the taskbar/
+        titlebar." NOT live-verified against a real Windows box from
+        here -- same "built against the documented mechanism, needs a
+        real machine to fully confirm" caveat as
+        _apply_native_titlebar_theme.
+        """
+        branding_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "branding")
         try:
-            self._icon_img = tk.PhotoImage(file=icon_path)
+            self._icon_img = tk.PhotoImage(file=os.path.join(branding_dir, "icon_b_redaction_bar.png"))
             self.root.iconphoto(True, self._icon_img)
         except tk.TclError:
             pass
+        if platform.system() == "Windows":
+            ico_path = os.path.join(branding_dir, "slate.ico")
+            try:
+                self.root.iconbitmap(default=ico_path)
+            except tk.TclError:
+                pass
 
     def _on_theme_changed(self):
         theme.save_preference(self.theme_name.get())
@@ -174,20 +210,96 @@ class SlateApp:
 
         style = ttk.Style()
         style.theme_use("clam")
-        style.configure("TNotebook", background=colors["bg"], borderwidth=0)
+        # tabstrip_bg, not plain bg -- the Notebook's own background is
+        # the MIDDLE step of the menubar->tabstrip->toolbar cascade
+        # (Devin, 2026-07-25: "make menu bar cascade down in color from
+        # window bar down to tabs, to toolbar making it aesthetic").
+        style.configure("TNotebook", background=colors["tabstrip_bg"], borderwidth=0)
+        # Tab redesign (Devin, 2026-07-25, seeing it running live: "the
+        # sepia... remove that from the tabs... come up with a better,
+        # more creative solution"). No color block at all now, active
+        # or inactive -- inactive = button_bg/muted_fg (a quiet card,
+        # recedes into the chrome), active = bg/fg (the SAME tone as
+        # the content area below it, so the active tab visually melts
+        # into the page instead of sitting on top of it as a colored
+        # block) -- distinguished from inactive purely by brightness
+        # (bright fg text vs muted_fg), the way a lit panel reads
+        # against darker ones on a manga page, not by a filled color.
         style.configure(
-            "TNotebook.Tab", background=colors["button_bg"], foreground=colors["fg"]
+            "TNotebook.Tab", background=colors["button_bg"], foreground=colors["muted_fg"]
         )
-        style.map("TNotebook.Tab", background=[("selected", colors["select_bg"])])
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", colors["bg"])],
+            foreground=[("selected", colors["fg"])],
+        )
         style.configure(
             "Treeview",
             background=colors["entry_bg"],
             foreground=colors["fg"],
             fieldbackground=colors["entry_bg"],
         )
+        # Real bug caught live (Devin, 2026-07-25: "the highlight in
+        # TOC is blue, i want that to be inkbone green") -- selected-
+        # row color was never actually styled here at all; it was
+        # riding ttk's own 'clam' theme built-in default (a blue-ish
+        # highlight), completely independent of Slate's own palette,
+        # this whole time. Now genuinely theme-driven via highlight_bg.
+        style.map(
+            "Treeview",
+            background=[("selected", colors["highlight_bg"])],
+            foreground=[("selected", colors["bg"])],
+        )
+
+        self._apply_chrome_theme(colors)
 
         if hasattr(self, "mode_label"):
             self._set_mode(self.mode)  # reassert redact's red badge over the generic pass
+
+    def _apply_chrome_theme(self, colors):
+        """The chrome CASCADE (Devin, 2026-07-25): "make menu bar
+        cascade down in color from window bar down to tabs, to toolbar
+        making it aesthetic," same rule for all 3 core families
+        (Standard/Inkbone/Solarized) -- see theme.py's
+        _with_chrome_cascade for the actual 3-step values (menubar_bg
+        = bg, tabstrip_bg = midpoint, toolbar_bg = button_bg). This
+        method applies menubar_bg/fg to the menubar and toolbar_bg/fg
+        to the toolbar + scrollbars, overriding the generic bg/fg the
+        recursive _paint_widget pass already applied to them as plain
+        Frames/Labels/Buttons. tabstrip_bg is applied separately, via
+        ttk.Style's "TNotebook" background above (a ttk widget, not
+        part of this plain-Tk walk). Menu itself is native-rendered on
+        Windows (same documented limitation as elsewhere in this
+        file) -- setting it anyway is harmless and correct on Linux.
+        """
+        if hasattr(self, "menubar"):
+            try:
+                self.menubar.configure(bg=colors["menubar_bg"], fg=colors["menubar_fg"])
+            except tk.TclError:
+                pass
+        if hasattr(self, "toolbar"):
+            self._paint_chrome_subtree(self.toolbar, colors["toolbar_bg"], colors["toolbar_fg"])
+        for scrollbar in (getattr(self, "_vscroll", None), getattr(self, "_hscroll", None)):
+            if scrollbar is not None:
+                try:
+                    scrollbar.configure(
+                        background=colors["toolbar_bg"], troughcolor=colors["bg"],
+                        activebackground=colors["highlight_bg"],
+                    )
+                except tk.TclError:
+                    pass
+
+    def _paint_chrome_subtree(self, widget, band_bg, band_fg):
+        try:
+            cls = widget.winfo_class()
+            if cls in ("Frame",):
+                widget.configure(bg=band_bg)
+            elif cls in ("Label", "Button"):
+                widget.configure(bg=band_bg, fg=band_fg)
+        except tk.TclError:
+            pass  # mode_label's red badge (redact mode) and similar owned-elsewhere widgets skip cleanly
+        for child in widget.winfo_children():
+            self._paint_chrome_subtree(child, band_bg, band_fg)
 
     def _paint_widget(self, widget, colors):
         if widget is getattr(self, "mode_label", None):
@@ -198,9 +310,27 @@ class SlateApp:
             cls = widget.winfo_class()
             try:
                 if cls in ("Toplevel", "Tk"):
-                    widget.configure(bg=colors["bg"])  # no -fg option on these, unlike Frame/Label
-                elif cls in ("Frame", "Label"):
+                    widget.configure(bg=colors["bg"])  # no -fg option on these
+                elif cls == "Frame":
+                    # Real bug caught live (Devin's screenshot,
+                    # 2026-07-25 -- the home screen never themed
+                    # itself): Frame has NO -fg option at all (only
+                    # Label does), so the original combined
+                    # `configure(bg=..., fg=...)` here threw
+                    # "unknown option -fg" for every single Frame in
+                    # the app, silently swallowed by the blanket
+                    # except TclError below -- meaning bg was NEVER
+                    # actually applied to any plain Frame via this
+                    # generic pass, ever, app-wide. Masked everywhere
+                    # else by a separate override (toolbar/menubar's
+                    # own _apply_chrome_theme, canvas's own Canvas-
+                    # class branch below); the home screen was just
+                    # the first place with no such override to hide it.
+                    widget.configure(bg=colors["bg"])
+                elif cls == "Label":
                     widget.configure(bg=colors["bg"], fg=colors["fg"])
+                elif cls == "Panedwindow":
+                    widget.configure(bg=colors["bg"])  # no -fg option, same as Toplevel/Tk
                 elif cls == "Button":
                     widget.configure(
                         bg=colors["button_bg"], fg=colors["fg"], activebackground=colors["select_bg"]
@@ -227,15 +357,26 @@ class SlateApp:
             self._paint_widget(child, colors)
 
     def _build_menu(self):
-        menubar = tk.Menu(self.root)
+        # Devin, 2026-07-25, real screenshot: "if this is inkbone dark,
+        # i cannot see the menu checkboxes" -- Tk's radiobutton/
+        # checkbutton indicator (selectcolor) defaults to a mid-gray
+        # that can vanish against a dark native menu background.
+        # Fixed value, not re-themed live on theme switch (the native
+        # Win32 menu popup itself is already a documented can't-fully-
+        # control surface, see theme.py's own docstring) -- bright
+        # green reads against light OR dark menu backgrounds, so a
+        # static pick here is more robust than trying to track/re-
+        # theme every radiobutton entry through every theme switch.
+        radio_select_color = "#4a9e3a"
+        menubar = self.menubar = tk.Menu(self.root)
 
         filem = self.filem = tk.Menu(menubar, tearoff=0)
-        filem.add_command(label="Open...", command=self.open_file)
+        filem.add_command(label="Open...", command=self.open_file, accelerator="Ctrl+O")
         self.recent_menu = tk.Menu(filem, tearoff=0, postcommand=self._refresh_recent_menu)
         filem.add_cascade(label="Recent", menu=self.recent_menu)
-        filem.add_command(label="Close", command=self.do_close)
-        filem.add_command(label="Save", command=self.save)
-        filem.add_command(label="Save As...", command=self.save_as)
+        filem.add_command(label="Close", command=self.do_close, accelerator="Ctrl+W")
+        filem.add_command(label="Save", command=self.save, accelerator="Ctrl+S")
+        filem.add_command(label="Save As...", command=self.save_as, accelerator="Ctrl+Shift+S")
         filem.add_separator()
         filem.add_command(label="Merge PDFs...", command=self.do_merge)
         filem.add_command(label="Split into pages...", command=self.do_split)
@@ -247,10 +388,12 @@ class SlateApp:
         filem.add_command(label="Encrypt...", command=self.do_encrypt)
         filem.add_command(label="Sign (self-signed test cert)...", command=self.do_sign)
         filem.add_separator()
-        filem.add_command(label="Quit", command=self.root.quit)
+        filem.add_command(label="Quit", command=self.root.quit, accelerator="Ctrl+Q")
         menubar.add_cascade(label="File", menu=filem)
 
         editm = self.editm = tk.Menu(menubar, tearoff=0)
+        editm.add_command(label="Copy selected text", command=self._copy_selection, accelerator="Ctrl+C")
+        editm.add_separator()
         editm.add_command(label="Redact (drag a region)", command=lambda: self._set_mode("redact"))
         editm.add_command(
             label="Apply pending redactions + Save As...",
@@ -296,7 +439,7 @@ class SlateApp:
         for label, name in theme.THEME_LABELS.items():
             thememenu.add_radiobutton(
                 label=label, variable=self.theme_name, value=name,
-                command=self._on_theme_changed,
+                command=self._on_theme_changed, selectcolor=radio_select_color,
             )
         viewm.add_cascade(label="Theme", menu=thememenu)
         menubar.add_cascade(label="View", menu=viewm)
@@ -314,11 +457,15 @@ class SlateApp:
         for voice_id, info in tts.VOICES.items():
             voicem.add_radiobutton(
                 label=info["label"], variable=self.tts_voice, value=voice_id,
+                selectcolor=radio_select_color,
             )
         readm.add_cascade(label="Voice", menu=voicem)
         speedm = tk.Menu(readm, tearoff=0)
         for speed in (0.75, 1.0, 1.25, 1.5, 2.0):
-            speedm.add_radiobutton(label=f"{speed}x", variable=self.tts_speed, value=speed)
+            speedm.add_radiobutton(
+                label=f"{speed}x", variable=self.tts_speed, value=speed,
+                selectcolor=radio_select_color,
+            )
         readm.add_cascade(label="Speed", menu=speedm)
         readm.add_separator()
         readm.add_command(label="Read this page", command=self.do_read_page)
@@ -326,27 +473,191 @@ class SlateApp:
         readm.add_command(label="Stop", command=self.do_tts_stop)
         menubar.add_cascade(label="Read Aloud", menu=readm)
 
+        # Check for Updates lives on the About dialog now, not a
+        # separate menu item (Devin, 2026-07-25: "having updates in
+        # about means the menu option can be removed").
         helpm = tk.Menu(menubar, tearoff=0)
         helpm.add_command(label="About Slate...", command=self._show_about)
         menubar.add_cascade(label="Help", menu=helpm)
 
         self.root.config(menu=menubar)
 
+    def _check_for_updates(self, silent_if_current: bool):
+        """Real network call, always on a background thread -- same
+        thread-safety pattern already established for TTS synthesis/
+        voice downloads (never touch Tk widgets off the main thread;
+        poll a plain dict via root.after()). silent_if_current=True is
+        the startup auto-check (Devin, 2026-07-25: "auto-checks for
+        updates") -- stays quiet unless there's real news, so it never
+        nags on every launch; the menu-triggered manual check always
+        reports something, even "up to date" or a real error."""
+        result = {"done": False, "data": None}
+
+        def worker():
+            result["data"] = updatecheck.check_for_update(version.VERSION)
+            result["done"] = True
+
+        def poll():
+            if not result["done"]:
+                self.root.after(200, poll)
+                return
+            data = result["data"]
+            if data["update_available"]:
+                if messagebox.askyesno(
+                    "Update available",
+                    f"Slate {data['latest_version']} is available (you have {version.VERSION}).\n\n"
+                    f"Open the release page?",
+                ):
+                    webbrowser.open(data["url"])
+            elif not silent_if_current:
+                if data["checked"]:
+                    messagebox.showinfo("Up to date", f"Slate {version.VERSION} is the latest version.")
+                else:
+                    messagebox.showinfo("Update check failed", data["error"])
+
+        threading.Thread(target=worker, daemon=True).start()
+        poll()
+
+    def _show_command_palette(self, event=None):
+        """F2 (Devin, 2026-07-25: "is there an easier way for me to
+        change the theme please? f2 command palette or something?").
+        v1 scope is theme-switching, but built as a real (label,
+        action) list + live filter rather than a theme-only hardcoded
+        dialog -- the smallest real command palette, not a one-off,
+        so it's a natural extension point later rather than a dead
+        end. Escape/click-away cancels; Enter or a click applies the
+        highlighted entry and closes."""
+        commands = [
+            (f"Theme: {label}", (lambda n=name: self._apply_command_palette_theme(n)))
+            for label, name in theme.THEME_LABELS.items()
+        ]
+
+        top = tk.Toplevel(self.root)
+        top.title("Command Palette")
+        top.resizable(False, False)
+        top.transient(self.root)
+
+        entry_var = tk.StringVar()
+        entry = tk.Entry(top, textvariable=entry_var, width=40)
+        entry.pack(padx=10, pady=(10, 6), fill=tk.X)
+        listbox = tk.Listbox(top, width=40, height=8, activestyle="dotbox")
+        listbox.pack(padx=10, pady=(0, 10))
+
+        def refresh(*_a):
+            query = entry_var.get().lower()
+            listbox.delete(0, tk.END)
+            for label, _action in commands:
+                if query in label.lower():
+                    listbox.insert(tk.END, label)
+            if listbox.size() > 0:
+                listbox.selection_set(0)
+
+        def run_selected(event=None):
+            sel = listbox.curselection()
+            if not sel:
+                return
+            chosen_label = listbox.get(sel[0])
+            for label, action in commands:
+                if label == chosen_label:
+                    action()
+                    break
+            top.destroy()
+
+        def move_selection(delta):
+            if listbox.size() == 0:
+                return
+            cur = listbox.curselection()
+            i = (cur[0] + delta) % listbox.size() if cur else 0
+            listbox.selection_clear(0, tk.END)
+            listbox.selection_set(i)
+            listbox.see(i)
+
+        entry_var.trace_add("write", refresh)
+        entry.bind("<Return>", run_selected)
+        entry.bind("<Down>", lambda e: move_selection(1))
+        entry.bind("<Up>", lambda e: move_selection(-1))
+        entry.bind("<Escape>", lambda e: top.destroy())
+        listbox.bind("<Double-Button-1>", run_selected)
+        top.bind("<Escape>", lambda e: top.destroy())
+
+        refresh()
+        self._paint_widget(top, theme.get_palette(self.theme_name.get()))
+        entry.focus_set()
+
+        top.update_idletasks()
+        root_x, root_y = self.root.winfo_rootx(), self.root.winfo_rooty()
+        root_w = self.root.winfo_width()
+        x = root_x + (root_w - top.winfo_width()) // 2
+        y = root_y + 60  # near the top, VSCode/Sublime palette convention
+        top.geometry(f"+{x}+{y}")
+
+    def _apply_command_palette_theme(self, name):
+        self.theme_name.set(name)
+        self._on_theme_changed()
+
     def _show_about(self):
+        colors = theme.get_palette(self.theme_name.get())
         top = tk.Toplevel(self.root)
         top.title("About Slate")
         top.resizable(False, False)
+
+        header = tk.Frame(top)
+        header.pack(padx=24, pady=(18, 6), anchor="w")
+        if getattr(self, "_icon_img", None) is not None:
+            # Same subsample(4,4) reuse-not-reload trick as the home
+            # screen's own logo -- Devin, 2026-07-25: "along with the
+            # icon in a good spot as well, i love the slate icon."
+            logo = self._icon_img.subsample(4, 4)
+            self._about_logo_img = logo  # keep a reference, same gotcha as _tk_img/_home_logo_img
+            tk.Label(header, image=logo).pack(side=tk.LEFT, padx=(0, 12))
         tk.Label(
-            top, text=f"Slate {version.VERSION}", font=("TkDefaultFont", 14, "bold")
-        ).pack(padx=24, pady=(18, 6))
+            header, text=f"Slate {version.VERSION}", font=("TkDefaultFont", 14, "bold")
+        ).pack(side=tk.LEFT)
+
+        # Permanent green accent (Devin, 2026-07-25: "could we add a
+        # clever accent of green on the 'about' as well?" then "please
+        # add a permanent, clever hint of inkbone green on the about
+        # page please"). FIXED hex, not colors["highlight_bg"] -- that
+        # field is theme-variable (Solarized's real accent is blue, on
+        # purpose, per the same-day official-palette review), but this
+        # mark is meant to read as Slate's own house color on the
+        # About page specifically, regardless of which theme is active.
+        accent_bar = tk.Frame(top, bg="#62a945", height=2)
+        accent_bar.pack(fill=tk.X, padx=24, pady=(0, 10))
         tk.Label(
             top, text=version.SUMMARY, wraplength=360, justify="left"
         ).pack(padx=24, pady=(0, 12))
         author_label = tk.Label(top, text=f"© 2026 {version.AUTHOR}", fg="gray40")
         author_label.slate_muted = True
         author_label.pack(padx=24, pady=(0, 18))
-        tk.Button(top, text="Close", command=top.destroy).pack(pady=(0, 14))
-        self._paint_widget(top, theme.get_palette(self.theme_name.get()))
+        button_row = tk.Frame(top)
+        button_row.pack(pady=(0, 14))
+        # Check for Updates lives here now, not a separate Help menu
+        # item (Devin, 2026-07-25). Spacing tuned live twice same day:
+        # 8px read as "too close," 24px read as "a gap" -- 10px landed.
+        tk.Button(
+            button_row, text="Check for Updates...",
+            command=lambda: self._check_for_updates(silent_if_current=False),
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        tk.Button(button_row, text="Close", command=top.destroy).pack(side=tk.LEFT)
+        self._paint_widget(top, colors)
+        # Real bug caught by this dialog's own test: the generic
+        # _paint_widget walk above recolors EVERY Frame to the theme's
+        # bg, including accent_bar -- it doesn't know this one is
+        # meant to stay fixed. Re-assert the permanent green after the
+        # generic pass, not before.
+        accent_bar.configure(bg="#62a945")
+
+        # Center over the main window, not the top-left corner (Devin,
+        # 2026-07-25) -- real geometry only exists after the widgets
+        # above are actually laid out, hence update_idletasks() first.
+        top.update_idletasks()
+        root_x, root_y = self.root.winfo_rootx(), self.root.winfo_rooty()
+        root_w, root_h = self.root.winfo_width(), self.root.winfo_height()
+        dlg_w, dlg_h = top.winfo_width(), top.winfo_height()
+        x = root_x + (root_w - dlg_w) // 2
+        y = root_y + (root_h - dlg_h) // 2
+        top.geometry(f"+{x}+{y}")
 
     def _refresh_recent_menu(self):
         self.recent_menu.delete(0, "end")
@@ -368,7 +679,24 @@ class SlateApp:
         # bug caught live writing this slice's own epub test. Signing is
         # itself a PDF-only menu item (gated off elsewhere), so a non-PDF
         # document is never "signed" by definition.
-        signed = " [SIGNED]" if self.doc is not None and self.doc.is_pdf and sign.is_signed(self.path) else ""
+        # self.path is the ORIGINAL path (tab convention, see
+        # _open_document) even for a tab whose actual content came
+        # from a converted temp PDF (HTML/image opens, convert.
+        # path_to_pdf). sign.is_signed() opens self.path itself via
+        # pyhanko -- for an .html/.png source that's not a PDF at all
+        # ("Illegal PDF header"), a real crash caught live 2026-07-25
+        # wiring the HTML-open feature. Guard on the path's own
+        # extension, not just self.doc.is_pdf (which reflects the
+        # loaded-in-memory format, already true for a converted HTML
+        # doc, and would NOT have caught this).
+        signed = (
+            " [SIGNED]"
+            if self.doc is not None
+            and self.doc.is_pdf
+            and self.path.lower().endswith(".pdf")
+            and sign.is_signed(self.path)
+            else ""
+        )
         return f"Slate — {os.path.basename(self.path)}{signed}"
 
     def _set_mode(self, mode):
@@ -512,6 +840,17 @@ class SlateApp:
             self._recent_listbox.bind("<Double-Button-1>", self._open_recent_selected)
             self._recent_listbox.bind("<Return>", self._open_recent_selected)
 
+        # Real bug, caught live (Devin's screenshot, 2026-07-25): the
+        # home screen never themed itself at all -- __init__ calls
+        # _apply_theme() BEFORE _show_home_screen() ever builds
+        # home_frame (nothing to paint yet), and the tab-close-back-to-
+        # -home path (_close_tab_by_index) has the same gap, so the
+        # home screen always rendered plain default Tk light styling
+        # regardless of the active theme, no matter which of the two
+        # call sites reached it. Self-contained fix here rather than
+        # reordering __init__ -- covers both paths at once.
+        self._paint_widget(self.home_frame, theme.get_palette(self.theme_name.get()))
+
     def _open_recent_selected(self, event=None):
         """Bound to the home screen's recent-files listbox (double-click
         or Enter). Looks up the real path by LIST INDEX into the exact
@@ -544,16 +883,56 @@ class SlateApp:
         self.tab_strip.bind("<<NotebookTabChanged>>", self._on_tab_strip_changed)
         self.tab_strip.bind("<Button-2>", self._on_tab_strip_click)
 
-        toolbar = tk.Frame(self.body_frame)
+        # 3-column grid, not one flat pack() row -- the only reliable
+        # way to get a toolbar element TRULY centered in Tk regardless
+        # of how wide the left/right clusters are. Equal weight on
+        # columns 0 and 2 makes them absorb any extra window width
+        # equally, which keeps column 1 (the page indicator) sitting
+        # mathematically centered. Devin, 2026-07-25: "move the current
+        # page / total page UI element to the top-center... mimic
+        # Foxit's UI as much as possible" -- Foxit/Acrobat-convention
+        # editable page-number box + "of N" (type a number, Enter
+        # jumps there), not just relocated static text.
+        toolbar = self.toolbar = tk.Frame(self.body_frame)
         toolbar.pack(side=tk.TOP, fill=tk.X)
-        tk.Button(toolbar, text="< Prev", command=self.prev).pack(side=tk.LEFT)
-        tk.Button(toolbar, text="Next >", command=self.next).pack(side=tk.LEFT)
-        tk.Button(toolbar, text="Zoom -", command=self.zoom_out).pack(side=tk.LEFT)
-        tk.Button(toolbar, text="Zoom +", command=self.zoom_in).pack(side=tk.LEFT)
-        self.mode_label = tk.Label(toolbar, text="mode: view", fg="blue")
+        toolbar.grid_columnconfigure(0, weight=1)
+        toolbar.grid_columnconfigure(2, weight=1)
+
+        toolbar_left = tk.Frame(toolbar)
+        toolbar_left.grid(row=0, column=0, sticky="w")
+        tk.Button(toolbar_left, text="< Prev", command=self.prev).pack(side=tk.LEFT)
+        tk.Button(toolbar_left, text="Next >", command=self.next).pack(side=tk.LEFT)
+        tk.Button(toolbar_left, text="Zoom -", command=self.zoom_out).pack(side=tk.LEFT)
+        tk.Button(toolbar_left, text="Zoom +", command=self.zoom_in).pack(side=tk.LEFT)
+        self.mode_label = tk.Label(toolbar_left, text="mode: view", fg="blue")
         self.mode_label.pack(side=tk.LEFT, padx=12)
         self._mode_label_default_bg = self.mode_label.cget("bg")
-        self.status = tk.Label(toolbar, text="")
+
+        toolbar_center = tk.Frame(toolbar)
+        toolbar_center.grid(row=0, column=1)
+        # Small prev/next glyph buttons flank the page box (Devin,
+        # 2026-07-25: "easier to change pages, not just text box (which
+        # i still like the input to go straight [to] a page number)")
+        # -- the typed-number-jumps-straight-there behavior is
+        # untouched, this is purely an ADDITIONAL click path for the
+        # common "just go one page" case.
+        tk.Button(
+            toolbar_center, text="◀", command=self.prev, width=2, padx=0,
+        ).pack(side=tk.LEFT, padx=(0, 6))
+        tk.Label(toolbar_center, text="Page").pack(side=tk.LEFT, padx=(0, 4))
+        self.page_entry_var = tk.StringVar(value="1")
+        self.page_entry = tk.Entry(toolbar_center, width=4, textvariable=self.page_entry_var, justify="center")
+        self.page_entry.pack(side=tk.LEFT)
+        self.page_entry.bind("<Return>", self._goto_page_entry)
+        self.page_total_label = tk.Label(toolbar_center, text="of 1")
+        self.page_total_label.pack(side=tk.LEFT, padx=(4, 6))
+        tk.Button(
+            toolbar_center, text="▶", command=self.next, width=2, padx=0,
+        ).pack(side=tk.LEFT)
+
+        toolbar_right = tk.Frame(toolbar)
+        toolbar_right.grid(row=0, column=2, sticky="e")
+        self.status = tk.Label(toolbar_right, text="")
         self.status.pack(side=tk.RIGHT, padx=8)
 
         self.find_frame = tk.Frame(self.body_frame)
@@ -570,7 +949,11 @@ class SlateApp:
         self._find_entry = find_entry
         # not packed by default -- toggled via "/" or View > Find...
 
-        content = tk.Frame(self.body_frame)
+        # PanedWindow, not a plain Frame -- gives the TOC/canvas split a
+        # real drag-to-resize sash for free via Tk's own built-in
+        # mechanism, rather than hand-rolling drag math (Devin's ask,
+        # 2026-07-25: "TOC should be drag resizeable too please").
+        content = tk.PanedWindow(self.body_frame, orient=tk.HORIZONTAL, sashwidth=6, sashrelief=tk.RAISED)
         content.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self._content_frame = content
 
@@ -578,10 +961,29 @@ class SlateApp:
         self.toc_tree = ttk.Treeview(self.toc_frame, show="tree")
         self.toc_tree.pack(fill=tk.BOTH, expand=True)
         self.toc_tree.bind("<<TreeviewSelect>>", self._on_toc_select)
-        # not packed by default -- toggled via View > Table of Contents
+        # not added to the PanedWindow by default -- toggled via
+        # View > Table of Contents (content.add/.forget, see
+        # _toggle_toc_panel -- PanedWindow's own show/hide, not pack)
 
-        self.canvas = tk.Canvas(content, bg="gray80")
-        self.canvas.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        # Real gap Devin caught, 2026-07-25 ("and a h/v scrollbar"): a
+        # page zoomed larger than the window had NO way to see the
+        # rest of it -- the canvas had no scrollregion/scrollbars at
+        # all, just silent clipping. canvas_frame holds canvas + both
+        # scrollbars together (grid, not pack -- the standard Tk
+        # 2x2 canvas/scrollbar layout) so the PAIR can be added to the
+        # PanedWindow as one pane.
+        canvas_frame = tk.Frame(content)
+        self.canvas = tk.Canvas(canvas_frame, bg="gray80")
+        self._vscroll = tk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview)
+        self._hscroll = tk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
+        self.canvas.configure(yscrollcommand=self._vscroll.set, xscrollcommand=self._hscroll.set)
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self._vscroll.grid(row=0, column=1, sticky="ns")
+        self._hscroll.grid(row=1, column=0, sticky="ew")
+        canvas_frame.grid_rowconfigure(0, weight=1)
+        canvas_frame.grid_columnconfigure(0, weight=1)
+        self._canvas_frame = canvas_frame  # _toggle_toc_panel needs the PANE widget, not the bare canvas
+        content.add(canvas_frame, stretch="always")
         self.canvas.bind("<ButtonPress-1>", self._on_press)
         self.canvas.bind("<B1-Motion>", self._on_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
@@ -607,6 +1009,13 @@ class SlateApp:
         self.canvas.bind("<MouseWheel>", self._on_mouse_wheel)
         self.canvas.bind("<Button-4>", self._kb_prev_page)
         self.canvas.bind("<Button-5>", self._kb_next_page)
+        # Ctrl+scroll = zoom (Devin, 2026-07-25), same platform split as
+        # plain wheel above -- Tk's compound event names route the
+        # Control-modified wheel to a separate binding automatically,
+        # no manual event.state check needed.
+        self.canvas.bind("<Control-MouseWheel>", self._on_ctrl_mouse_wheel)
+        self.canvas.bind("<Control-Button-4>", lambda e: self.zoom_in())
+        self.canvas.bind("<Control-Button-5>", lambda e: self.zoom_out())
 
         # Sumatra-style keyboard nav. Guarded on "typing somewhere" (any
         # Entry has focus, e.g. the find box itself) so these don't
@@ -619,6 +1028,25 @@ class SlateApp:
         self.root.bind("<Key-n>", self._kb_find_next)
         self.root.bind("<Key-N>", self._kb_find_prev)
         self.root.bind("<Key-slash>", self._kb_open_find)
+        self.root.bind("<Control-c>", self._copy_selection)
+
+        # CUA keybinds (Devin, 2026-07-25: "ctrl+w close tab (and other
+        # CUA keybinds)") -- the standard Windows/Mac shortcut set,
+        # matching menu accelerators added alongside these.
+        self.root.bind("<F2>", self._show_command_palette)
+        self.root.bind("<Control-w>", lambda e: self.do_close())
+        self.root.bind("<Control-o>", lambda e: self.open_file())
+        self.root.bind("<Control-s>", lambda e: self.save())
+        self.root.bind("<Control-S>", lambda e: self.save_as())  # Ctrl+Shift+S
+        self.root.bind("<Control-f>", self._kb_open_find)  # alongside "/", not a replacement
+        self.root.bind("<Control-q>", lambda e: self.root.quit())
+        self.root.bind("<Control-plus>", lambda e: self.zoom_in())
+        self.root.bind("<Control-equal>", lambda e: self.zoom_in())  # Ctrl+= (no-Shift + key, most keyboards)
+        self.root.bind("<Control-minus>", lambda e: self.zoom_out())
+        self.root.bind("<Control-Tab>", self._kb_next_tab)
+        self.root.bind("<Control-Shift-Tab>", self._kb_prev_tab)
+        self.root.bind("<Control-Next>", self._kb_next_tab)  # Ctrl+PageDown, browser-tab convention
+        self.root.bind("<Control-Prior>", self._kb_prev_tab)  # Ctrl+PageUp
 
         self._doc_view_built = True
         # Real bug caught live: these widgets are built lazily, on first
@@ -629,6 +1057,13 @@ class SlateApp:
         # with a path, since nothing re-themes them until the user
         # manually re-picks a theme later).
         self._apply_theme()
+        # Devin, 2026-07-25: "default TOC view = true" -- the BooleanVar
+        # itself defaults True (__init__), but nothing actually added
+        # the panel to the PanedWindow until now; _toggle_toc_panel
+        # needs toc_frame/_canvas_frame, both real only once this
+        # method has run this far.
+        if self.toc_visible.get():
+            self._toggle_toc_panel()
 
     def _typing_in_entry(self) -> bool:
         return isinstance(self.root.focus_get(), tk.Entry)
@@ -643,17 +1078,48 @@ class SlateApp:
             return
         self.prev()
 
+    def _reset_scroll(self):
+        """A fresh page should start showing from the top-left, not
+        wherever the previous page happened to be scrolled to -- only
+        called from real page-NAVIGATION sites, never from render()
+        itself (which also fires for same-page redraws like adding an
+        annotation, where jumping the scroll position would be
+        jarring, not helpful)."""
+        self.canvas.xview_moveto(0)
+        self.canvas.yview_moveto(0)
+
+    def _goto_page_entry(self, event=None):
+        """Foxit/Acrobat convention: type a page number into the
+        centered box, Enter jumps there. Invalid/out-of-range input
+        fails soft -- reverts the box to the real current page rather
+        than crashing or silently doing nothing with no feedback."""
+        if self.viewer is None:
+            return
+        try:
+            n = int(self.page_entry_var.get())
+        except ValueError:
+            n = self.viewer.page_num + 1  # not a number -- revert, see below
+        n = max(1, min(self.viewer.page_count, n))
+        self.viewer.goto(n - 1)
+        self._selected_words = []
+        self.render()
+        self._reset_scroll()
+
     def _kb_first_page(self, event=None):
         if self._typing_in_entry() or self.viewer is None:
             return
         self.viewer.goto(0)
+        self._selected_words = []
         self.render()
+        self._reset_scroll()
 
     def _kb_last_page(self, event=None):
         if self._typing_in_entry() or self.viewer is None:
             return
         self.viewer.goto(self.viewer.page_count - 1)
+        self._selected_words = []
         self.render()
+        self._reset_scroll()
 
     def _kb_open_find(self, event=None):
         if self._typing_in_entry():
@@ -733,9 +1199,16 @@ class SlateApp:
 
     def _toggle_toc_panel(self):
         if self.toc_visible.get():
-            self.toc_frame.pack(side=tk.LEFT, fill=tk.Y, before=self.canvas)
+            # before=self._canvas_frame guarantees the TOC lands as the
+            # LEFT pane every time it's re-shown -- PanedWindow.add()
+            # would otherwise always append to the end (the right
+            # side, past the already-present canvas pane) on a second
+            # show. self._canvas_frame (not self.canvas) is the real
+            # pane widget since the h/v scrollbar wiring wrapped the
+            # canvas in a frame together with its scrollbars.
+            self._content_frame.add(self.toc_frame, before=self._canvas_frame, width=240, minsize=100)
         else:
-            self.toc_frame.pack_forget()
+            self._content_frame.forget(self.toc_frame)
 
     def _refresh_outline(self):
         self.toc_tree.delete(*self.toc_tree.get_children())
@@ -763,7 +1236,9 @@ class SlateApp:
         if not values:
             return
         self.viewer.goto(int(values[0]))
+        self._selected_words = []
         self.render()
+        self._reset_scroll()
 
     # ------------------------------------------------------------------
     # opening / closing documents
@@ -781,6 +1256,15 @@ class SlateApp:
                 open_path = epubfix.fix_epub_encoding_conflicts(path)
             except Exception:
                 open_path = path  # fail soft -- open the original rather than block on this
+        elif path.lower().endswith((".html", ".htm", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff")):
+            # fitz/PyMuPDF can't render HTML+CSS+JS at all, and treats
+            # a bare image as a 1-page doc without the same page-image
+            # pipeline the rest of Slate expects -- convert.path_to_pdf
+            # routes both through a real PDF first. Fail LOUD here
+            # (unlike epub's fail-soft): an HTML/image open with no
+            # working conversion has no sane fallback the way epub's
+            # original-file-with-a-decoding-quirk does.
+            open_path = convert.path_to_pdf(path)
         doc = fitz.open(open_path)
         # Tab keeps the ORIGINAL path (tab label/title/recent-files all
         # show the real filename) even when doc was actually opened
@@ -865,6 +1349,21 @@ class SlateApp:
             return
         self._close_tab_by_index(self.tab_strip.index(self.tab_strip.select()))
 
+    def _kb_next_tab(self, event=None):
+        self._cycle_tab(1)
+
+    def _kb_prev_tab(self, event=None):
+        self._cycle_tab(-1)
+
+    def _cycle_tab(self, direction):
+        """Ctrl+Tab/Ctrl+Shift+Tab (Devin, 2026-07-25: CUA keybinds).
+        Wraps around at either end, same convention as browser tabs."""
+        tabs = self.tab_strip.tabs()
+        if len(tabs) < 2:
+            return
+        current = self.tab_strip.index(self.tab_strip.select())
+        self.tab_strip.select(tabs[(current + direction) % len(tabs)])
+
     def _on_tab_strip_click(self, event):
         """Middle-click closes a tab (same convention as Chrome/Firefox).
         Real finding while building this: ttk.Notebook.bbox() returns
@@ -942,14 +1441,19 @@ class SlateApp:
         self._tk_img = ImageTk.PhotoImage(img)
         self.canvas.delete("all")
         self.canvas.config(width=img.width, height=img.height)
+        self.canvas.config(scrollregion=(0, 0, img.width, img.height))
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self._tk_img)
         self._draw_search_highlights()
+        self._draw_text_selection()
         pending_here = sum(1 for p, _ in self._pending_redactions if p == self.viewer.page_num)
+        # Page number moved to the centered Foxit-style box (Devin,
+        # 2026-07-25) -- status now carries only zoom/pending-redaction.
         self.status.config(
-            text=f"Page {self.viewer.page_num + 1}/{self.viewer.page_count}"
-            f"  zoom {self.viewer.zoom:.2f}x"
+            text=f"zoom {self.viewer.zoom:.2f}x"
             + (f"  ({pending_here} pending redaction)" if pending_here else "")
         )
+        self.page_entry_var.set(str(self.viewer.page_num + 1))
+        self.page_total_label.config(text=f"of {self.viewer.page_count}")
 
     def _draw_search_highlights(self):
         """Canvas-only overlay, not real annotations -- cleared and
@@ -967,17 +1471,50 @@ class SlateApp:
                 outline=outline, width=width,
             )
 
+    def _draw_text_selection(self):
+        """Canvas-only overlay, same convention as
+        _draw_search_highlights -- cleared and redrawn every render()
+        alongside the page image, never a real annotation. Uses the
+        active theme's highlight_bg (was a hardcoded blue "#3a5a7a"
+        regardless of theme) -- for inkbone this is the one place
+        green survives as a real, minimal, pure accent (Devin,
+        2026-07-25), not select_bg (tabs, now monochrome)."""
+        if not self._selected_words:
+            return
+        colors = theme.get_palette(self.theme_name.get())
+        z = self.viewer.zoom
+        for w in self._selected_words:
+            x0, y0, x1, y1 = w[:4]
+            self.canvas.create_rectangle(
+                x0 * z, y0 * z, x1 * z, y1 * z,
+                fill=colors["highlight_bg"], outline="", stipple="gray50",
+            )
+
+    def _selected_text(self) -> str:
+        return " ".join(w[4] for w in self._selected_words)
+
+    def _copy_selection(self, event=None):
+        text = self._selected_text()
+        if not text:
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+
     def next(self):
         if self.viewer is None:
             return
         self.viewer.next_page()
+        self._selected_words = []  # a selection's word rects belong to the OLD page
         self.render()
+        self._reset_scroll()
 
     def prev(self):
         if self.viewer is None:
             return
         self.viewer.prev_page()
+        self._selected_words = []
         self.render()
+        self._reset_scroll()
 
     def _on_mouse_wheel(self, event):
         """Windows/Mac only -- delivers a signed event.delta (Windows:
@@ -987,6 +1524,14 @@ class SlateApp:
             self._kb_prev_page()
         else:
             self._kb_next_page()
+
+    def _on_ctrl_mouse_wheel(self, event):
+        """Ctrl+scroll = zoom (Devin, 2026-07-25), same signed-delta
+        convention as _on_mouse_wheel above."""
+        if event.delta > 0:
+            self.zoom_in()
+        else:
+            self.zoom_out()
 
     def zoom_in(self):
         self.viewer.zoom_in()
@@ -1005,23 +1550,52 @@ class SlateApp:
             min(x0, x1) / z, min(y0, y1) / z, max(x0, x1) / z, max(y0, y1) / z
         )
 
+    def _event_canvas_xy(self, event):
+        """event.x/event.y are VIEWPORT-relative, not true canvas-space
+        coordinates -- identical the whole time the canvas was never
+        scrollable, which is exactly why this bug was invisible until
+        now. Adding real scrollbars (Devin, 2026-07-25: "and a h/v
+        scrollbar") means every click/drag handler needs this
+        conversion or redaction/annotate/text-select/forms/textedit
+        all silently misplace by the current scroll offset the moment
+        the view isn't sitting at the top-left origin."""
+        return self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
+
     def _on_press(self, event):
-        self._drag_start = (event.x, event.y)
+        cx, cy = self._event_canvas_xy(event)
+        self._drag_start = (cx, cy)
         if self.mode == "forms":
-            self._handle_form_click(event.x, event.y)
+            self._handle_form_click(cx, cy)
             self._drag_start = None
         elif self.mode == "textedit":
-            self._handle_textedit_click(event.x, event.y)
+            self._handle_textedit_click(cx, cy)
             self._drag_start = None
+        elif self.mode == "view" and self._selected_words:
+            # Starting a fresh click/drag clears any existing selection
+            # (standard text-select convention -- a plain click
+            # elsewhere deselects, same as any text editor/browser).
+            self._selected_words = []
+            self.render()
 
     def _on_drag(self, event):
         if self._drag_start is None:
             return
+        x0, y0 = self._drag_start
+        cx, cy = self._event_canvas_xy(event)
+        if self.mode == "view":
+            # Real text selection, not a rectangle mark -- default
+            # interaction (Devin, 2026-07-25: "default to arrow/select
+            # text over rectangle select"). Redact/annotate modes below
+            # keep the original rectangle-drag behavior unchanged.
+            rect = self._canvas_to_pdf_rect(x0, y0, cx, cy)
+            words = self.page.get_text("words")
+            self._selected_words = [w for w in words if fitz.Rect(w[:4]).intersects(rect)]
+            self.render()
+            return
         if self._drag_rect_id:
             self.canvas.delete(self._drag_rect_id)
-        x0, y0 = self._drag_start
         self._drag_rect_id = self.canvas.create_rectangle(
-            x0, y0, event.x, event.y, outline="red", width=2
+            x0, y0, cx, cy, outline="red", width=2
         )
 
     def _on_release(self, event):
@@ -1029,10 +1603,13 @@ class SlateApp:
             return
         x0, y0 = self._drag_start
         self._drag_start = None
+        cx, cy = self._event_canvas_xy(event)
+        if self.mode == "view":
+            return  # selection already computed live in _on_drag
         if self._drag_rect_id:
             self.canvas.delete(self._drag_rect_id)
             self._drag_rect_id = None
-        rect = self._canvas_to_pdf_rect(x0, y0, event.x, event.y)
+        rect = self._canvas_to_pdf_rect(x0, y0, cx, cy)
         if rect.is_empty or rect.width < 3 or rect.height < 3:
             return  # treat as a click, not a drag
 
@@ -1104,7 +1681,8 @@ class SlateApp:
     # ------------------------------------------------------------------
     def open_file(self):
         path = filedialog.askopenfilename(filetypes=[
-            ("PDF and ebook files", "*.pdf *.epub *.mobi *.fb2 *.cbz *.txt *.md"),
+            ("PDF, ebook, HTML and image files",
+             "*.pdf *.epub *.mobi *.fb2 *.cbz *.txt *.md *.html *.htm *.png *.jpg *.jpeg *.gif *.bmp *.tiff"),
             ("PDF files", "*.pdf"),
             ("Ebook files", "*.epub *.mobi *.fb2 *.cbz *.txt *.md"),
             ("All files", "*.*"),
@@ -1115,6 +1693,18 @@ class SlateApp:
 
     def save(self):
         if not self._require_doc():
+            return
+        if not self.path.lower().endswith(".pdf"):
+            # Real, serious bug caught live 2026-07-25 wiring the
+            # HTML/image-open feature: self.path is the ORIGINAL path
+            # (tab convention) even when the actual open document is a
+            # converted temp PDF (convert.path_to_pdf) -- a plain Save
+            # on an HTML-sourced tab would silently overwrite the
+            # original .html source file with PDF binary content.
+            # There's no correct "save back to the original format"
+            # here, so always force Save As instead of ever writing to
+            # a non-.pdf self.path.
+            self.save_as()
             return
         io_pdf.backup_before_write(self.path)
         io_pdf.safe_save(self.doc, self.path)
@@ -1373,8 +1963,21 @@ class SlateApp:
         return tts.is_available(voice_id)
 
     def do_read_page(self):
+        """Real perf finding: synthesis alone (even with a warm, cached
+        voice -- see tts.py's _voice_cache) takes on the order of a
+        second or more for a normal page of text. Running that
+        synchronously on the main thread, as this originally did,
+        froze the whole UI for the duration -- likely the real source
+        of Devin's 'kinda choppy sometimes' report. Synthesis now runs
+        on a background thread; poll() (scheduled via self.root.after(),
+        so it always runs on the main thread -- same real bug already
+        fixed once for the download flow) picks up the result and does
+        the actual playback."""
         if not self._require_doc():
             return
+        if getattr(self, "_tts_synthesizing", False):
+            return  # a previous read is still being synthesized
+
         text = self.page.get_text().strip()
         if not text:
             messagebox.showinfo("Nothing to read", "This page has no extractable text.")
@@ -1385,12 +1988,35 @@ class SlateApp:
             return
 
         length_scale = 1.0 / self.tts_speed.get()
-        try:
-            audio, sample_rate, _width, channels = tts.synthesize(text, voice_id, length_scale)
-            self.tts_player.load(audio, sample_rate, channels)
-            self.tts_player.play()
-        except Exception as e:
-            messagebox.showinfo("Playback failed", str(e))
+        self._tts_synthesizing = True
+        self.status.config(text="Synthesizing speech...")
+        result = {"done": False, "audio": None, "error": None}
+
+        def worker():
+            try:
+                result["audio"] = tts.synthesize(text, voice_id, length_scale)
+            except Exception as e:
+                result["error"] = str(e)
+            result["done"] = True
+
+        def poll():
+            if not result["done"]:
+                self.root.after(50, poll)
+                return
+            self._tts_synthesizing = False
+            self.render()  # restores the normal page/zoom status text
+            if result["error"]:
+                messagebox.showinfo("Playback failed", result["error"])
+                return
+            audio, sample_rate, _width, channels = result["audio"]
+            try:
+                self.tts_player.load(audio, sample_rate, channels)
+                self.tts_player.play()
+            except Exception as e:
+                messagebox.showinfo("Playback failed", str(e))
+
+        threading.Thread(target=worker, daemon=True).start()
+        poll()
 
     def do_tts_pause_resume(self):
         if self.tts_player.is_playing():
@@ -1461,11 +2087,75 @@ class SlateApp:
         )
 
 
+def _set_windows_app_user_model_id():
+    """Must run BEFORE any window (Tk root included) is created --
+    Microsoft's own documented requirement for
+    SetCurrentProcessExplicitAppUserModelID. Without this, Windows
+    groups a python.exe-hosted Tk app under python.exe's own taskbar
+    identity (and often shows python's icon, not this app's, in that
+    grouped view) instead of giving Slate its own distinct taskbar
+    entry. Devin, 2026-07-25: "make the icon(s) official in the
+    taskbar/titlebar" -- iconbitmap() alone (_set_window_icon) doesn't
+    fix the grouping half of that ask, only the icon-image half.
+    Best-effort, same fail-soft pattern as _apply_native_titlebar_theme.
+    """
+    if platform.system() != "Windows":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Slate.PDFEditor")
+    except Exception:
+        pass
+
+
 def main():
+    _set_windows_app_user_model_id()
     path = sys.argv[1] if len(sys.argv) > 1 else None
+
+    # Single-instance (Devin, 2026-07-25): if a Slate window is already
+    # running, hand this path to it as a new tab instead of opening a
+    # second window. Only meaningful when a path was actually given --
+    # a bare `slate.py` with nothing to open has nothing to hand off.
+    if path and singleinstance.try_send_to_running_instance(path):
+        return
+
     root = tk.Tk()
     app = SlateApp(root, path)
+
+    # Become the server for any LATER invocation. Real thread-safety
+    # note (same pattern already established for the TTS synthesis and
+    # voice-download worker threads): the socket-listener thread must
+    # never touch Tk widgets directly -- it only ever puts a path on a
+    # plain queue.Queue; _poll_ipc (scheduled via root.after(), so it
+    # always runs on the main thread) is the only thing that calls
+    # _open_document.
+    ipc_queue, on_path = singleinstance.make_ipc_queue()
+    try:
+        ipc_server = singleinstance.start_server(on_path)
+    except OSError:
+        # Real, rare race: another invocation won the bind between our
+        # own failed try_send above and this bind call. Fail soft --
+        # this instance just won't accept later hand-offs; it still
+        # opens fine standalone.
+        ipc_server = None
+
+    def _poll_ipc():
+        try:
+            while True:
+                new_path = ipc_queue.get_nowait()
+                app._open_document(new_path)
+                root.deiconify()
+                root.lift()
+        except queue.Empty:
+            pass
+        root.after(250, _poll_ipc)
+
+    if ipc_server is not None:
+        root.after(250, _poll_ipc)
+
     root.mainloop()
+    if ipc_server is not None:
+        ipc_server.close()
     if app.doc is not None:
         app.doc.close()
 

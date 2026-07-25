@@ -64,7 +64,21 @@ class Player:
         if self._audio is None:
             return
         self._paused = False
-        if self._stream is None or not self._stream.active:
+        if self._stream is not None and not self._stream.active:
+            # Reaching end-of-audio raises sd.CallbackStop() from inside
+            # _callback, which stops the PortAudio stream but does NOT
+            # close it -- only the explicit stop() button call did that.
+            # Left as-is, the next play() (e.g. clicking Pause/Resume
+            # after a page finished reading itself out) opened a SECOND
+            # OutputStream on top of this still-open native handle,
+            # which real Windows audio backends (WASAPI/DirectSound)
+            # don't tolerate -- real crash, confirmed live by Devin,
+            # never testable in this WSL dev environment (zero audio
+            # devices). Always release a dead stream before opening a
+            # new one, exactly like stop() already does.
+            self._stream.close()
+            self._stream = None
+        if self._stream is None:
             self._stream = sd.OutputStream(
                 samplerate=self._sample_rate,
                 channels=self._channels,

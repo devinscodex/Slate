@@ -5,6 +5,7 @@ writing this module (Document.convert_to_pdf() for image->PDF).
 import os
 
 import fitz
+import pytest
 from PIL import Image
 
 import convert
@@ -55,9 +56,11 @@ def test_pdf_to_markdown_normalizes_bullet_lines():
 
 
 def test_pdf_to_markdown_wraps_whole_line_bold_body_text():
+    if _BOLD_FONT_PATH is None:
+        pytest.skip("no known real bold font found on this machine")
     doc = fitz.open()
     page = doc.new_page()
-    page.insert_font(fontname="F1", fontfile="/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
+    page.insert_font(fontname="F1", fontfile=_BOLD_FONT_PATH)
     page.insert_text((72, 72), "Not bold body text.", fontsize=12, fontname="helv")
     page.insert_text((72, 100), "Bold body text.", fontsize=12, fontname="F1")
     d = page.get_text("dict")

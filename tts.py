@@ -39,7 +39,7 @@ VOICES = {
     "alba": {
         "label": "Alba (GB Female)",
         "hf_path": "en/en_GB/alba/medium/en_GB-alba-medium",
-        "bundled": False,
+        "bundled": True,
         "sample_rate": 22050,
     },
     "southern_english_female": {
@@ -120,19 +120,41 @@ def download_voice(voice_id: str, progress_callback=None) -> str:
     return str(onnx_dest)
 
 
-def synthesize(text: str, voice_id: str, length_scale: float = 1.0):
-    """Returns (audio_int16_bytes, sample_rate, sample_width, sample_channels)
-    for the whole text (Piper yields one AudioChunk per sentence;
-    concatenated here into one buffer). length_scale is Piper's own
-    real speed control (>1 slower, <1 faster) -- confirmed live via
-    SynthesisConfig's actual signature, not guessed."""
-    from piper import PiperVoice, SynthesisConfig
+_voice_cache = {}  # voice_id -> loaded PiperVoice, kept for the process's lifetime
+
+
+def _get_cached_voice(voice_id: str):
+    if voice_id in _voice_cache:
+        return _voice_cache[voice_id]
+
+    from piper import PiperVoice
 
     model_path = get_model_path(voice_id)
     if model_path is None:
         raise ValueError(f"Voice '{voice_id}' has not been downloaded yet")
 
     voice = PiperVoice.load(model_path)
+    _voice_cache[voice_id] = voice
+    return voice
+
+
+def synthesize(text: str, voice_id: str, length_scale: float = 1.0):
+    """Returns (audio_int16_bytes, sample_rate, sample_width, sample_channels)
+    for the whole text (Piper yields one AudioChunk per sentence;
+    concatenated here into one buffer). length_scale is Piper's own
+    real speed control (>1 slower, <1 faster) -- confirmed live via
+    SynthesisConfig's actual signature, not guessed.
+
+    Real perf finding, not assumed: PiperVoice.load() alone takes
+    ~1.2s (loading the ~60MB ONNX model + building an onnxruntime
+    session) -- reloading it on every single call, as this function
+    originally did, meant every "Read this page" repaid that full cost
+    even for the SAME voice back-to-back. _voice_cache keeps one
+    loaded PiperVoice per voice_id for the process's lifetime instead.
+    """
+    voice = _get_cached_voice(voice_id)
+    from piper import SynthesisConfig
+
     config = SynthesisConfig(length_scale=length_scale)
     chunks = list(voice.synthesize(text, config))
     if not chunks:

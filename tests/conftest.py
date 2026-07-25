@@ -14,6 +14,17 @@ gate.py's unlock.json, theme.py's theme.json, and tts.py's downloaded-
 voices cache all share the same ~/.slate/ directory and the same risk
 (a stray test download/preference/passphrase would otherwise land in
 real local config), so all are isolated here too, pre-emptively.
+
+Real bug caught on an actual Windows smoke test, a different flavor of
+the same class of problem: tts._voice_cache (a module-level dict
+caching loaded PiperVoice objects across calls, added as a real perf
+fix) is never reset between tests either -- a test that downloads a
+FAKE/invalid "alba" model and caches whatever (possibly broken) object
+that produces can leave a later, unrelated test using the same voice_id
+stuck reusing that broken cached object instead of loading a fresh
+one, hanging deep inside onnxruntime on Windows specifically (ran fine
+standalone; only hung as part of the full suite -- the tell that this
+was cross-test contamination, not a real product bug).
 """
 import pytest
 
@@ -33,3 +44,4 @@ def isolate_recent_files_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(theme, "CONFIG_DIR", cfg)
     monkeypatch.setattr(theme, "PREF_FILE", cfg / "theme.json")
     monkeypatch.setattr(tts, "DOWNLOADED_VOICES_DIR", cfg / "tts-voices")
+    tts._voice_cache.clear()
