@@ -2122,6 +2122,18 @@ def main():
     root = tk.Tk()
     app = SlateApp(root, path)
 
+    # Center on screen, not the top-left corner (Devin, 2026-07-25:
+    # "Slate is still opening in top left of screen, can you make that
+    # center load plz?") -- real geometry only exists once the home
+    # screen/document widgets above are actually laid out, hence
+    # update_idletasks() first, same pattern as _show_about's own
+    # centering (which centers over the main window; this one has no
+    # parent window to center over, so it centers on the screen itself).
+    root.update_idletasks()
+    screen_w, screen_h = root.winfo_screenwidth(), root.winfo_screenheight()
+    win_w, win_h = root.winfo_width(), root.winfo_height()
+    root.geometry(f"+{(screen_w - win_w) // 2}+{(screen_h - win_h) // 2}")
+
     # Become the server for any LATER invocation. Real thread-safety
     # note (same pattern already established for the TTS synthesis and
     # voice-download worker threads): the socket-listener thread must
