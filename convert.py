@@ -9,7 +9,7 @@ PyMuPDF and PyMuPDF Layout") but its actual `pip install` pulls
 `pymupdf-layout` (a 41MB wheel) plus a full ONNX Runtime, numpy,
 protobuf, networkx -- 80MB+ of transitive weight for a layout-detection
 ML model, confirmed by literally installing it and inspecting what
-landed. Not suckless. Reverted; `pdf_to_markdown` below is hand-rolled
+landed. Too much weight for what this needs. Reverted; `pdf_to_markdown` below is hand-rolled
 instead, using the same span-level text data (size/flags) `textedit.py`
 already parses for font info.
 """

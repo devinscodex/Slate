@@ -1,8 +1,13 @@
 # Slate — design
 
-A suckless PDF editor, composed from proven libraries rather than a
+A small, no-bloat PDF editor, composed from proven libraries rather than a
 reimplemented PDF engine. Full feature set: view, annotate/markup,
 merge/split, redact, sign, form-fill, scan for sensitive content.
+
+A byproduct of Cairn, an AI development harness — built to be the document
+reader/editor we always wanted. Adobe is bloated and predatory, Foxit is
+mediocre, Sumatra is nice but limited. Slate is another free, open-source
+option, proof of how good FOSS can really be.
 
 ## Licensing posture (real, load-bearing constraint)
 
@@ -15,21 +20,21 @@ letting outside users interact with a *modified* copy over a network as
 a service) — not on purely private/internal use. Slate is a local
 desktop app, not a network service, and isn't modifying PyMuPDF itself.
 
-**Devin's explicit ruling: Slate stays personal/internal-only — he will
-personally ensure it is never open-sourced or shared outside that.**
-Under that constraint, per the sourced material above, the AGPL
-distribution trigger doesn't apply. This is not a legal ruling (get a
-real lawyer before treating it as one) — it's the scope decision that
-keeps the licensing question moot for now. If that constraint ever
-changes (shared with a client/vendor, open-sourced, sold), the AGPL
-question reopens for real and needs actual legal review at that point,
-plus a real look at Artifex's commercial license (no public pricing —
-requires contacting their sales team directly).
+**Open-source direction (Devin, 2026-07-25): Slate is headed to
+GitHub.** This supersedes the earlier internal-only ruling this
+section used to document, and reopens the AGPL question that ruling
+was avoiding. Real open item, not yet resolved: Slate's own license,
+and whether AGPL's source-disclosure trigger is acceptable for a
+public repo, needs to be settled before (or as part of) the public
+release — this is not a legal ruling (get real legal review before
+shipping publicly if this matters), and a real look at Artifex's
+commercial license (no public pricing — requires contacting their
+sales team directly) may be part of that resolution.
 
 ## Why composition, not a new engine
 
 Full ISO 32000 parity is a multi-year effort even for funded teams
-(PDF.js/MuPDF/Poppler-scale). The suckless answer isn't reinventing that —
+(PDF.js/MuPDF/Poppler-scale). The right answer isn't reinventing that —
 it's a thin app over libraries that already do each job well, matching this
 project's own "wrap the real tool, don't reimplement" doctrine (same pattern
 as Cairn's markitdown skill).
@@ -305,7 +310,7 @@ tagged PDF is out of v1). Same discipline applies to the one synthetic
 epub fixture used below — built at test time via `zipfile`, never
 committed as a binary.
 
-Honest exception, found during a suckless-pass audit: `basic3page.pdf`
+Honest exception, found during a no-bloat-pass audit: `basic3page.pdf`
 itself IS committed as a small (1.5KB) static binary, not generated at
 test time like the epub fixture is — an inconsistency between the
 stated convention and practice. It still satisfies the actual intent
@@ -313,7 +318,7 @@ stated convention and practice. It still satisfies the actual intent
 `insert_text`), and converting it to a generate-at-test-time fixture
 would mean rewiring ~30 call sites across `test_integration.py` for a
 purely cosmetic gain. Left as-is deliberately rather than churned for
-consistency's own sake — that tradeoff would itself be un-suckless.
+consistency's own sake — that tradeoff would itself be unnecessary bloat.
 
 ## Sumatra-parity backlog — done (v3)
 
@@ -384,7 +389,7 @@ off-the-shelf PDF->Markdown choice — PyPI describes it as "minimal
 core: PyMuPDF and PyMuPDF Layout." Actually installing it (not just
 reading the page) pulled `pymupdf-layout` (a 41MB wheel) plus a full
 ONNX Runtime, numpy, protobuf, networkx — 80MB+ of transitive weight
-for a layout-detection ML model. Not suckless for what this needs.
+for a layout-detection ML model. Too much weight for what this needs.
 Installed it, inspected what actually landed, uninstalled it.
 `pdf_to_markdown` is hand-rolled instead, reusing the same span-level
 size/flags data `textedit.py` already parses for font info: heading

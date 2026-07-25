@@ -8,25 +8,41 @@ is a different concern (Tk-canvas geometry, not document state).
 
 Built fresh whenever page count or zoom changes; never touched by
 scrolling itself (scrolling only moves the canvas viewport over this
-already-computed geometry)."""
+already-computed geometry).
+
+`cols` (Fable design review, 2026-07-25, Slice 3 perf consult): added
+now as groundwork for Slice 4's side-by-side view, even though every
+caller today still uses the cols=1 default -- row-major grid with
+cols=1 collapses to exactly the same vertical-list geometry as before,
+so this costs nothing for the current slice and means Slice 4 never
+has to touch this class's core math again. Every column shares one
+fixed width (the widest page in the whole document) rather than a
+per-column width -- same "left-align first pass, revisit only if it
+looks wrong live" simplicity already established for mixed page
+sizes."""
 import fitz
 
 
 class PageLayout:
-    def __init__(self, doc: fitz.Document, zoom: float, gap: int = 8):
+    def __init__(self, doc: fitz.Document, zoom: float, gap: int = 8, cols: int = 1):
         self.zoom = zoom
         self.gap = gap
-        self._rects = []  # [(page_num, x0, y0, x1, y1), ...] canvas px, left-aligned
+        self.cols = cols
+        self._rects = []  # [(page_num, x0, y0, x1, y1), ...] canvas px
+        page_dims = [(doc[i].rect.width * zoom, doc[i].rect.height * zoom) for i in range(doc.page_count)]
+        col_w = max((w for w, _h in page_dims), default=0.0)
+        row_heights = []
+        for row_start in range(0, len(page_dims), cols):
+            row = page_dims[row_start:row_start + cols]
+            row_heights.append(max(h for _w, h in row) if row else 0.0)
         y = 0.0
-        max_w = 0.0
-        for i in range(doc.page_count):
-            pr = doc[i].rect
-            w, h = pr.width * zoom, pr.height * zoom
-            self._rects.append((i, 0.0, y, w, y + h))
-            y += h + gap
-            max_w = max(max_w, w)
-        self._total_h = max(0.0, y - gap)
-        self._total_w = max_w
+        for i, (w, h) in enumerate(page_dims):
+            row, col = divmod(i, cols)
+            x0 = col * (col_w + gap)
+            row_y = sum(row_heights[:row]) + row * gap
+            self._rects.append((i, x0, row_y, x0 + w, row_y + h))
+        self._total_h = sum(row_heights) + max(0, len(row_heights) - 1) * gap
+        self._total_w = cols * col_w + max(0, cols - 1) * gap
 
     def rect_of(self, page_num: int) -> tuple:
         """(x0, y0, x1, y1) canvas-space bounds of one page."""
@@ -55,6 +71,18 @@ class PageLayout:
             else:
                 break
         return best
+
+    def pages_in_range(self, top_y: float, bottom_y: float) -> list:
+        """Every page whose rect vertically overlaps [top_y, bottom_y]
+        -- the real basis for windowed rendering (Fable design review,
+        2026-07-25, Slice 3): callers pass the viewport's own bounds
+        expanded by one screenful of slack, so "how many pages" falls
+        naturally out of zoom/viewport size instead of a tuned
+        page-count constant."""
+        return [
+            page_num for page_num, _x0, y0, _x1, y1 in self._rects
+            if y1 >= top_y and y0 <= bottom_y
+        ]
 
     @property
     def total_size(self) -> tuple:

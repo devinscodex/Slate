@@ -124,6 +124,17 @@ def _make_app(tmp_path, fixture=FIXTURE):
     shutil.copy(fixture, path)
     root = tk.Tk()
     app = slate.SlateApp(root, path)
+    # Real gap surfaced after defaulting view_mode to "continuous"
+    # (2026-07-25): this headless test harness runs Xvfb with NO real
+    # window manager, so nothing ever grants the toplevel real X input
+    # focus automatically -- a plain child_widget.focus_set() silently
+    # no-ops (root.focus_get() stays None) until something forces real
+    # focus onto the toplevel at least once. A real Windows machine
+    # always has a real WM handing a newly-opened app window focus, so
+    # this is a test-environment quirk, not a product bug -- fixed
+    # here (once, for every test) rather than in production code.
+    root.focus_force()
+    root.update()
     return root, app
 
 
@@ -132,7 +143,7 @@ def test_render_recolors_the_page_to_match_the_active_theme_not_just_chrome(tmp_
     widgets dark still left the rendered PDF page a blinding white
     rectangle, and (2) a first-attempt fix (a flat RGB invert) only
     looked right for the plain built-in "dark" theme -- every OTHER
-    light-toned named theme (Inkbone/Solarized Light)
+    light-toned named theme (Inkbone Light)
     still rendered a plain white page that didn't match its own tinted
     chrome at all ("want document to match", "same as text editors
     when using themes"). Fixed with ImageOps.colorize: the page's own
@@ -1392,6 +1403,13 @@ def test_read_page_synthesizes_with_the_bundled_voice_and_handles_playback_for_r
         app.tts_voice.set("northern_english_male")  # bundled, no download needed
         app.do_read_page()  # synthesis now runs on a background thread
         _wait_until(lambda: not getattr(app, "_tts_synthesizing", False), root)
+        # Real crash fixed live building Slice 3: the flag alone can
+        # flip False microseconds before the OS thread genuinely
+        # finishes tearing down (still mid its first-ever `import
+        # piper`) -- joining the real thread object guarantees it
+        # is actually gone before this test tears down and the next
+        # one's main-thread Tk work could race it.
+        app._tts_thread.join(timeout=5)
 
         has_real_device = len(sd.query_devices()) > 0
         if has_real_device:
@@ -1432,6 +1450,13 @@ def test_read_page_offers_to_download_a_non_bundled_voice(tmp_path, monkeypatch)
         app.do_read_page()  # will still fail at the real play() call (no device) -- that's fine
         assert tts_module.is_available("southern_english_female") is True  # but the download itself really happened
         _wait_until(lambda: not getattr(app, "_tts_synthesizing", False), root)
+        # Real crash fixed live building Slice 3: the flag alone can
+        # flip False microseconds before the OS thread genuinely
+        # finishes tearing down (still mid its first-ever `import
+        # piper`) -- joining the real thread object guarantees it
+        # is actually gone before this test tears down and the next
+        # one's main-thread Tk work could race it.
+        app._tts_thread.join(timeout=5)
     finally:
         app.doc.close()
         root.destroy()
@@ -1555,6 +1580,7 @@ def test_mouse_wheel_navigates_pages_both_platform_styles(tmp_path):
     whichever one X11 can actually simulate."""
     root, app = _make_app(tmp_path)
     try:
+        _force_single_mode(app, root)
         assert app.viewer.page_num == 0
 
         app._kb_next_page()  # X11 Button-5 wiring
@@ -1712,6 +1738,7 @@ def test_scrollregion_is_set_to_the_rendered_page_size(tmp_path):
     rest. render() must always set one to the actual image size."""
     root, app = _make_app(tmp_path)
     try:
+        _force_single_mode(app, root)
         region = [float(v) for v in app.canvas.cget("scrollregion").split()]
         img = app.viewer.render_page()
         assert region == [0.0, 0.0, float(img.width), float(img.height)]
@@ -2145,7 +2172,7 @@ def test_about_dialog_has_a_fixed_green_accent_regardless_of_theme(tmp_path, mon
     monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
     root, app = _make_app(tmp_path)
     try:
-        app.theme_name.set("solarized_dark")
+        app.theme_name.set("solarized")
         app._apply_theme()
         app._show_about()
         about = root.winfo_children()[-1]  # the just-opened Toplevel
@@ -2188,7 +2215,7 @@ def test_command_palette_filters_live_as_you_type(tmp_path):
         entry.insert(0, "solarized")
         root.update()
         entries = listbox.get(0, tk.END)
-        assert len(entries) == 2  # Solarized Light + Solarized Dark
+        assert len(entries) == 1  # Solarized is a single variant now
         assert all("Solarized" in e for e in entries)
         palette.destroy()
     finally:
@@ -2203,9 +2230,9 @@ def test_selecting_a_theme_in_command_palette_applies_it_and_closes(tmp_path):
     real code the double-click binds to directly instead."""
     root, app = _make_app(tmp_path)
     try:
-        app._apply_command_palette_theme("solarized_dark")
-        assert app.theme_name.get() == "solarized_dark"
-        assert theme.load_preference() == "solarized_dark"  # real persisted, not just the var
+        app._apply_command_palette_theme("solarized")
+        assert app.theme_name.get() == "solarized"
+        assert theme.load_preference() == "solarized"  # real persisted, not just the var
     finally:
         app.doc.close()
         root.destroy()
@@ -2252,6 +2279,7 @@ def test_wheel_page_turns_when_page_fits_viewport(tmp_path):
     this case, so no viewport-forcing needed here."""
     root, app = _make_app(tmp_path)
     try:
+        _force_single_mode(app, root)
         root.update()
         assert app._wheel_fits_viewport() is True
 
@@ -2262,6 +2290,31 @@ def test_wheel_page_turns_when_page_fits_viewport(tmp_path):
     finally:
         app.doc.close()
         root.destroy()
+
+
+def _force_single_mode(app, root):
+    """view_mode defaults to "continuous" now (Devin, 2026-07-25:
+    "default to 'continuous scroll' please"), superseding Slice 2's
+    original "single" default -- tests that deliberately exercise
+    single-page-mode-specific behavior (scrollregion == exactly one
+    page, wheel's unconditional page-turn, _page_offset always (0,0))
+    need to opt into it explicitly now rather than relying on it being
+    what a fresh app already starts in.
+
+    Also a real, non-obvious side effect of that default change: a
+    fresh app's FIRST-EVER render used to be single-page mode's own,
+    which got to dictate the window's starting size (so "the page
+    always fits the viewport" was trivially true by construction).
+    Continuous mode's first render doesn't force any particular
+    canvas size, so the window can end up smaller than one page --
+    switching to single mode afterward doesn't retroactively grow an
+    already-established window. Tests whose whole premise is "the
+    page fits" need a real, generously-sized window to make that true
+    again, not just the mode switch."""
+    app.view_mode_var.set("single")
+    app._set_view_mode()
+    root.geometry("1000x1400")
+    root.update()
 
 
 def _force_page_taller_than_viewport(app, root):
@@ -2284,6 +2337,7 @@ def test_wheel_scrolls_within_page_before_turning_when_zoomed_past_viewport(tmp_
     taller than the viewport, page-turn only at the scroll edge."""
     root, app = _make_app(tmp_path)
     try:
+        _force_single_mode(app, root)
         _force_page_taller_than_viewport(app, root)
         assert app._wheel_fits_viewport() is False
 
@@ -2299,6 +2353,7 @@ def test_wheel_scrolls_within_page_before_turning_when_zoomed_past_viewport(tmp_
 def test_wheel_down_turns_page_at_the_bottom_edge_landing_at_top(tmp_path):
     root, app = _make_app(tmp_path)
     try:
+        _force_single_mode(app, root)
         _force_page_taller_than_viewport(app, root)
         app.canvas.yview_moveto(1.0)  # simulate already scrolled to the bottom
         root.update()
@@ -2319,6 +2374,7 @@ def test_wheel_up_turns_page_at_the_top_edge_landing_at_bottom(tmp_path):
     PageUp/TOC -- keeps landing top-left, unchanged)."""
     root, app = _make_app(tmp_path)
     try:
+        _force_single_mode(app, root)
         app.next()  # real page 2, so there's somewhere to go back to
         _force_page_taller_than_viewport(app, root)
         assert app.canvas.yview()[0] < 0.01  # fresh page starts at top (already-tested behavior)
@@ -2372,15 +2428,22 @@ def test_button_4_5_route_through_the_same_wheel_dispatch_as_mousewheel(tmp_path
 
 def test_continuous_mode_renders_every_page_in_one_scrollable_canvas(tmp_path):
     """Smallest real continuous-scroll slice per Fable's design review:
-    vertical stack only (no side-by-side yet), every page eager-
-    rendered up front, scrollregion covers the whole stack."""
+    vertical stack only (no side-by-side yet), scrollregion covers the
+    whole stack. Rendering itself is windowed (Slice 3 perf fix,
+    Fable design review) -- only pages within one screenful of the
+    viewport get a real PhotoImage; page 0 (on screen) is always real,
+    a doc long enough that not everything fits is expected to have
+    real placeholders too (this fixture's real per-run geometry
+    happens to place page 2 just outside that window -- see the
+    dedicated windowing tests below for the actual eviction/lazy-fill
+    behavior, this test only checks the on-screen page is real)."""
     root, app = _make_app(tmp_path)  # basic3page.pdf -- 3 pages
     try:
         app.view_mode_var.set("continuous")
         app._set_view_mode()
         assert app.view_mode == "continuous"
         assert app._layout is not None
-        assert len(app._tk_imgs) == 3
+        assert app._page_cache.has(0)  # the page actually on screen is always real
 
         page0_y0, page0_y1 = app._layout.rect_of(0)[1], app._layout.rect_of(0)[3]
         page0_h = page0_y1 - page0_y0
@@ -2397,6 +2460,7 @@ def test_page_offset_is_always_zero_in_single_page_mode(tmp_path):
     math must stay byte-identical to pre-Slice-2 behavior."""
     root, app = _make_app(tmp_path)
     try:
+        _force_single_mode(app, root)
         assert app.view_mode == "single"
         assert app._page_offset(0) == (0, 0)
         assert app._page_offset(1) == (0, 0)
@@ -2571,6 +2635,109 @@ def test_toc_select_scrolls_to_real_page_position_in_continuous_mode(tmp_path):
         page2_y0 = app._layout.rect_of(2)[1]
         _total_w, total_h = app._layout.total_size
         assert abs(first - page2_y0 / total_h) < 0.01
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+# ------------------------------------------------------------------
+# Slice 3: windowed continuous-scroll rendering (Fable design review,
+# 2026-07-25, after Devin hit a real lockup on PageUp/PageDown)
+# ------------------------------------------------------------------
+
+def _make_large_doc(tmp_path, page_count=60):
+    """A synthetic multi-page PDF real enough to prove windowing
+    actually bounds rendering work -- basic3page.pdf's 3 pages are too
+    few to distinguish "windowed" from "eager-rendered-anyway"."""
+    path = str(tmp_path / "large.pdf")
+    doc = fitz.open()
+    for i in range(page_count):
+        page = doc.new_page(width=595, height=842)
+        page.insert_text((72, 72), f"Page {i + 1}")
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_continuous_mode_only_renders_pages_near_the_viewport(tmp_path):
+    """The actual point of Slice 3: opening a long document in
+    continuous mode must NOT eager-render every page -- only a window
+    around the viewport gets a real PhotoImage, everything else stays
+    a cheap placeholder until scrolled near."""
+    root, app = _make_app(tmp_path, fixture=_make_large_doc(tmp_path))
+    try:
+        app.view_mode_var.set("continuous")
+        app._set_view_mode()
+
+        cached_count = len(app._page_cache._images)
+        assert cached_count < app.viewer.page_count  # real bound, not "cached everything anyway"
+        assert app._page_placeholder_items != {}  # some pages really are still just placeholders
+        assert app._page_cache.has(0)  # the page actually on screen IS real
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_scrolling_shifts_the_window_evicting_far_pages_lazily_filling_near_ones(tmp_path):
+    """_shift_window's whole job: scrolling deep into a long document
+    must evict pages that scrolled far away (real memory bound) and
+    lazily render pages newly entering the window -- without a full
+    canvas.delete('all') rebuild (Fable design review: pure-scroll
+    updates only touch the window boundary's own diff)."""
+    root, app = _make_app(tmp_path, fixture=_make_large_doc(tmp_path))
+    try:
+        app.view_mode_var.set("continuous")
+        app._set_view_mode()
+        assert app._page_cache.has(0)
+
+        page_far_y0 = app._layout.rect_of(40)[1]
+        _total_w, total_h = app._layout.total_size
+        app.canvas.yview_moveto(page_far_y0 / total_h)
+        app._vscroll.focus_set()
+        app._vscroll.event_generate("<ButtonRelease-1>")
+        root.update()
+
+        assert app._page_cache.has(40)  # newly-visible page got lazily rendered
+        assert not app._page_cache.has(0)  # far-away page got evicted, real bound maintained
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_zoom_change_invalidates_the_whole_page_cache(tmp_path):
+    """Every cached pixel is wrong after a zoom change (geometry
+    itself changed) -- real full-invalidate, not a stale-image bug
+    waiting to happen."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.view_mode_var.set("continuous")
+        app._set_view_mode()
+        assert app._page_cache.has(0)
+
+        app.zoom_in()
+        # A fresh render() just repopulated the (now-empty-then-refilled)
+        # cache at the new zoom -- the real assertion is that the OLD
+        # zoom's layout is gone, not that the cache is empty right now.
+        assert app._layout.zoom == pytest.approx(1.5 + 0.25)
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_theme_change_invalidates_the_whole_page_cache(tmp_path):
+    """Colorize is baked into the cached PhotoImage at fill-time, not
+    reapplied per-draw -- a theme switch must bust the whole cache or
+    pages keep showing the OLD theme's colors until they happen to
+    scroll out of and back into the window."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.view_mode_var.set("continuous")
+        app._set_view_mode()
+        app.theme_name.set("dark")
+        app._on_theme_changed()
+        # Real assertion: the cache was rebuilt at the new theme, not
+        # left holding light-theme pixels under a dark label.
+        assert app._page_cache.has(0)
     finally:
         app.doc.close()
         root.destroy()

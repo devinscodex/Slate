@@ -153,16 +153,15 @@ _STANDARD_LIGHT = {
 # which supersedes that earlier ad-hoc call -- Solarized's blue-black
 # identity IS the spec, not a bug to soften. fg/muted_fg were already
 # correct (base0/base01) and are unchanged.
-_SOLARIZED_DARK = {
+#
+# Light variant dropped (Devin, 2026-07-25: "please delete solarized
+# light color, just leave solarized dark and call it just
+# 'solarized'") -- one Solarized variant now, not a light/dark pair
+# like Standard/Inkbone.
+_SOLARIZED = {
     "bg": "#002b36", "fg": "#839496", "button_bg": "#073642",
     "entry_bg": "#073642", "canvas_bg": "#002b36",
     "select_bg": "#268bd2", "muted_fg": "#586e75", "is_dark": True,
-    "highlight_bg": "#268bd2",
-}
-_SOLARIZED_LIGHT = {
-    "bg": "#fdf6e3", "fg": "#657b83", "button_bg": "#eee8d5",
-    "entry_bg": "#fdf6e3", "canvas_bg": "#fdf6e3",
-    "select_bg": "#268bd2", "muted_fg": "#93a1a1", "is_dark": False,
     "highlight_bg": "#268bd2",
 }
 
@@ -208,8 +207,7 @@ THEMES = {
     "dark": _with_chrome_cascade(_STANDARD_DARK),
     "inkbone_light": _with_chrome_cascade(_INKBONE_LIGHT),
     "inkbone_dark": _with_chrome_cascade(_INKBONE_DARK),
-    "solarized_light": _with_chrome_cascade(_SOLARIZED_LIGHT),
-    "solarized_dark": _with_chrome_cascade(_SOLARIZED_DARK),
+    "solarized": _with_chrome_cascade(_SOLARIZED),
 }
 
 # Display label -> internal THEMES key, in menu order. Devin's stated
@@ -220,8 +218,7 @@ THEME_LABELS = {
     "Dark": "dark",
     "Inkbone Light": "inkbone_light",
     "Inkbone Dark": "inkbone_dark",
-    "Solarized Light": "solarized_light",
-    "Solarized Dark": "solarized_dark",
+    "Solarized": "solarized",
 }
 
 # Kept as plain names too (not just THEMES["light"]/["dark"]) -- several

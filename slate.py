@@ -24,6 +24,7 @@ import gate
 import io_pdf
 import layout
 import merge_split
+import pagecache
 import recent
 import redact
 import scan
@@ -77,6 +78,7 @@ class SlateApp:
         self.mode = "view"  # view | redact | annotate:<kind> | forms | textedit
         self._drag_start = None
         self._drag_rect_id = None
+        self._corner_grip_start = None  # (start mouse x/y, start window w/h) for the bottom-right resize grip
         self._pending_redactions = []  # [(page_num, fitz.Rect), ...]
         # Text selection (view mode default -- Devin's ask, 2026-07-25:
         # "default to arrow/select text over rectangle select"). Each
@@ -93,7 +95,8 @@ class SlateApp:
         # vertically in one scrollable canvas; self._layout is that
         # mode's geometry (layout.PageLayout), rebuilt in render()
         # whenever page count/zoom changed since the last build.
-        self.view_mode = "single"
+        # Devin, 2026-07-25: "default to 'continuous scroll' please."
+        self.view_mode = "continuous"
         self._layout = None
         # render()'s own geometry-settling update_idletasks() calls
         # (scrollregion/width/height config) fire the canvas's
@@ -106,7 +109,20 @@ class SlateApp:
         # scrolling (wheel/scrollbar-drag) is unaffected.
         self._suppress_scroll_sync = False
         self._drag_page = None  # page a click/drag started on, pinned for the whole gesture (continuous mode: a drag can visually cross page rects, but a redaction/annotation belongs to exactly one page)
-        self._tk_imgs = []  # continuous mode: one PhotoImage per visible page (keep references or Tkinter garbage-collects them)
+        # Slice 3 perf fix (Fable design review, 2026-07-25), after
+        # Devin hit a real lockup on PageUp/PageDown: continuous mode
+        # used to eager-render EVERY page on EVERY render() call. Now
+        # windowed -- self._page_cache holds PhotoImages only for pages
+        # near the viewport (it IS the keepalive; no separate list
+        # needed), self._layout_doc/_last_window/_page_canvas_items/
+        # _page_placeholder_items track what's currently drawn so
+        # scrolling can incrementally shift the window instead of
+        # rebuilding from scratch (see _render_continuous/_shift_window).
+        self._page_cache = pagecache.PageImageCache(self._make_page_image)
+        self._layout_doc = None
+        self._last_window = set()
+        self._page_canvas_items = {}
+        self._page_placeholder_items = {}
         self._doc_view_built = False
         self.home_frame = None
         # Devin, 2026-07-25: "default TOC view = true."
@@ -185,6 +201,11 @@ class SlateApp:
         theme.save_preference(self.theme_name.get())
         self._apply_theme()
         if self.doc is not None:
+            # Colorize happens once at cache-fill time (baked into the
+            # stored PhotoImage), not reapplied per-draw -- a theme
+            # switch is a full cache bust, same cost as a zoom change
+            # (Fable design review, 2026-07-25, Slice 3 perf consult).
+            self._page_cache.invalidate_all()
             self.render()  # re-invert the currently-visible page immediately, not on next nav
 
     def _apply_native_titlebar_theme(self):
@@ -311,6 +332,44 @@ class SlateApp:
                     )
                 except tk.TclError:
                     pass
+        if getattr(self, "_corner_grip", None) is not None:
+            self._draw_corner_grip(colors)
+
+    def _draw_corner_grip(self, colors):
+        """The bottom-right corner where the h/v scrollbars collide
+        (Devin, 2026-07-25: "add something creative... in the spirit
+        of Cairn") -- a small literal cairn (3 stacked stones) in the
+        house green accent, on the same toolbar_bg band as the
+        scrollbars either side of it, so it reads as part of that
+        chrome band rather than a random decoration."""
+        g = self._corner_grip
+        g.configure(bg=colors["toolbar_bg"])
+        g.delete("all")
+        green = colors["highlight_bg"]
+        # 3 stacked ellipses, widest at the bottom -- a plain, legible
+        # cairn silhouette at this size (22x22), not a literal-detail
+        # attempt.
+        g.create_oval(4, 15, 18, 20, fill=green, outline="")
+        g.create_oval(6, 10, 16, 15, fill=green, outline="")
+        g.create_oval(8, 5, 14, 10, fill=green, outline="")
+
+    def _on_corner_grip_press(self, event):
+        """Devin, 2026-07-25: "make the 'corner' hitbox bigger, i often
+        just want the corner to resize both H and V" -- standard OS
+        bottom-right window-resize convention, hand-rolled because the
+        actual hitbox needs to be bigger than a bare ttk.Sizegrip's
+        default (~17px vs this widget's 22px) and this corner already
+        has to be a real widget anyway (the cairn icon lives here)."""
+        self._corner_grip_start = (event.x_root, event.y_root, self.root.winfo_width(), self.root.winfo_height())
+
+    def _on_corner_grip_drag(self, event):
+        if self._corner_grip_start is None:
+            return
+        start_x, start_y, start_w, start_h = self._corner_grip_start
+        dx, dy = event.x_root - start_x, event.y_root - start_y
+        new_w = max(400, start_w + dx)
+        new_h = max(300, start_h + dy)
+        self.root.geometry(f"{new_w}x{new_h}")
 
     def _paint_chrome_subtree(self, widget, band_bg, band_fg):
         try:
@@ -1031,6 +1090,20 @@ class SlateApp:
         self.canvas.grid(row=0, column=0, sticky="nsew")
         self._vscroll.grid(row=0, column=1, sticky="ns")
         self._hscroll.grid(row=1, column=0, sticky="ew")
+        # Devin, 2026-07-25: "add something creative in the bottom
+        # right corner where the scrollbars collide... in the spirit
+        # of Cairn" + "make the 'corner' hitbox bigger, i often just
+        # want the corner to resize both H and V" -- a real drag-to-
+        # resize grip (standard OS bottom-right window resize
+        # convention) with a bigger-than-default hitbox (22px vs a
+        # plain scrollbar's ~17px) and a small literal cairn (stacked
+        # stones) icon instead of the usual bare diagonal hatch.
+        self._corner_grip = tk.Canvas(
+            canvas_frame, width=22, height=22, highlightthickness=0, bd=0, cursor="bottom_right_corner",
+        )
+        self._corner_grip.grid(row=1, column=1, sticky="nsew")
+        self._corner_grip.bind("<ButtonPress-1>", self._on_corner_grip_press)
+        self._corner_grip.bind("<B1-Motion>", self._on_corner_grip_drag)
         canvas_frame.grid_rowconfigure(0, weight=1)
         canvas_frame.grid_columnconfigure(0, weight=1)
         self._canvas_frame = canvas_frame  # _toggle_toc_panel needs the PANE widget, not the bare canvas
@@ -1188,7 +1261,11 @@ class SlateApp:
         should track whatever page is at the viewport's top edge while
         scrolling, not freeze at whatever page was current when
         continuous mode was entered -- Devin will notice immediately
-        if this is missing (small, but real UX)."""
+        if this is missing (small, but real UX). Also the one real
+        trigger point for _shift_window (Slice 3 perf fix) -- every
+        organic scroll cause (wheel, scrollbar drag, yscrollcommand)
+        already funnels through here, so windowing piggybacks on the
+        same hook rather than needing its own."""
         if self._suppress_scroll_sync:
             return
         if self.view_mode != "continuous" or self._layout is None or self.viewer is None:
@@ -1200,6 +1277,7 @@ class SlateApp:
         if page_num != self.viewer.page_num:
             self.viewer.goto(page_num)
             self.page_entry_var.set(str(self.viewer.page_num + 1))
+        self._shift_window()
 
     def _set_view_mode(self):
         """Devin, 2026-07-25: Page Layout submenu (View menu), radio
@@ -1596,26 +1674,160 @@ class SlateApp:
         self._draw_search_highlights_for_page(self.viewer.page_num, 0, 0)
         self._draw_text_selection_for_page(self.viewer.page_num, 0, 0)
 
+    def _make_page_image(self, page_num):
+        """PageImageCache's fill function -- only called on a real
+        cache miss (a page entering the window for the first time)."""
+        img = self._colorize_for_theme(self.viewer.render_page(page_num=page_num))
+        return ImageTk.PhotoImage(img)
+
+    def _viewport_height(self) -> float:
+        h = self.canvas.winfo_height()
+        # Not yet geometry-realized (e.g. very first render): a
+        # reasonable fallback so the window isn't computed with zero
+        # slack -- corrected automatically on the next real render/scroll.
+        return h if h > 1 else 600
+
+    def _compute_window(self) -> list:
+        """Real page range worth keeping rendered: viewport ± one
+        screenful of slack (Fable design review, 2026-07-25, Slice 3
+        perf consult) -- self-adjusts to zoom/viewport size, no tuned
+        page-count constant.
+
+        Trusts canvas.yview() -- only valid once the scrollregion
+        reflects the CURRENT layout. Real bug caught live building
+        this: calling this before a render pass updates the
+        scrollregion reads a STALE fraction (from whatever the
+        previous, differently-sized mode/layout had) against the NEW
+        total_h, producing a nonsensical window that could span nearly
+        the whole document. _render_continuous's first-ever build for
+        a given layout uses _window_around_page instead, anchored to
+        the page we already know should be visible rather than a
+        scroll fraction that might not correspond to this layout at
+        all; this method is for _shift_window's organic-scroll case,
+        where the scrollregion is already correctly set from a prior
+        render."""
+        if self._layout is None:
+            return []
+        first, last = self.canvas.yview()
+        _total_w, total_h = self._layout.total_size
+        viewport_h = self._viewport_height()
+        top_y = first * total_h - viewport_h
+        bottom_y = last * total_h + viewport_h
+        return self._layout.pages_in_range(top_y, bottom_y)
+
+    def _window_around_page(self, page_num) -> list:
+        """Page range anchored to a KNOWN page (viewport ± one
+        screenful of slack), not to canvas.yview() -- used for a fresh
+        layout build, where any scroll fraction read before this same
+        render pass sets the new scrollregion would be stale (see
+        _compute_window's docstring)."""
+        if self._layout is None:
+            return []
+        _x0, y0, _x1, y1 = self._layout.rect_of(page_num)
+        viewport_h = self._viewport_height()
+        return self._layout.pages_in_range(y0 - viewport_h, y1 + viewport_h)
+
+    def _draw_real_page(self, page_num, x0, y0):
+        tkimg = self._page_cache.get(page_num)
+        item = self.canvas.create_image(int(x0), int(y0), anchor=tk.NW, image=tkimg)
+        self._page_canvas_items[page_num] = item
+        self._draw_search_highlights_for_page(page_num, x0, y0)
+        self._draw_text_selection_for_page(page_num, x0, y0)
+
+    def _draw_placeholder(self, page_num, x0, y0, x1, y1, colors):
+        item = self.canvas.create_rectangle(x0, y0, x1, y1, fill=colors["canvas_bg"], outline="")
+        self._page_placeholder_items[page_num] = item
+
     def _render_continuous(self):
-        """Eager-render every page up front, one PhotoImage each,
-        positioned via layout.PageLayout -- the natural first cut per
-        Fable's design review (windowing/virtualizing for huge
-        documents is real future scope, not built until an actual
-        document proves eager rendering too slow)."""
-        self._layout = layout.PageLayout(self.doc, self.viewer.zoom)
+        """Real perf fix (Fable design review, 2026-07-25), after Devin
+        hit a live lockup on PageUp/PageDown: the original eager-
+        render-every-page-on-every-render()-call approach re-rasterized
+        the WHOLE document on every navigation/zoom/theme change.
+        Windowed instead -- only pages near the viewport (± one
+        screenful of slack) get a real PhotoImage; everything else is a
+        cheap colored placeholder rect, lazily upgraded as the window
+        moves (see _shift_window, the pure-scroll incremental path that
+        avoids even this full rebuild for ordinary scrolling)."""
+        zoom = self.viewer.zoom
+        need_new_layout = (
+            self._layout is None or self._layout_doc is not self.doc or self._layout.zoom != zoom
+        )
+        if need_new_layout:
+            self._layout = layout.PageLayout(self.doc, zoom)
+            self._layout_doc = self.doc
+            self._page_cache.invalidate_all()
+            self._last_window = set()
         self.canvas.delete("all")
-        self._tk_imgs = []
-        for page_num, x0, y0, _x1, _y1 in self._layout.all_rects():
-            img = self._colorize_for_theme(self.viewer.render_page(page_num=page_num))
-            tkimg = ImageTk.PhotoImage(img)
-            self._tk_imgs.append(tkimg)
-            self.canvas.create_image(int(x0), int(y0), anchor=tk.NW, image=tkimg)
-            self._draw_search_highlights_for_page(page_num, x0, y0)
-            self._draw_text_selection_for_page(page_num, x0, y0)
+        self._page_canvas_items = {}
+        self._page_placeholder_items = {}
+        # Anchored to viewer.page_num (the page we KNOW should be
+        # visible), not canvas.yview() -- the scrollregion for THIS
+        # layout hasn't been set yet at this point in the call, so any
+        # scroll fraction read here would be stale (see
+        # _compute_window's docstring for the real bug this avoids).
+        window = set(self._window_around_page(self.viewer.page_num))
+        self._page_cache.set_window(window)
+        self._last_window = window
+        colors = theme.get_palette(self.theme_name.get())
+        rects = self._layout.all_rects()
+        for idx, (page_num, x0, y0, x1, y1) in enumerate(rects):
+            if page_num in window:
+                self._draw_real_page(page_num, x0, y0)
+            else:
+                self._draw_placeholder(page_num, x0, y0, x1, y1, colors)
+            # Devin, 2026-07-25, live screenshot review: a page that
+            # ends with a lot of its own trailing whitespace (baked
+            # into that page's real content, not something Slate can
+            # crop without risking real content) reads as an
+            # unexplained blank void without this -- a subtle line at
+            # the real page boundary marks it as an intentional break.
+            if idx < len(rects) - 1:
+                line_y = y1 + self._layout.gap / 2
+                self.canvas.create_line(x0, line_y, x1, line_y, fill=colors["muted_fg"], width=1)
         total_w, total_h = self._layout.total_size
-        self.canvas.config(width=total_w, height=total_h)
+        # Deliberately NOT canvas.config(width=, height=) here (unlike
+        # _render_single, where the canvas SHOULD size to exactly one
+        # page) -- real bug caught live after defaulting view_mode to
+        # "continuous": sizing the canvas WIDGET itself to the full
+        # stacked document height meant that, on a fresh window with no
+        # prior smaller render to anchor a sane size, Tk let the
+        # TOPLEVEL grow to fit that huge request outright (nothing
+        # existed yet to clip it against), so canvas.yview() reported
+        # "everything fits" even for a document far taller than any
+        # real screen. scrollregion alone is correct here -- the
+        # canvas's on-screen size should stay whatever the container
+        # actually gives it; that's the entire point of a scrollable
+        # viewport onto a larger virtual content area.
         self.canvas.config(scrollregion=(0, 0, total_w, total_h))
         self.canvas.update_idletasks()
+
+    def _shift_window(self):
+        """Pure-scroll incremental update -- no canvas.delete('all'),
+        only the window boundary's own diff touches the canvas. Hooked
+        from _sync_page_num_from_scroll (already fires from every real
+        scroll trigger: wheel, scrollbar drag, yscrollcommand) so
+        ordinary scrolling never pays a full-rebuild cost regardless of
+        document length."""
+        if self.view_mode != "continuous" or self._layout is None:
+            return
+        new_window = set(self._compute_window())
+        if new_window == self._last_window:
+            return
+        colors = theme.get_palette(self.theme_name.get())
+        for page_num in self._last_window - new_window:
+            item = self._page_canvas_items.pop(page_num, None)
+            if item is not None:
+                self.canvas.delete(item)
+            x0, y0, x1, y1 = self._layout.rect_of(page_num)
+            self._draw_placeholder(page_num, x0, y0, x1, y1, colors)
+        for page_num in new_window - self._last_window:
+            ph_item = self._page_placeholder_items.pop(page_num, None)
+            if ph_item is not None:
+                self.canvas.delete(ph_item)
+            x0, y0, _x1, _y1 = self._layout.rect_of(page_num)
+            self._draw_real_page(page_num, x0, y0)
+        self._page_cache.set_window(new_window)
+        self._last_window = new_window
 
     def _draw_search_highlights_for_page(self, page_num, ox, oy):
         """Canvas-only overlay, not real annotations -- cleared and
@@ -2307,7 +2519,20 @@ class SlateApp:
             except Exception as e:
                 messagebox.showinfo("Playback failed", str(e))
 
-        threading.Thread(target=worker, daemon=True).start()
+        # Real crash caught live building Slice 3 (after defaulting
+        # view_mode to "continuous" made every test do more Tk work
+        # sooner after doc-open, widening a pre-existing race window):
+        # tests only polled the _tts_synthesizing FLAG, not this actual
+        # thread object -- there's a razor-thin gap between the flag
+        # flipping False (inside worker(), just before it returns) and
+        # the OS thread genuinely finishing. A test that only trusts
+        # the flag can proceed (and tear down, letting the NEXT test's
+        # main-thread Tk calls run) while this thread is still mid-
+        # teardown after its first-ever `import piper` -- a real
+        # cross-test race that segfaulted. self._tts_thread is kept so
+        # tests can .join() it for a real guarantee, not just the flag.
+        self._tts_thread = threading.Thread(target=worker, daemon=True)
+        self._tts_thread.start()
         poll()
 
     def do_tts_pause_resume(self):

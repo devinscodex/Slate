@@ -12,7 +12,7 @@
 
 #define MyAppName "Slate"
 #define MyAppVersion "1.1.0"
-#define MyAppPublisher "Devin Dwight"
+#define MyAppPublisher "devinscodex"
 #define MyAppExeName "Slate.exe"
 
 [Setup]

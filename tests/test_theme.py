@@ -33,21 +33,22 @@ def test_every_theme_label_maps_to_a_real_theme():
         assert name in theme.THEMES, label
 
 
-def test_roster_is_exactly_six_themes_three_core_families():
+def test_roster_is_exactly_five_themes():
     """Devin, 2026-07-25: "make standard light/dark modes the same as
     Flexoki, and get rid of Flexoki as a separate option, also delete
     Gruvbox themes... main will be Dark/Light, Solarized Light/Dark,
     Inkbone Light/Dark." Down from 5 families (10 variants) to 3
-    families (6) -- real regression guard against either roster
-    creeping back."""
+    families (6). Same day, later: "please delete solarized light
+    color, just leave solarized dark and call it just 'solarized'" --
+    Solarized drops to a single variant, roster is 5 total now."""
     assert set(theme.THEMES.keys()) == {
         "light", "dark",
         "inkbone_light", "inkbone_dark",
-        "solarized_light", "solarized_dark",
+        "solarized",
     }
-    for gone in ("flexoki_dark", "flexoki_light", "gruvbox_dark", "gruvbox_light"):
+    for gone in ("flexoki_dark", "flexoki_light", "gruvbox_dark", "gruvbox_light", "solarized_light"):
         assert gone not in theme.THEMES, gone
-    for gone_label in ("Flexoki Dark", "Flexoki Light", "Gruvbox Dark", "Gruvbox Light"):
+    for gone_label in ("Flexoki Dark", "Flexoki Light", "Gruvbox Dark", "Gruvbox Light", "Solarized Light", "Solarized Dark"):
         assert gone_label not in theme.THEME_LABELS, gone_label
 
 
@@ -96,8 +97,7 @@ def test_standard_uses_inkbone_green_not_flexoki_blue():
     assert theme.THEMES["light"]["select_bg"] == "#4a7637"
     assert theme.THEMES["light"]["highlight_bg"] == "#4a7637"
     # Solarized's blue is real, official, and untouched
-    assert theme.THEMES["solarized_dark"]["select_bg"] == "#268bd2"
-    assert theme.THEMES["solarized_light"]["select_bg"] == "#268bd2"
+    assert theme.THEMES["solarized"]["select_bg"] == "#268bd2"
 
 
 def test_inkbone_dark_night_noir_page_matches_the_real_cairn_source():
@@ -134,8 +134,7 @@ def test_named_theme_palettes_are_real_and_distinct():
     """Solarized/Standard(Flexoki) -- confirm each is actually a
     distinct palette (not accidentally aliased to each other) and that
     is_dark matches the palette's own name."""
-    assert theme.THEMES["solarized_dark"]["is_dark"] is True
-    assert theme.THEMES["solarized_light"]["is_dark"] is False
+    assert theme.THEMES["solarized"]["is_dark"] is True
     assert theme.THEMES["dark"]["is_dark"] is True
     assert theme.THEMES["light"]["is_dark"] is False
 
@@ -207,21 +206,18 @@ def test_solarized_matches_the_real_official_palette():
     values, ethanschoonover.com/solarized, verified live (not memory)
     same session: dark mode's real relationship is base03:base0 for
     bg:fg per the design's own stated principle, base02 for the
-    secondary/UI surface; light mode inverts to base3:base00, base2
-    for the secondary surface. Supersedes an earlier same-night pass
-    that had desaturated dark's bg/button_bg off-spec (a live
-    aesthetic complaint, "the paper is too blue") -- this later,
-    explicit "match the official spec" instruction wins."""
-    dark = theme.THEMES["solarized_dark"]
+    secondary/UI surface. Supersedes an earlier same-night pass that
+    had desaturated dark's bg/button_bg off-spec (a live aesthetic
+    complaint, "the paper is too blue") -- this later, explicit "match
+    the official spec" instruction wins.
+
+    Light variant dropped later the same day (Devin: "please delete
+    solarized light color, just leave solarized dark and call it just
+    'solarized'") -- one variant now, key "solarized" not
+    "solarized_dark"."""
+    dark = theme.THEMES["solarized"]
     assert dark["bg"] == "#002b36"  # base03
     assert dark["button_bg"] == "#073642"  # base02
     assert dark["fg"] == "#839496"  # base0
     assert dark["muted_fg"] == "#586e75"  # base01
     assert dark["select_bg"] == "#268bd2"  # official accent blue
-
-    light = theme.THEMES["solarized_light"]
-    assert light["bg"] == "#fdf6e3"  # base3
-    assert light["button_bg"] == "#eee8d5"  # base2
-    assert light["fg"] == "#657b83"  # base00
-    assert light["muted_fg"] == "#93a1a1"  # base1
-    assert light["select_bg"] == "#268bd2"  # official accent blue

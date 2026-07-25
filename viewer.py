@@ -1,6 +1,4 @@
 """Slice 1: render, nav, zoom. One page at a time, rendered via PyMuPDF."""
-from io import BytesIO
-
 import fitz  # PyMuPDF
 from PIL import Image
 
@@ -18,13 +16,23 @@ class Viewer:
         return self.doc.page_count
 
     def render_page(self, page_num=None, zoom=None) -> Image.Image:
-        """Render one page to a PIL Image at the given zoom (1.0 = 72 DPI)."""
+        """Render one page to a PIL Image at the given zoom (1.0 = 72 DPI).
+
+        Real perf fix (Fable design review, 2026-07-25, after Devin hit
+        a live lockup): get_pixmap() with no explicit alpha/colorspace
+        args already produces raw RGB samples -- the original
+        `Image.open(BytesIO(pix.tobytes("png")))` was a full PNG
+        COMPRESS (in PyMuPDF/C) followed by a full PNG DECOMPRESS (in
+        PIL) on every single call, pure waste. frombytes() is the
+        standard zero-copy interop instead -- behavior-identical
+        pixels, no round-trip. Speeds up every render in every mode,
+        not just continuous-scroll's eager-render loop."""
         page_num = self.page_num if page_num is None else page_num
         zoom = self.zoom if zoom is None else zoom
         page = self.doc[page_num]
         mat = fitz.Matrix(zoom, zoom)
         pix = page.get_pixmap(matrix=mat)
-        img = Image.open(BytesIO(pix.tobytes("png")))
+        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
         return img
 
     def next_page(self):
