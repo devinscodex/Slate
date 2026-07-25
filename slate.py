@@ -88,16 +88,30 @@ class SlateApp:
         # correctly ordered without re-sorting by geometry.
         self._selected_words = []
         self._selected_page_num = None  # which page _selected_words belongs to (continuous mode needs this to draw the right offset)
-        # Slice 2 (Fable design review, 2026-07-25): "single" keeps
-        # today's one-page-at-a-time render path byte-identical --
-        # every _page_offset()/_canvas_to_pdf_rect() call collapses to
-        # (0, 0), zero regression risk. "continuous" stacks every page
-        # vertically in one scrollable canvas; self._layout is that
-        # mode's geometry (layout.PageLayout), rebuilt in render()
-        # whenever page count/zoom changed since the last build.
-        # Devin, 2026-07-25: "default to 'continuous scroll' please."
-        self.view_mode = "continuous"
+        # Slice 4 (Fable design review, 2026-07-25): two INDEPENDENT
+        # axes, not one mode string -- Devin: "side by side option
+        # (both can be turned on, checkbox in menu)", matching how
+        # Adobe/Foxit's own "Two Page View" + "Scroll Continuously"
+        # checkboxes actually combine. continuous_scroll=True (Devin:
+        # "default to 'continuous scroll' please") is the "does the
+        # canvas scroll through every row" axis; side_by_side is the
+        # "how many pages per row" axis (cols=2 vs 1). self._layout
+        # (layout.PageLayout) exists in ALL FOUR combinations now --
+        # every coordinate-resolution call site generalizes to "does
+        # self._layout exist" rather than a mode check.
+        self.continuous_scroll = True
+        self.side_by_side = False
         self._layout = None
+        # Static (non-scrolling) row rendering draws the CURRENT row
+        # translated to canvas origin (0, 0) -- self._layout's own
+        # rect_of() gives each page's TRUE position in the full
+        # document stack (needed for continuous mode), which for a
+        # page deep in a long document is nowhere near the canvas
+        # origin. This is the correction applied both when drawing a
+        # static row and when resolving a click back to PDF space
+        # (_page_offset) -- always (0, 0) in continuous mode, where
+        # rect_of()'s true absolute position is exactly what's wanted.
+        self._static_row_offset = (0, 0)
         # render()'s own geometry-settling update_idletasks() calls
         # (scrollregion/width/height config) fire the canvas's
         # yscrollcommand with whatever scroll position was current
@@ -336,22 +350,21 @@ class SlateApp:
             self._draw_corner_grip(colors)
 
     def _draw_corner_grip(self, colors):
-        """The bottom-right corner where the h/v scrollbars collide
-        (Devin, 2026-07-25: "add something creative... in the spirit
-        of Cairn") -- a small literal cairn (3 stacked stones) in the
-        house green accent, on the same toolbar_bg band as the
-        scrollbars either side of it, so it reads as part of that
-        chrome band rather than a random decoration."""
+        """The bottom-right corner where the h/v scrollbars collide.
+        Dagaz (ᛞ) from TART's own rune palette (tart.h's "Runes" row) --
+        replaces an earlier literal stacked-stones cairn (Devin,
+        2026-07-25: "no more green turd cairn plz... one of the classic
+        rune symbols that we have in Tart"). Dagaz's shape (two
+        triangles meeting at a point) reads naturally as a resize
+        handle, and its meaning -- dawn, breakthrough -- fits a blank
+        page/new-document tool. Rendered in the same neutral chrome
+        text color as the rest of the toolbar band, not a special
+        accent -- minimal, not a mascot."""
         g = self._corner_grip
         g.configure(bg=colors["toolbar_bg"])
         g.delete("all")
-        green = colors["highlight_bg"]
-        # 3 stacked ellipses, widest at the bottom -- a plain, legible
-        # cairn silhouette at this size (22x22), not a literal-detail
-        # attempt.
-        g.create_oval(4, 15, 18, 20, fill=green, outline="")
-        g.create_oval(6, 10, 16, 15, fill=green, outline="")
-        g.create_oval(8, 5, 14, 10, fill=green, outline="")
+        g.create_text(11, 11, text="ᛞ", font=("TkDefaultFont", 14),
+                       fill=colors["toolbar_fg"], anchor="center")
 
     def _on_corner_grip_press(self, event):
         """Devin, 2026-07-25: "make the 'corner' hitbox bigger, i often
@@ -359,17 +372,34 @@ class SlateApp:
         bottom-right window-resize convention, hand-rolled because the
         actual hitbox needs to be bigger than a bare ttk.Sizegrip's
         default (~17px vs this widget's 22px) and this corner already
-        has to be a real widget anyway (the cairn icon lives here)."""
-        self._corner_grip_start = (event.x_root, event.y_root, self.root.winfo_width(), self.root.winfo_height())
+        has to be a real widget anyway (the rune icon lives here).
+        Position captured here too (not just size) -- see
+        _on_corner_grip_drag for why."""
+        self._corner_grip_start = (
+            event.x_root, event.y_root,
+            self.root.winfo_width(), self.root.winfo_height(),
+            self.root.winfo_x(), self.root.winfo_y(),
+        )
 
     def _on_corner_grip_drag(self, event):
+        """Real bug Devin caught live, 2026-07-25: "the initial
+        bottomright resize moves the window's top left." Root cause: a
+        size-only geometry string ("WxH", no "+x+y") occasionally gets
+        re-anchored by the window manager instead of preserving the
+        existing top-left corner, on the very first resize call after
+        the window's position was last set with its own separate
+        geometry("+x+y") call (see main()'s startup centering) -- Tk
+        has no guarantee the WM keeps remembering a position it wasn't
+        just told. Fix: always pass position explicitly, pinned to
+        what it was when the drag started, so the WM never has to
+        guess or "remember" anything."""
         if self._corner_grip_start is None:
             return
-        start_x, start_y, start_w, start_h = self._corner_grip_start
+        start_x, start_y, start_w, start_h, win_x, win_y = self._corner_grip_start
         dx, dy = event.x_root - start_x, event.y_root - start_y
         new_w = max(400, start_w + dx)
         new_h = max(300, start_h + dy)
-        self.root.geometry(f"{new_w}x{new_h}")
+        self.root.geometry(f"{new_w}x{new_h}+{win_x}+{win_y}")
 
     def _paint_chrome_subtree(self, widget, band_bg, band_fg):
         try:
@@ -517,14 +547,20 @@ class SlateApp:
         viewm.add_separator()
         viewm.add_command(label="Find... (/)", command=self._show_find_bar)
         viewm.add_separator()
-        self.view_mode_var = tk.StringVar(value=self.view_mode)
+        # Slice 4 (Fable design review, 2026-07-25): independent
+        # checkboxes, not mutually-exclusive radio options -- Devin:
+        # "side by side option (both can be turned on, checkbox in
+        # menu)", matching Adobe/Foxit's own "Two Page View" + "Scroll
+        # Continuously" combination.
+        self.continuous_scroll_var = tk.BooleanVar(value=self.continuous_scroll)
+        self.side_by_side_var = tk.BooleanVar(value=self.side_by_side)
         layoutmenu = tk.Menu(viewm, tearoff=0)
-        layoutmenu.add_radiobutton(
-            label="Single Page", variable=self.view_mode_var, value="single",
+        layoutmenu.add_checkbutton(
+            label="Continuous Scroll", variable=self.continuous_scroll_var,
             command=self._set_view_mode, selectcolor=radio_select_color,
         )
-        layoutmenu.add_radiobutton(
-            label="Continuous Scroll", variable=self.view_mode_var, value="continuous",
+        layoutmenu.add_checkbutton(
+            label="Side by Side", variable=self.side_by_side_var,
             command=self._set_view_mode, selectcolor=radio_select_color,
         )
         viewm.add_cascade(label="Page Layout", menu=layoutmenu)
@@ -1092,12 +1128,13 @@ class SlateApp:
         self._hscroll.grid(row=1, column=0, sticky="ew")
         # Devin, 2026-07-25: "add something creative in the bottom
         # right corner where the scrollbars collide... in the spirit
-        # of Cairn" + "make the 'corner' hitbox bigger, i often just
-        # want the corner to resize both H and V" -- a real drag-to-
-        # resize grip (standard OS bottom-right window resize
+        # of Cairn" (later swapped for a TART rune, see
+        # _draw_corner_grip) + "make the 'corner' hitbox bigger, i
+        # often just want the corner to resize both H and V" -- a real
+        # drag-to-resize grip (standard OS bottom-right window resize
         # convention) with a bigger-than-default hitbox (22px vs a
-        # plain scrollbar's ~17px) and a small literal cairn (stacked
-        # stones) icon instead of the usual bare diagonal hatch.
+        # plain scrollbar's ~17px) instead of the usual bare diagonal
+        # hatch.
         self._corner_grip = tk.Canvas(
             canvas_frame, width=22, height=22, highlightthickness=0, bd=0, cursor="bottom_right_corner",
         )
@@ -1242,7 +1279,7 @@ class SlateApp:
         self.viewer.goto(page_num)
         self._selected_words = []
         self.render()
-        if self.view_mode == "continuous":
+        if self.continuous_scroll:
             self._scroll_to_page(self.viewer.page_num)
         else:
             self._reset_scroll()
@@ -1268,7 +1305,7 @@ class SlateApp:
         same hook rather than needing its own."""
         if self._suppress_scroll_sync:
             return
-        if self.view_mode != "continuous" or self._layout is None or self.viewer is None:
+        if not self.continuous_scroll or self._layout is None or self.viewer is None:
             return
         first, _last = self.canvas.yview()
         _total_w, total_h = self._layout.total_size
@@ -1280,17 +1317,17 @@ class SlateApp:
         self._shift_window()
 
     def _set_view_mode(self):
-        """Devin, 2026-07-25: Page Layout submenu (View menu), radio
-        between Single Page and Continuous Scroll -- Fable design
-        review, Slice 2. Side-by-side deferred to Slice 3 (small delta
-        on top of this once continuous scroll is verified live)."""
+        """Devin, 2026-07-25: Page Layout submenu (View menu) --
+        Continuous Scroll and Side by Side are independent checkboxes
+        (Slice 4, Fable design review), not mutually-exclusive radio
+        options."""
+        self.continuous_scroll = self.continuous_scroll_var.get()
+        self.side_by_side = self.side_by_side_var.get()
         if self.viewer is None:
-            self.view_mode = self.view_mode_var.get()
             return
-        self.view_mode = self.view_mode_var.get()
         self._selected_words = []
         self.render()
-        if self.view_mode == "continuous":
+        if self.continuous_scroll:
             self._scroll_to_page(self.viewer.page_num)
         else:
             self._reset_scroll()
@@ -1626,10 +1663,10 @@ class SlateApp:
         # functions instead.
         self._suppress_scroll_sync = True
         try:
-            if self.view_mode == "continuous":
+            if self.continuous_scroll:
                 self._render_continuous()
             else:
-                self._render_single()
+                self._render_static_row()
         finally:
             self._suppress_scroll_sync = False
         pending_here = sum(1 for p, _ in self._pending_redactions if p == self.viewer.page_num)
@@ -1659,20 +1696,66 @@ class SlateApp:
         colors = theme.get_palette(self.theme_name.get())
         return ImageOps.colorize(img.convert("L"), black=colors["fg"], white=colors["canvas_bg"])
 
-    def _render_single(self):
-        img = self._colorize_for_theme(self.viewer.render_page())
-        self._tk_img = ImageTk.PhotoImage(img)
+    def _render_static_row(self):
+        """The "not scrolling" axis (Slice 4, Fable design review,
+        2026-07-25) -- side-by-side is an independent checkbox, not a
+        third radio option, so this replaces the old single-page-only
+        _render_single with a cols-aware version: cols=1 is byte-
+        identical to the original (one page, canvas sized exactly to
+        it, no scrollbar needed); cols=2 is a static two-page spread,
+        same shape. Always builds self._layout (even though only this
+        row's 1-2 pages ever get drawn) so every coordinate-resolution
+        call site can generalize to "does self._layout exist" instead
+        of a mode check -- cheap at this scale, no windowing/cache
+        pressure the way continuous mode needs.
+
+        self._layout.rect_of() gives each page's TRUE position in the
+        full document stack (what continuous mode needs) -- for a page
+        deep in a long document that's nowhere near canvas origin, so
+        this translates the row to (0, 0) via self._static_row_offset,
+        which _page_offset() applies symmetrically when resolving a
+        click back to PDF space."""
+        cols = 2 if self.side_by_side else 1
+        zoom = self.viewer.zoom
+        need_new_layout = (
+            self._layout is None or self._layout_doc is not self.doc
+            or self._layout.zoom != zoom or self._layout.cols != cols
+        )
+        if need_new_layout:
+            self._layout = layout.PageLayout(self.doc, zoom, cols=cols)
+            self._layout_doc = self.doc
+            self._page_cache.invalidate_all()
+            self._last_window = set()
+        row_start = (self.viewer.page_num // cols) * cols
+        row_pages = list(range(row_start, min(row_start + cols, self.viewer.page_count)))
+        row_y0 = self._layout.rect_of(row_pages[0])[1]
+        self._static_row_offset = (0, row_y0)
+        self._page_cache.set_window(set(row_pages))  # only this row's images stay cached
+        self._last_window = set(row_pages)
         self.canvas.delete("all")
-        self.canvas.config(width=img.width, height=img.height)
-        self.canvas.config(scrollregion=(0, 0, img.width, img.height))
+        self._page_canvas_items = {}
+        self._page_placeholder_items = {}
+        max_x1 = max_y1 = 0.0
+        for page_num in row_pages:
+            x0, y0, _x1, _y1 = self._layout.rect_of(page_num)
+            self._draw_real_page(page_num, x0, y0 - row_y0)
+            # Real ACTUAL rendered pixel dimensions (PhotoImage.width()/
+            # height()), not the layout's pure page_rect*zoom float math
+            # -- PyMuPDF's rasterizer rounds to a whole pixel count
+            # (e.g. 595pt * 1.5 = 892.5 -> a real 893px image), so using
+            # the float would size the canvas/scrollregion half a pixel
+            # too small, a real (if tiny) edge-clipping regression
+            # caught by test_scrollregion_is_set_to_the_rendered_page_size.
+            tkimg = self._page_cache.get(page_num)
+            max_x1 = max(max_x1, x0 + tkimg.width())
+            max_y1 = max(max_y1, (y0 - row_y0) + tkimg.height())
+        self.canvas.config(width=max_x1, height=max_y1)
+        self.canvas.config(scrollregion=(0, 0, max_x1, max_y1))
         # Force geometry to settle now -- callers that inspect
         # canvas.yview() right after render() (rubber-band wheel logic,
         # _wheel_fits_viewport) need a real reading immediately, not
         # Tk's stale (0.0, 0.0) "not yet computed" sentinel.
         self.canvas.update_idletasks()
-        self.canvas.create_image(0, 0, anchor=tk.NW, image=self._tk_img)
-        self._draw_search_highlights_for_page(self.viewer.page_num, 0, 0)
-        self._draw_text_selection_for_page(self.viewer.page_num, 0, 0)
 
     def _make_page_image(self, page_num):
         """PageImageCache's fill function -- only called on a real
@@ -1748,15 +1831,21 @@ class SlateApp:
         cheap colored placeholder rect, lazily upgraded as the window
         moves (see _shift_window, the pure-scroll incremental path that
         avoids even this full rebuild for ordinary scrolling)."""
+        cols = 2 if self.side_by_side else 1
         zoom = self.viewer.zoom
         need_new_layout = (
-            self._layout is None or self._layout_doc is not self.doc or self._layout.zoom != zoom
+            self._layout is None or self._layout_doc is not self.doc
+            or self._layout.zoom != zoom or self._layout.cols != cols
         )
         if need_new_layout:
-            self._layout = layout.PageLayout(self.doc, zoom)
+            self._layout = layout.PageLayout(self.doc, zoom, cols=cols)
             self._layout_doc = self.doc
             self._page_cache.invalidate_all()
             self._last_window = set()
+        # Continuous mode always draws pages at their TRUE absolute
+        # position -- no row-relative translation the way static mode
+        # needs (_render_static_row), so this always stays (0, 0) here.
+        self._static_row_offset = (0, 0)
         self.canvas.delete("all")
         self._page_canvas_items = {}
         self._page_placeholder_items = {}
@@ -1781,9 +1870,15 @@ class SlateApp:
             # crop without risking real content) reads as an
             # unexplained blank void without this -- a subtle line at
             # the real page boundary marks it as an intentional break.
-            if idx < len(rects) - 1:
+            # Row-boundary only (Slice 4: side-by-side means more than
+            # one page can share a row) -- drawn once per row, at the
+            # last (rightmost) page's own bottom edge, spanning the
+            # full row width rather than just that one page's column.
+            is_last_in_row = (idx + 1) % self._layout.cols == 0
+            if is_last_in_row and idx < len(rects) - 1:
+                row_w, _total_h = self._layout.total_size
                 line_y = y1 + self._layout.gap / 2
-                self.canvas.create_line(x0, line_y, x1, line_y, fill=colors["muted_fg"], width=1)
+                self.canvas.create_line(0, line_y, row_w, line_y, fill=colors["muted_fg"], width=1)
         total_w, total_h = self._layout.total_size
         # Deliberately NOT canvas.config(width=, height=) here (unlike
         # _render_single, where the canvas SHOULD size to exactly one
@@ -1808,7 +1903,7 @@ class SlateApp:
         scroll trigger: wheel, scrollbar drag, yscrollcommand) so
         ordinary scrolling never pays a full-rebuild cost regardless of
         document length."""
-        if self.view_mode != "continuous" or self._layout is None:
+        if not self.continuous_scroll or self._layout is None:
             return
         new_window = set(self._compute_window())
         if new_window == self._last_window:
@@ -1884,12 +1979,14 @@ class SlateApp:
         target page's real position instead of jumping back to canvas
         origin (_reset_scroll would land on page 1's top regardless of
         which page was current -- a real bug this fixes, not a style
-        choice)."""
+        choice). Side by side (Slice 4): steps by a whole spread (2
+        pages), not 1, same as Adobe/Foxit's own two-page-view nav."""
         if self.viewer is None:
             return
         if self.viewer.page_num >= self.viewer.page_count - 1:
             return
-        self._go_to_page(self.viewer.page_num + 1)
+        step = 2 if self.side_by_side else 1
+        self._go_to_page(min(self.viewer.page_num + step, self.viewer.page_count - 1))
 
     def prev(self):
         """See next()'s docstring."""
@@ -1897,7 +1994,8 @@ class SlateApp:
             return
         if self.viewer.page_num <= 0:
             return
-        self._go_to_page(self.viewer.page_num - 1)
+        step = 2 if self.side_by_side else 1
+        self._go_to_page(max(self.viewer.page_num - step, 0))
 
     def _prev_page_landing_at_bottom(self):
         """Same as prev(), except a wheel-driven page-turn arrives from
@@ -1941,7 +2039,7 @@ class SlateApp:
         document that fits on screen still no-ops for free."""
         if self._typing_in_entry() or self.viewer is None:
             return
-        if self.view_mode == "continuous":
+        if self.continuous_scroll:
             if not self._wheel_fits_viewport():
                 self.canvas.yview_scroll(-1, "units")
                 # yview_scroll's own yscrollcommand callback isn't a
@@ -1965,7 +2063,7 @@ class SlateApp:
         """Rubber-band wheel, downward -- see _wheel_up's docstring."""
         if self._typing_in_entry() or self.viewer is None:
             return
-        if self.view_mode == "continuous":
+        if self.continuous_scroll:
             if not self._wheel_fits_viewport():
                 self.canvas.yview_scroll(1, "units")
                 self._sync_page_num_from_scroll()  # see _wheel_up's comment
@@ -2009,14 +2107,22 @@ class SlateApp:
     # canvas interaction (redact / annotate / forms all live here)
     # ------------------------------------------------------------------
     def _page_offset(self, page_num):
-        """(x0, y0) canvas-space origin of this page. Always (0, 0) in
-        single-page mode -- byte-identical to the pre-Slice-2 math
-        there, zero regression risk. Continuous mode reads it from the
-        layout built by the last render()."""
-        if self.view_mode != "continuous" or self._layout is None:
+        """(x0, y0) canvas-space origin of this page, exactly matching
+        wherever it was actually drawn. Generalizes to "does
+        self._layout exist" (Fable design review, Slice 4) rather than
+        a mode check -- self._layout exists in all four continuous_
+        scroll/side_by_side combinations now. self._static_row_offset
+        is (0, 0) in continuous mode (rect_of()'s true absolute
+        position is exactly what was drawn there) and the current
+        row's translation in static mode (_render_static_row draws the
+        row at canvas origin, not its true, possibly-deep-in-the-
+        document position) -- always (0, 0) in single-page/cols=1
+        static mode too, byte-identical to the pre-Slice-2 math."""
+        if self._layout is None:
             return 0, 0
         x0, y0, _x1, _y1 = self._layout.rect_of(page_num)
-        return x0, y0
+        ox, oy = self._static_row_offset
+        return x0 - ox, y0 - oy
 
     def _canvas_to_pdf_rect(self, x0, y0, x1, y1, page_num=None) -> fitz.Rect:
         z = self.viewer.zoom
@@ -2040,8 +2146,15 @@ class SlateApp:
 
     def _on_press(self, event):
         cx, cy = self._event_canvas_xy(event)
-        if self.view_mode == "continuous":
-            page_num = self._layout.page_at(cx, cy) if self._layout else None
+        if self._layout is not None:
+            # Translate back to the layout's own absolute coordinate
+            # space before hit-testing -- static mode draws its row
+            # translated to canvas origin (_static_row_offset), so a
+            # raw canvas click needs the same translation undone to
+            # match against self._layout's true page rects. Always
+            # (0, 0) in continuous mode, so this is a no-op there.
+            ox, oy = self._static_row_offset
+            page_num = self._layout.page_at(cx + ox, cy + oy)
             if page_num is None:
                 # Clicked in the inter-page gap -- not an error, just a
                 # no-op gesture, same as clicking blank margin anywhere.

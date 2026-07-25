@@ -2311,7 +2311,7 @@ def _force_single_mode(app, root):
     already-established window. Tests whose whole premise is "the
     page fits" need a real, generously-sized window to make that true
     again, not just the mode switch."""
-    app.view_mode_var.set("single")
+    app.continuous_scroll_var.set(False)
     app._set_view_mode()
     root.geometry("1000x1400")
     root.update()
@@ -2439,9 +2439,9 @@ def test_continuous_mode_renders_every_page_in_one_scrollable_canvas(tmp_path):
     behavior, this test only checks the on-screen page is real)."""
     root, app = _make_app(tmp_path)  # basic3page.pdf -- 3 pages
     try:
-        app.view_mode_var.set("continuous")
+        app.continuous_scroll_var.set(True)
         app._set_view_mode()
-        assert app.view_mode == "continuous"
+        assert app.continuous_scroll is True
         assert app._layout is not None
         assert app._page_cache.has(0)  # the page actually on screen is always real
 
@@ -2454,17 +2454,28 @@ def test_continuous_mode_renders_every_page_in_one_scrollable_canvas(tmp_path):
         root.destroy()
 
 
-def test_page_offset_is_always_zero_in_single_page_mode(tmp_path):
+def test_page_offset_is_always_zero_for_the_displayed_page_in_single_page_mode(tmp_path):
     """Zero-regression guarantee for every existing click/drag/redact/
     annotate/textedit/forms handler: single-page mode's coordinate
-    math must stay byte-identical to pre-Slice-2 behavior."""
+    math for the page actually on screen must stay byte-identical to
+    pre-Slice-2 behavior. Slice 4 note: self._layout now represents
+    the WHOLE document even in static mode (so continuous mode's
+    geometry can be generalized to one code path), so _page_offset of
+    a page that ISN'T the currently-displayed one is no longer a
+    meaningful (0, 0) query -- only ever called in practice for
+    whatever page _on_press actually resolved a click against, which
+    is always part of the current row."""
     root, app = _make_app(tmp_path)
     try:
         _force_single_mode(app, root)
-        assert app.view_mode == "single"
-        assert app._page_offset(0) == (0, 0)
-        assert app._page_offset(1) == (0, 0)
-        assert app._page_offset(2) == (0, 0)
+        assert app.continuous_scroll is False
+        assert app._page_offset(app.viewer.page_num) == (0, 0)
+
+        app._go_to_page(1)
+        assert app._page_offset(app.viewer.page_num) == (0, 0)
+
+        app._go_to_page(2)
+        assert app._page_offset(app.viewer.page_num) == (0, 0)
     finally:
         app.doc.close()
         root.destroy()
@@ -2480,7 +2491,7 @@ def test_continuous_mode_redact_drag_lands_on_the_clicked_page_not_page_zero(tmp
     space."""
     root, app = _make_app(tmp_path)
     try:
-        app.view_mode_var.set("continuous")
+        app.continuous_scroll_var.set(True)
         app._set_view_mode()
         app._set_mode("redact")
 
@@ -2506,7 +2517,7 @@ def test_continuous_mode_click_in_the_gap_between_pages_is_a_safe_no_op(tmp_path
     crash or start a phantom drag gesture."""
     root, app = _make_app(tmp_path)
     try:
-        app.view_mode_var.set("continuous")
+        app.continuous_scroll_var.set(True)
         app._set_view_mode()
         app._set_mode("redact")
 
@@ -2531,7 +2542,7 @@ def test_continuous_mode_next_prev_scroll_to_the_real_page_position(tmp_path):
     test for that fix, not just a feature test."""
     root, app = _make_app(tmp_path)
     try:
-        app.view_mode_var.set("continuous")
+        app.continuous_scroll_var.set(True)
         app._set_view_mode()
         app.canvas.yview_moveto(0.0)
         root.update()
@@ -2559,7 +2570,7 @@ def test_continuous_mode_wheel_is_real_scroll_with_no_page_turn_concept(tmp_path
     logic, no page-turn branch."""
     root, app = _make_app(tmp_path)
     try:
-        app.view_mode_var.set("continuous")
+        app.continuous_scroll_var.set(True)
         app._set_view_mode()
         assert app._wheel_fits_viewport() is False  # 3 stacked pages already overflow
 
@@ -2600,7 +2611,7 @@ def test_continuous_mode_sync_page_num_tracks_organic_scroll(tmp_path):
     user's scrollbar drag fires on Windows."""
     root, app = _make_app(tmp_path)
     try:
-        app.view_mode_var.set("continuous")
+        app.continuous_scroll_var.set(True)
         app._set_view_mode()
 
         page1_y0 = app._layout.rect_of(1)[1]
@@ -2625,7 +2636,7 @@ def test_toc_select_scrolls_to_real_page_position_in_continuous_mode(tmp_path):
     the wrong page's position."""
     root, app = _make_app(tmp_path)
     try:
-        app.view_mode_var.set("continuous")
+        app.continuous_scroll_var.set(True)
         app._set_view_mode()
 
         app._go_to_page(2)
@@ -2666,7 +2677,7 @@ def test_continuous_mode_only_renders_pages_near_the_viewport(tmp_path):
     a cheap placeholder until scrolled near."""
     root, app = _make_app(tmp_path, fixture=_make_large_doc(tmp_path))
     try:
-        app.view_mode_var.set("continuous")
+        app.continuous_scroll_var.set(True)
         app._set_view_mode()
 
         cached_count = len(app._page_cache._images)
@@ -2686,7 +2697,7 @@ def test_scrolling_shifts_the_window_evicting_far_pages_lazily_filling_near_ones
     updates only touch the window boundary's own diff)."""
     root, app = _make_app(tmp_path, fixture=_make_large_doc(tmp_path))
     try:
-        app.view_mode_var.set("continuous")
+        app.continuous_scroll_var.set(True)
         app._set_view_mode()
         assert app._page_cache.has(0)
 
@@ -2710,7 +2721,7 @@ def test_zoom_change_invalidates_the_whole_page_cache(tmp_path):
     waiting to happen."""
     root, app = _make_app(tmp_path)
     try:
-        app.view_mode_var.set("continuous")
+        app.continuous_scroll_var.set(True)
         app._set_view_mode()
         assert app._page_cache.has(0)
 
@@ -2731,13 +2742,149 @@ def test_theme_change_invalidates_the_whole_page_cache(tmp_path):
     scroll out of and back into the window."""
     root, app = _make_app(tmp_path)
     try:
-        app.view_mode_var.set("continuous")
+        app.continuous_scroll_var.set(True)
         app._set_view_mode()
         app.theme_name.set("dark")
         app._on_theme_changed()
         # Real assertion: the cache was rebuilt at the new theme, not
         # left holding light-theme pixels under a dark label.
         assert app._page_cache.has(0)
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+# ------------------------------------------------------------------
+# Slice 4: side-by-side view (Fable design review, 2026-07-25) --
+# an independent checkbox combinable with continuous scroll, not a
+# third radio option (Devin: "side by side option (both can be turned
+# on, checkbox in menu)").
+# ------------------------------------------------------------------
+
+def test_side_by_side_static_shows_two_pages_with_no_scroll_needed(tmp_path):
+    """Devin's own framing: "a spread fits the viewport by definition
+    at normal zoom" -- side-by-side alone (continuous_scroll off) is a
+    static two-page row, canvas sized exactly to it, no scrollbar."""
+    root, app = _make_app(tmp_path)  # basic3page.pdf -- 3 pages
+    try:
+        app.continuous_scroll_var.set(False)
+        app.side_by_side_var.set(True)
+        # Same real gap _force_single_mode already works around: the
+        # window's default size (established by continuous mode's own
+        # first-ever render, which doesn't force any particular canvas
+        # size) doesn't retroactively grow for a wider two-page spread
+        # -- grow it BEFORE the mode switch renders, not after.
+        root.geometry("2000x1400")
+        root.update()
+        app._set_view_mode()
+
+        assert app._layout.cols == 2
+        assert app._page_cache.has(0)
+        assert app._page_cache.has(1)
+        assert not app._page_cache.has(2)  # not part of the first row
+        assert app._wheel_fits_viewport() is True  # canvas sized exactly to the row
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_side_by_side_next_prev_step_by_a_whole_spread(tmp_path):
+    """next()/prev() must move by 2 pages in side-by-side, same as
+    Adobe/Foxit's own two-page-view nav -- not 1, which would leave
+    the same page visible on alternating sides of the spread."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.continuous_scroll_var.set(False)
+        app.side_by_side_var.set(True)
+        app._set_view_mode()
+        assert app.viewer.page_num == 0
+
+        app.next()
+        assert app.viewer.page_num == 2  # stepped by 2, not 1 -- basic3page.pdf's last page
+        app.prev()
+        assert app.viewer.page_num == 0
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_side_by_side_click_on_the_right_page_resolves_to_that_page_not_the_left(tmp_path):
+    """Real regression test for _on_press's generalized page_at()
+    resolution + _page_offset's row-translation: a click on the
+    SECOND (right) page of a static spread must redact against that
+    page, with PDF-space coordinates relative to ITS OWN origin, not
+    the left page's."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.continuous_scroll_var.set(False)
+        app.side_by_side_var.set(True)
+        app._set_view_mode()
+        app._set_mode("redact")
+
+        page1_x0, page1_y0, _x1, _y1 = app._layout.rect_of(1)
+        z = app.viewer.zoom
+        x0, y0 = int(page1_x0 + 20), int(page1_y0 + 20)
+        x1, y1 = int(page1_x0 + 120), int(page1_y0 + 60)
+        _drag(app, x0, y0, x1, y1)
+
+        assert len(app._pending_redactions) == 1
+        page_num, rect = app._pending_redactions[0]
+        assert page_num == 1  # the right page, not the left
+        assert abs(rect.x0 - 20 / z) < 1.0
+        assert abs(rect.y0 - 20 / z) < 1.0
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_side_by_side_deep_page_still_resolves_clicks_at_row_origin(tmp_path):
+    """Real regression test for _static_row_offset: self._layout's
+    rect_of() gives a page's TRUE position in the full document stack
+    (what continuous mode needs), which for a page other than the
+    first row is nowhere near canvas origin. A static row must always
+    be interacted with as if freshly drawn at (0, 0), regardless of
+    that page's true offset -- basic3page.pdf's page 2 (the odd one
+    out, alone in the second row) is the real case that would have
+    silently misplaced clicks without the offset correction."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.continuous_scroll_var.set(False)
+        app.side_by_side_var.set(True)
+        app._set_view_mode()
+        app._go_to_page(2)  # lands on the second row (page 2 alone)
+        app._set_mode("redact")
+
+        z = app.viewer.zoom
+        _drag(app, 20, 20, 120, 60)  # a plain click near canvas origin
+
+        assert len(app._pending_redactions) == 1
+        page_num, rect = app._pending_redactions[0]
+        assert page_num == 2
+        assert abs(rect.x0 - 20 / z) < 1.0  # resolved relative to THIS row's origin, not a huge true offset
+        assert abs(rect.y0 - 20 / z) < 1.0
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_continuous_and_side_by_side_combine_into_a_scrolling_two_column_layout(tmp_path):
+    """Both checkboxes on at once (Devin: "both can be turned on") --
+    real scroll through page PAIRS, windowing still applies."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.continuous_scroll_var.set(True)
+        app.side_by_side_var.set(True)
+        app._set_view_mode()
+
+        assert app._layout.cols == 2
+        assert app.continuous_scroll is True
+        assert app.side_by_side is True
+        # Real two-column geometry: page 1 sits beside page 0, not
+        # below it -- same row, real x-offset, y0 unchanged.
+        p0 = app._layout.rect_of(0)
+        p1 = app._layout.rect_of(1)
+        assert p1[0] > p0[0]  # page 1 is to the right of page 0
+        assert p1[1] == p0[1]  # same row -- same top edge
     finally:
         app.doc.close()
         root.destroy()
