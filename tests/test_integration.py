@@ -2364,3 +2364,213 @@ def test_button_4_5_route_through_the_same_wheel_dispatch_as_mousewheel(tmp_path
     finally:
         app.doc.close()
         root.destroy()
+
+
+# ------------------------------------------------------------------
+# Slice 2: continuous-scroll view mode (Fable design review, 2026-07-25)
+# ------------------------------------------------------------------
+
+def test_continuous_mode_renders_every_page_in_one_scrollable_canvas(tmp_path):
+    """Smallest real continuous-scroll slice per Fable's design review:
+    vertical stack only (no side-by-side yet), every page eager-
+    rendered up front, scrollregion covers the whole stack."""
+    root, app = _make_app(tmp_path)  # basic3page.pdf -- 3 pages
+    try:
+        app.view_mode_var.set("continuous")
+        app._set_view_mode()
+        assert app.view_mode == "continuous"
+        assert app._layout is not None
+        assert len(app._tk_imgs) == 3
+
+        page0_y0, page0_y1 = app._layout.rect_of(0)[1], app._layout.rect_of(0)[3]
+        page0_h = page0_y1 - page0_y0
+        _total_w, total_h = app._layout.total_size
+        assert total_h > page0_h * 2  # 3 stacked pages, not one page's worth
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_page_offset_is_always_zero_in_single_page_mode(tmp_path):
+    """Zero-regression guarantee for every existing click/drag/redact/
+    annotate/textedit/forms handler: single-page mode's coordinate
+    math must stay byte-identical to pre-Slice-2 behavior."""
+    root, app = _make_app(tmp_path)
+    try:
+        assert app.view_mode == "single"
+        assert app._page_offset(0) == (0, 0)
+        assert app._page_offset(1) == (0, 0)
+        assert app._page_offset(2) == (0, 0)
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_continuous_mode_redact_drag_lands_on_the_clicked_page_not_page_zero(tmp_path):
+    """Real latent bug Fable flagged in design review: redactions used
+    to record against self.viewer.page_num unconditionally -- invisible
+    in single-page mode (always the same page), real the instant a
+    drag can land on any visible page. A drag near page 2's own
+    top-left corner must resolve to page 1 (0-indexed) with PDF-space
+    coordinates relative to THAT page's own origin, not raw canvas
+    space."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.view_mode_var.set("continuous")
+        app._set_view_mode()
+        app._set_mode("redact")
+
+        page1_x0, page1_y0, _x1, _y1 = app._layout.rect_of(1)
+        z = app.viewer.zoom
+        x0, y0 = int(page1_x0 + 20), int(page1_y0 + 20)
+        x1, y1 = int(page1_x0 + 120), int(page1_y0 + 60)
+        _drag(app, x0, y0, x1, y1)
+
+        assert len(app._pending_redactions) == 1
+        page_num, rect = app._pending_redactions[0]
+        assert page_num == 1  # landed on the second page, not page 0
+        assert abs(rect.x0 - 20 / z) < 1.0
+        assert abs(rect.y0 - 20 / z) < 1.0
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_continuous_mode_click_in_the_gap_between_pages_is_a_safe_no_op(tmp_path):
+    """A click that lands in the inter-page margin isn't an error --
+    PageLayout.page_at returns None there, and _on_press must not
+    crash or start a phantom drag gesture."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.view_mode_var.set("continuous")
+        app._set_view_mode()
+        app._set_mode("redact")
+
+        _page0_x0, _page0_y0, _x1, page0_y1 = app._layout.rect_of(0)
+        page1_y0 = app._layout.rect_of(1)[1]
+        gap_y = int((page0_y1 + page1_y0) / 2)  # dead center of the real gap
+        _drag(app, 10, gap_y, 30, gap_y + 2)
+
+        assert app._pending_redactions == []  # no phantom redaction from a gap click
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_continuous_mode_next_prev_scroll_to_the_real_page_position(tmp_path):
+    """Real bug caught live building this slice: render()'s own
+    geometry-settling update_idletasks() fired the scroll-sync
+    callback with the STALE pre-navigation scroll position, clobbering
+    viewer.page_num right back to the old page before next()'s own
+    _scroll_to_page() call ever ran. Fixed with a suppression guard
+    during render() (_suppress_scroll_sync) -- this is the regression
+    test for that fix, not just a feature test."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.view_mode_var.set("continuous")
+        app._set_view_mode()
+        app.canvas.yview_moveto(0.0)
+        root.update()
+
+        app.next()
+        root.update()
+        assert app.viewer.page_num == 1
+        first, _last = app.canvas.yview()
+        page1_y0 = app._layout.rect_of(1)[1]
+        _total_w, total_h = app._layout.total_size
+        assert abs(first - page1_y0 / total_h) < 0.01  # landed at page 2's real top, not canvas origin
+
+        app.prev()
+        root.update()
+        assert app.viewer.page_num == 0
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_continuous_mode_wheel_is_real_scroll_with_no_page_turn_concept(tmp_path):
+    """Fable design review: page boundaries are a soft concept once
+    every page is stacked in one scrollable canvas -- wheel is just
+    real scroll (or a no-op at the very top/bottom), no edge-landing
+    logic, no page-turn branch."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.view_mode_var.set("continuous")
+        app._set_view_mode()
+        assert app._wheel_fits_viewport() is False  # 3 stacked pages already overflow
+
+        app.canvas.yview_moveto(0.0)
+        root.update()
+        app._wheel_down()
+        first, _last = app.canvas.yview()
+        assert first > 0.0  # real scroll happened
+        assert app.viewer.page_num in (0, 1)  # no forced page-turn, just wherever scroll landed
+
+        app.canvas.yview_moveto(1.0)
+        root.update()
+        _before_first, before_last = app.canvas.yview()
+        app._wheel_down()  # already at the bottom -- must not crash or wrap
+        _after_first, after_last = app.canvas.yview()
+        # "last" (the bottom edge of the visible fraction) is what
+        # reads ~1.0 at the real bottom -- "first" stays wherever the
+        # viewport's own height fraction puts it (never reaches 1.0
+        # for a viewport showing less than the whole document).
+        assert before_last >= 0.99
+        assert after_last >= 0.99  # stayed at the bottom, real no-op
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_continuous_mode_sync_page_num_tracks_organic_scroll(tmp_path):
+    """The page-number box must track whatever page is at the
+    viewport's top edge during real (scrollbar-drag-style) scrolling,
+    not just programmatic navigation -- Devin: "Devin will notice
+    immediately if this is missing." Real gap found live building this
+    slice: yscrollcommand does NOT reliably fire on a plain
+    yview_moveto() in this headless test harness (confirmed: manually
+    invoking the sync function works fine, so the sync logic itself
+    was never the bug -- the callback trigger was), so the real
+    scrollbar's own drag-release event is exercised here instead, the
+    same explicit hook (_vscroll's <ButtonRelease-1> binding) a real
+    user's scrollbar drag fires on Windows."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.view_mode_var.set("continuous")
+        app._set_view_mode()
+
+        page1_y0 = app._layout.rect_of(1)[1]
+        _total_w, total_h = app._layout.total_size
+        app.canvas.yview_moveto(page1_y0 / total_h)
+        app._vscroll.focus_set()
+        app._vscroll.event_generate("<ButtonRelease-1>")
+        root.update()
+
+        assert app.viewer.page_num == 1
+        assert app.page_entry_var.get() == "2"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_toc_select_scrolls_to_real_page_position_in_continuous_mode(tmp_path):
+    """_go_to_page (TOC-select/page-box/first/last/search-jump's shared
+    real-nav path) must use _scroll_to_page in continuous mode, not
+    _reset_scroll's canvas-origin jump -- the earlier page_num-
+    clobbering bug this slice fixed would otherwise make this land on
+    the wrong page's position."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.view_mode_var.set("continuous")
+        app._set_view_mode()
+
+        app._go_to_page(2)
+        root.update()
+        assert app.viewer.page_num == 2
+        first, _last = app.canvas.yview()
+        page2_y0 = app._layout.rect_of(2)[1]
+        _total_w, total_h = app._layout.total_size
+        assert abs(first - page2_y0 / total_h) < 0.01
+    finally:
+        app.doc.close()
+        root.destroy()

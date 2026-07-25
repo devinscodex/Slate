@@ -13,7 +13,7 @@ run:
 	$(PY) slate.py
 
 test:
-	$(PY) -m pytest tests/ -v
+	xvfb-run -a $(PY) -m pytest tests/ -v
 
 clean:
 	rm -rf $(VENV) __pycache__ .pytest_cache tests/__pycache__

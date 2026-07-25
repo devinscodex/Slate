@@ -22,6 +22,7 @@ import epubfix
 import forms
 import gate
 import io_pdf
+import layout
 import merge_split
 import recent
 import redact
@@ -84,6 +85,28 @@ class SlateApp:
         # words in natural reading order, so the selected subset stays
         # correctly ordered without re-sorting by geometry.
         self._selected_words = []
+        self._selected_page_num = None  # which page _selected_words belongs to (continuous mode needs this to draw the right offset)
+        # Slice 2 (Fable design review, 2026-07-25): "single" keeps
+        # today's one-page-at-a-time render path byte-identical --
+        # every _page_offset()/_canvas_to_pdf_rect() call collapses to
+        # (0, 0), zero regression risk. "continuous" stacks every page
+        # vertically in one scrollable canvas; self._layout is that
+        # mode's geometry (layout.PageLayout), rebuilt in render()
+        # whenever page count/zoom changed since the last build.
+        self.view_mode = "single"
+        self._layout = None
+        # render()'s own geometry-settling update_idletasks() calls
+        # (scrollregion/width/height config) fire the canvas's
+        # yscrollcommand with whatever scroll position was current
+        # BEFORE this render -- a real bug caught live: navigating to
+        # page 2 in continuous mode synchronously clobbered
+        # viewer.page_num right back to the OLD page via that stale
+        # callback, before _go_to_page's own _scroll_to_page() call
+        # ever ran. Suppressed during render() itself; real organic
+        # scrolling (wheel/scrollbar-drag) is unaffected.
+        self._suppress_scroll_sync = False
+        self._drag_page = None  # page a click/drag started on, pinned for the whole gesture (continuous mode: a drag can visually cross page rects, but a redaction/annotation belongs to exactly one page)
+        self._tk_imgs = []  # continuous mode: one PhotoImage per visible page (keep references or Tkinter garbage-collects them)
         self._doc_view_built = False
         self.home_frame = None
         # Devin, 2026-07-25: "default TOC view = true."
@@ -435,6 +458,18 @@ class SlateApp:
         viewm.add_separator()
         viewm.add_command(label="Find... (/)", command=self._show_find_bar)
         viewm.add_separator()
+        self.view_mode_var = tk.StringVar(value=self.view_mode)
+        layoutmenu = tk.Menu(viewm, tearoff=0)
+        layoutmenu.add_radiobutton(
+            label="Single Page", variable=self.view_mode_var, value="single",
+            command=self._set_view_mode, selectcolor=radio_select_color,
+        )
+        layoutmenu.add_radiobutton(
+            label="Continuous Scroll", variable=self.view_mode_var, value="continuous",
+            command=self._set_view_mode, selectcolor=radio_select_color,
+        )
+        viewm.add_cascade(label="Page Layout", menu=layoutmenu)
+        viewm.add_separator()
         thememenu = tk.Menu(viewm, tearoff=0)
         for label, name in theme.THEME_LABELS.items():
             thememenu.add_radiobutton(
@@ -756,7 +791,8 @@ class SlateApp:
 
     def _handle_textedit_click(self, cx, cy):
         z = self.viewer.zoom
-        px, py = cx / z, cy / z
+        ox, oy = self._page_offset(self._drag_page)
+        px, py = (cx - ox) / z, (cy - oy) / z
         page = self.page
         span = textedit.detect_span(page, fitz.Point(px, py))
         if span is None:
@@ -981,7 +1017,17 @@ class SlateApp:
         self.canvas = tk.Canvas(canvas_frame, bg="gray80", highlightthickness=0, bd=0)
         self._vscroll = tk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview)
         self._hscroll = tk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
-        self.canvas.configure(yscrollcommand=self._vscroll.set, xscrollcommand=self._hscroll.set)
+        # yscrollcommand SHOULD fire on every y-view change regardless
+        # of cause, but confirmed live (this dev box's headless Xvfb)
+        # that a plain yview_moveto()/scrollbar-drag doesn't reliably
+        # trigger it, even after root.update() -- kept as a belt-and-
+        # suspenders hook, but continuous mode's page-number sync does
+        # NOT depend on it alone (see the explicit _sync_page_num_
+        # from_scroll() calls in the wheel handlers and the scrollbar-
+        # drag bindings just below).
+        self.canvas.configure(yscrollcommand=self._on_canvas_yscroll, xscrollcommand=self._hscroll.set)
+        self._vscroll.bind("<B1-Motion>", self._sync_page_num_from_scroll)
+        self._vscroll.bind("<ButtonRelease-1>", self._sync_page_num_from_scroll)
         self.canvas.grid(row=0, column=0, sticky="nsew")
         self._vscroll.grid(row=0, column=1, sticky="ns")
         self._hscroll.grid(row=1, column=0, sticky="ew")
@@ -1098,6 +1144,79 @@ class SlateApp:
         self.canvas.xview_moveto(0)
         self.canvas.yview_moveto(0)
 
+    def _scroll_to_page(self, page_num):
+        """Continuous mode's equivalent of _reset_scroll(): scroll so
+        this page's top edge lands at the viewport top, rather than
+        jumping to canvas-origin (0, 0) -- page N's top isn't the
+        canvas origin once every page is stacked in one scrollable
+        canvas."""
+        if self._layout is None:
+            return
+        _x0, y0, _x1, _y1 = self._layout.rect_of(page_num)
+        _total_w, total_h = self._layout.total_size
+        if total_h <= 0:
+            return
+        self.canvas.xview_moveto(0)
+        self.canvas.yview_moveto(y0 / total_h)
+
+    def _go_to_page(self, page_num):
+        """Shared real-navigation path (page-box/first/last/TOC-select
+        all funnel through this): jump + clear the old page's
+        selection + render, landing at that page's top -- single-page
+        mode via _reset_scroll() (unchanged), continuous mode via
+        _scroll_to_page() (this page's real canvas-space top, not the
+        canvas origin)."""
+        self.viewer.goto(page_num)
+        self._selected_words = []
+        self.render()
+        if self.view_mode == "continuous":
+            self._scroll_to_page(self.viewer.page_num)
+        else:
+            self._reset_scroll()
+
+    def _on_canvas_yscroll(self, first, last):
+        """The canvas's yscrollcommand -- fires on every y-view change
+        regardless of cause (wheel, scrollbar drag, programmatic
+        yview_moveto). Updates the real scrollbar (its previous, only
+        job) and, in continuous mode, keeps viewer.page_num/the page
+        box in sync with whatever's actually visible."""
+        self._vscroll.set(first, last)
+        self._sync_page_num_from_scroll()
+
+    def _sync_page_num_from_scroll(self, event=None):
+        """Continuous mode only: the page-number box/TOC highlight
+        should track whatever page is at the viewport's top edge while
+        scrolling, not freeze at whatever page was current when
+        continuous mode was entered -- Devin will notice immediately
+        if this is missing (small, but real UX)."""
+        if self._suppress_scroll_sync:
+            return
+        if self.view_mode != "continuous" or self._layout is None or self.viewer is None:
+            return
+        first, _last = self.canvas.yview()
+        _total_w, total_h = self._layout.total_size
+        top_y = first * total_h
+        page_num = self._layout.topmost_visible(top_y)
+        if page_num != self.viewer.page_num:
+            self.viewer.goto(page_num)
+            self.page_entry_var.set(str(self.viewer.page_num + 1))
+
+    def _set_view_mode(self):
+        """Devin, 2026-07-25: Page Layout submenu (View menu), radio
+        between Single Page and Continuous Scroll -- Fable design
+        review, Slice 2. Side-by-side deferred to Slice 3 (small delta
+        on top of this once continuous scroll is verified live)."""
+        if self.viewer is None:
+            self.view_mode = self.view_mode_var.get()
+            return
+        self.view_mode = self.view_mode_var.get()
+        self._selected_words = []
+        self.render()
+        if self.view_mode == "continuous":
+            self._scroll_to_page(self.viewer.page_num)
+        else:
+            self._reset_scroll()
+
     def _goto_page_entry(self, event=None):
         """Foxit/Acrobat convention: type a page number into the
         centered box, Enter jumps there. Invalid/out-of-range input
@@ -1110,26 +1229,17 @@ class SlateApp:
         except ValueError:
             n = self.viewer.page_num + 1  # not a number -- revert, see below
         n = max(1, min(self.viewer.page_count, n))
-        self.viewer.goto(n - 1)
-        self._selected_words = []
-        self.render()
-        self._reset_scroll()
+        self._go_to_page(n - 1)
 
     def _kb_first_page(self, event=None):
         if self._typing_in_entry() or self.viewer is None:
             return
-        self.viewer.goto(0)
-        self._selected_words = []
-        self.render()
-        self._reset_scroll()
+        self._go_to_page(0)
 
     def _kb_last_page(self, event=None):
         if self._typing_in_entry() or self.viewer is None:
             return
-        self.viewer.goto(self.viewer.page_count - 1)
-        self._selected_words = []
-        self.render()
-        self._reset_scroll()
+        self._go_to_page(self.viewer.page_count - 1)
 
     def _kb_open_find(self, event=None):
         if self._typing_in_entry():
@@ -1182,8 +1292,9 @@ class SlateApp:
             return
         page_num, _rect = match
         if self.viewer.page_num != page_num:
-            self.viewer.goto(page_num)
-        self.render()
+            self._go_to_page(page_num)
+        else:
+            self.render()
         n = len(self.search_state.matches)
         self.find_status.config(text=f"{self.search_state.index + 1}/{n}")
 
@@ -1245,10 +1356,7 @@ class SlateApp:
         values = self.toc_tree.item(sel[0], "values")
         if not values:
             return
-        self.viewer.goto(int(values[0]))
-        self._selected_words = []
-        self.render()
-        self._reset_scroll()
+        self._go_to_page(int(values[0]))
 
     # ------------------------------------------------------------------
     # opening / closing documents
@@ -1432,7 +1540,31 @@ class SlateApp:
         # to any page" the next time anything touched it. self.page is
         # the fix -- always use it, never re-index self.doc directly.
         self.page = self.doc[self.viewer.page_num]
-        img = self.viewer.render_page()
+        # Slice 2 (Fable design review, 2026-07-25): genuinely branch
+        # rather than thread view_mode ifs through one render path --
+        # search-highlight/selection overlays both need "+ page offset"
+        # in continuous mode, so unifying the two paths would mean
+        # offset-plumbing every call site anyway. Two smaller, readable
+        # functions instead.
+        self._suppress_scroll_sync = True
+        try:
+            if self.view_mode == "continuous":
+                self._render_continuous()
+            else:
+                self._render_single()
+        finally:
+            self._suppress_scroll_sync = False
+        pending_here = sum(1 for p, _ in self._pending_redactions if p == self.viewer.page_num)
+        # Page number moved to the centered Foxit-style box (Devin,
+        # 2026-07-25) -- status now carries only zoom/pending-redaction.
+        self.status.config(
+            text=f"zoom {self.viewer.zoom:.2f}x"
+            + (f"  ({pending_here} pending redaction)" if pending_here else "")
+        )
+        self.page_entry_var.set(str(self.viewer.page_num + 1))
+        self.page_total_label.config(text=f"of {self.viewer.page_count}")
+
+    def _colorize_for_theme(self, img):
         # Real gap Devin caught live: a raw invert (the first attempt)
         # only reads right for the plain built-in "dark" theme --  it
         # leaves every LIGHT-toned named theme's page pure white, not
@@ -1447,7 +1579,10 @@ class SlateApp:
         # recolor too, same accepted simple tradeoff as Sumatra's own
         # basic color-inversion feature, just via a nicer mapping.
         colors = theme.get_palette(self.theme_name.get())
-        img = ImageOps.colorize(img.convert("L"), black=colors["fg"], white=colors["canvas_bg"])
+        return ImageOps.colorize(img.convert("L"), black=colors["fg"], white=colors["canvas_bg"])
+
+    def _render_single(self):
+        img = self._colorize_for_theme(self.viewer.render_page())
         self._tk_img = ImageTk.PhotoImage(img)
         self.canvas.delete("all")
         self.canvas.config(width=img.width, height=img.height)
@@ -1458,50 +1593,66 @@ class SlateApp:
         # Tk's stale (0.0, 0.0) "not yet computed" sentinel.
         self.canvas.update_idletasks()
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self._tk_img)
-        self._draw_search_highlights()
-        self._draw_text_selection()
-        pending_here = sum(1 for p, _ in self._pending_redactions if p == self.viewer.page_num)
-        # Page number moved to the centered Foxit-style box (Devin,
-        # 2026-07-25) -- status now carries only zoom/pending-redaction.
-        self.status.config(
-            text=f"zoom {self.viewer.zoom:.2f}x"
-            + (f"  ({pending_here} pending redaction)" if pending_here else "")
-        )
-        self.page_entry_var.set(str(self.viewer.page_num + 1))
-        self.page_total_label.config(text=f"of {self.viewer.page_count}")
+        self._draw_search_highlights_for_page(self.viewer.page_num, 0, 0)
+        self._draw_text_selection_for_page(self.viewer.page_num, 0, 0)
 
-    def _draw_search_highlights(self):
+    def _render_continuous(self):
+        """Eager-render every page up front, one PhotoImage each,
+        positioned via layout.PageLayout -- the natural first cut per
+        Fable's design review (windowing/virtualizing for huge
+        documents is real future scope, not built until an actual
+        document proves eager rendering too slow)."""
+        self._layout = layout.PageLayout(self.doc, self.viewer.zoom)
+        self.canvas.delete("all")
+        self._tk_imgs = []
+        for page_num, x0, y0, _x1, _y1 in self._layout.all_rects():
+            img = self._colorize_for_theme(self.viewer.render_page(page_num=page_num))
+            tkimg = ImageTk.PhotoImage(img)
+            self._tk_imgs.append(tkimg)
+            self.canvas.create_image(int(x0), int(y0), anchor=tk.NW, image=tkimg)
+            self._draw_search_highlights_for_page(page_num, x0, y0)
+            self._draw_text_selection_for_page(page_num, x0, y0)
+        total_w, total_h = self._layout.total_size
+        self.canvas.config(width=total_w, height=total_h)
+        self.canvas.config(scrollregion=(0, 0, total_w, total_h))
+        self.canvas.update_idletasks()
+
+    def _draw_search_highlights_for_page(self, page_num, ox, oy):
         """Canvas-only overlay, not real annotations -- cleared and
-        redrawn every render() same as the page image itself."""
+        redrawn every render() same as the page image itself. ox/oy is
+        the page's canvas-space origin -- always (0, 0) in single-page
+        mode, so this is byte-identical to the pre-Slice-2 math there."""
         if not self.search_state.matches:
             return
         z = self.viewer.zoom
         current = self.search_state.current()
-        for rect in self.search_state.matches_on_page(self.viewer.page_num):
-            is_current = current is not None and current[0] == self.viewer.page_num and current[1] == rect
+        for rect in self.search_state.matches_on_page(page_num):
+            is_current = current is not None and current[0] == page_num and current[1] == rect
             outline = "red" if is_current else "yellow"
             width = 3 if is_current else 2
             self.canvas.create_rectangle(
-                rect.x0 * z, rect.y0 * z, rect.x1 * z, rect.y1 * z,
+                ox + rect.x0 * z, oy + rect.y0 * z, ox + rect.x1 * z, oy + rect.y1 * z,
                 outline=outline, width=width,
             )
 
-    def _draw_text_selection(self):
+    def _draw_text_selection_for_page(self, page_num, ox, oy):
         """Canvas-only overlay, same convention as
-        _draw_search_highlights -- cleared and redrawn every render()
-        alongside the page image, never a real annotation. Uses the
-        active theme's highlight_bg (was a hardcoded blue "#3a5a7a"
-        regardless of theme) -- for inkbone this is the one place
-        green survives as a real, minimal, pure accent (Devin,
-        2026-07-25), not select_bg (tabs, now monochrome)."""
-        if not self._selected_words:
+        _draw_search_highlights_for_page -- cleared and redrawn every
+        render() alongside the page image, never a real annotation.
+        Uses the active theme's highlight_bg (was a hardcoded blue
+        "#3a5a7a" regardless of theme) -- for inkbone this is the one
+        place green survives as a real, minimal, pure accent (Devin,
+        2026-07-25), not select_bg (tabs, now monochrome). A selection
+        belongs to exactly one page (self._selected_page_num, pinned at
+        drag-start) -- only that page draws it."""
+        if not self._selected_words or self._selected_page_num != page_num:
             return
         colors = theme.get_palette(self.theme_name.get())
         z = self.viewer.zoom
         for w in self._selected_words:
             x0, y0, x1, y1 = w[:4]
             self.canvas.create_rectangle(
-                x0 * z, y0 * z, x1 * z, y1 * z,
+                ox + x0 * z, oy + y0 * z, ox + x1 * z, oy + y1 * z,
                 fill=colors["highlight_bg"], outline="", stipple="gray50",
             )
 
@@ -1516,20 +1667,25 @@ class SlateApp:
         self.root.clipboard_append(text)
 
     def next(self):
+        """Toolbar/page-box arrows, Right/Down/PageDown/j -- all route
+        here. Continuous mode (Slice 2): _go_to_page scrolls to the
+        target page's real position instead of jumping back to canvas
+        origin (_reset_scroll would land on page 1's top regardless of
+        which page was current -- a real bug this fixes, not a style
+        choice)."""
         if self.viewer is None:
             return
-        self.viewer.next_page()
-        self._selected_words = []  # a selection's word rects belong to the OLD page
-        self.render()
-        self._reset_scroll()
+        if self.viewer.page_num >= self.viewer.page_count - 1:
+            return
+        self._go_to_page(self.viewer.page_num + 1)
 
     def prev(self):
+        """See next()'s docstring."""
         if self.viewer is None:
             return
-        self.viewer.prev_page()
-        self._selected_words = []
-        self.render()
-        self._reset_scroll()
+        if self.viewer.page_num <= 0:
+            return
+        self._go_to_page(self.viewer.page_num - 1)
 
     def _prev_page_landing_at_bottom(self):
         """Same as prev(), except a wheel-driven page-turn arrives from
@@ -1562,8 +1718,27 @@ class SlateApp:
         both call this, neither needs delta magnitude for this logic
         (a real gap Fable flagged: those two platforms went through
         DIFFERENT code paths before this fix, which happened to agree
-        only because both did the same unconditional thing)."""
+        only because both did the same unconditional thing).
+
+        Continuous mode (Slice 2, Fable design review): page
+        boundaries are a soft concept once every page is stacked in
+        one scrollable canvas -- no edge-landing logic, just real
+        scroll or a no-op at the very top. _wheel_fits_viewport()
+        needs no change for this: it already means "does content
+        overflow the viewport," not "does the page," so a short
+        document that fits on screen still no-ops for free."""
         if self._typing_in_entry() or self.viewer is None:
+            return
+        if self.view_mode == "continuous":
+            if not self._wheel_fits_viewport():
+                self.canvas.yview_scroll(-1, "units")
+                # yview_scroll's own yscrollcommand callback isn't a
+                # reliable trigger in every environment (confirmed live:
+                # plain yview_moveto()/scrollbar-drag didn't fire it
+                # under this dev box's headless Xvfb, even after
+                # root.update()) -- called explicitly so the page-number
+                # box can't silently freeze while wheel-scrolling.
+                self._sync_page_num_from_scroll()
             return
         if self._wheel_fits_viewport():
             self.prev()
@@ -1577,6 +1752,11 @@ class SlateApp:
     def _wheel_down(self, event=None):
         """Rubber-band wheel, downward -- see _wheel_up's docstring."""
         if self._typing_in_entry() or self.viewer is None:
+            return
+        if self.view_mode == "continuous":
+            if not self._wheel_fits_viewport():
+                self.canvas.yview_scroll(1, "units")
+                self._sync_page_num_from_scroll()  # see _wheel_up's comment
             return
         if self._wheel_fits_viewport():
             self.next()
@@ -1616,11 +1796,24 @@ class SlateApp:
     # ------------------------------------------------------------------
     # canvas interaction (redact / annotate / forms all live here)
     # ------------------------------------------------------------------
-    def _canvas_to_pdf_rect(self, x0, y0, x1, y1) -> fitz.Rect:
+    def _page_offset(self, page_num):
+        """(x0, y0) canvas-space origin of this page. Always (0, 0) in
+        single-page mode -- byte-identical to the pre-Slice-2 math
+        there, zero regression risk. Continuous mode reads it from the
+        layout built by the last render()."""
+        if self.view_mode != "continuous" or self._layout is None:
+            return 0, 0
+        x0, y0, _x1, _y1 = self._layout.rect_of(page_num)
+        return x0, y0
+
+    def _canvas_to_pdf_rect(self, x0, y0, x1, y1, page_num=None) -> fitz.Rect:
         z = self.viewer.zoom
-        return fitz.Rect(
-            min(x0, x1) / z, min(y0, y1) / z, max(x0, x1) / z, max(y0, y1) / z
-        )
+        if page_num is None:
+            page_num = self.viewer.page_num
+        ox, oy = self._page_offset(page_num)
+        cx0, cy0 = min(x0, x1) - ox, min(y0, y1) - oy
+        cx1, cy1 = max(x0, x1) - ox, max(y0, y1) - oy
+        return fitz.Rect(cx0 / z, cy0 / z, cx1 / z, cy1 / z)
 
     def _event_canvas_xy(self, event):
         """event.x/event.y are VIEWPORT-relative, not true canvas-space
@@ -1635,6 +1828,22 @@ class SlateApp:
 
     def _on_press(self, event):
         cx, cy = self._event_canvas_xy(event)
+        if self.view_mode == "continuous":
+            page_num = self._layout.page_at(cx, cy) if self._layout else None
+            if page_num is None:
+                # Clicked in the inter-page gap -- not an error, just a
+                # no-op gesture, same as clicking blank margin anywhere.
+                self._drag_start = None
+                return
+        else:
+            page_num = self.viewer.page_num
+        self._drag_page = page_num
+        # Keep a persistent reference for the whole gesture (same
+        # weak-ref gotcha as render()'s self.page comment above) -- a
+        # continuous-mode click can land on any visible page, not just
+        # self.viewer.page_num, so this may differ from render()'s
+        # self.page until the next render() call.
+        self.page = self.doc[page_num]
         self._drag_start = (cx, cy)
         if self.mode == "forms":
             self._handle_form_click(cx, cy)
@@ -1659,9 +1868,15 @@ class SlateApp:
             # interaction (Devin, 2026-07-25: "default to arrow/select
             # text over rectangle select"). Redact/annotate modes below
             # keep the original rectangle-drag behavior unchanged.
-            rect = self._canvas_to_pdf_rect(x0, y0, cx, cy)
+            # Pinned to self._drag_page for the whole gesture -- a drag
+            # that visually crosses a page boundary in continuous mode
+            # stays on the page it started on (a selection/redaction/
+            # annotation is a PDF object parented to exactly one page,
+            # there's no such thing as a rect spanning two).
+            rect = self._canvas_to_pdf_rect(x0, y0, cx, cy, self._drag_page)
             words = self.page.get_text("words")
             self._selected_words = [w for w in words if fitz.Rect(w[:4]).intersects(rect)]
+            self._selected_page_num = self._drag_page
             self.render()
             return
         if self._drag_rect_id:
@@ -1681,7 +1896,7 @@ class SlateApp:
         if self._drag_rect_id:
             self.canvas.delete(self._drag_rect_id)
             self._drag_rect_id = None
-        rect = self._canvas_to_pdf_rect(x0, y0, cx, cy)
+        rect = self._canvas_to_pdf_rect(x0, y0, cx, cy, self._drag_page)
         if rect.is_empty or rect.width < 3 or rect.height < 3:
             return  # treat as a click, not a drag
 
@@ -1694,7 +1909,11 @@ class SlateApp:
             # development from a dialog nothing was there to dismiss).
             # render()'s own status bar already shows the pending count
             # for the current page; that's the real, non-blocking feedback.
-            self._pending_redactions.append((self.viewer.page_num, rect))
+            # self.page.number (not self.viewer.page_num): a latent bug
+            # Fable flagged in design review -- invisible in single-page
+            # mode where they're always equal, real the moment a drag
+            # can land on any visible page (continuous mode).
+            self._pending_redactions.append((self.page.number, rect))
         elif self.mode == "annotate:highlight":
             annotate.add_highlight(page, rect)
         elif self.mode == "annotate:rect":
@@ -1709,7 +1928,8 @@ class SlateApp:
 
     def _handle_form_click(self, cx, cy):
         z = self.viewer.zoom
-        px, py = cx / z, cy / z
+        ox, oy = self._page_offset(self._drag_page)
+        px, py = (cx - ox) / z, (cy - oy) / z
         page = self.page
         for w in page.widgets():
             if w.rect.contains(fitz.Point(px, py)):
