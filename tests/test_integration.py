@@ -1732,9 +1732,14 @@ def test_drag_selection_accounts_for_scroll_offset(tmp_path):
     ("Slate fixture", same target as the zero-scroll selection test)."""
     root, app = _make_app(tmp_path)
     try:
+        # canvas.config(width=, height=) alone can't force a real
+        # smaller viewport -- the canvas is gridded sticky="nsew"
+        # inside a PanedWindow pane and gets stretched right back to
+        # the pane's real allocated size. Zooming past the real
+        # (screen-bounded) window size forces genuine scrolling instead
+        # (see _force_page_taller_than_viewport).
+        _force_page_taller_than_viewport(app, root)
         z = app.viewer.zoom
-        app.canvas.config(width=50, height=50)  # force a viewport smaller than the page, so scrolling is real
-        root.update()
         app.canvas.xview_moveto(0.5)
         app.canvas.yview_moveto(0.3)
         root.update()
@@ -2233,6 +2238,129 @@ def test_page_box_prev_next_mini_buttons_navigate(tmp_path):
         app.page_entry_var.set("3")
         app._goto_page_entry()
         assert app.viewer.page_num == 2
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_wheel_page_turns_when_page_fits_viewport(tmp_path):
+    """Fable design review, 2026-07-25: the rubber-band wheel must
+    collapse to TODAY's exact unconditional-page-turn behavior when
+    the page already fits the viewport -- real regression guard, not
+    just a new-feature test. Default canvas sizing (render() always
+    sets canvas width/height to exactly match the image) already IS
+    this case, so no viewport-forcing needed here."""
+    root, app = _make_app(tmp_path)
+    try:
+        root.update()
+        assert app._wheel_fits_viewport() is True
+
+        app._wheel_down()
+        assert app.viewer.page_num == 1
+        app._wheel_up()
+        assert app.viewer.page_num == 0
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def _force_page_taller_than_viewport(app, root):
+    """Real viewport mismatch, not a fake one: canvas.config(width=,
+    height=) alone does NOT shrink anything, since the canvas is
+    gridded sticky="nsew" inside a PanedWindow pane and gets stretched
+    right back to the pane's real allocated size regardless of what a
+    caller requests. Zooming the page past the real (screen-bounded)
+    window size forces genuine clipping instead -- the same mechanism
+    a real user hits when zooming in far enough that the page no
+    longer fits on screen."""
+    app.viewer.zoom = 8.0
+    app._selected_words = []
+    app.render()
+    root.update()
+
+
+def test_wheel_scrolls_within_page_before_turning_when_zoomed_past_viewport(tmp_path):
+    """Fable design review, 2026-07-25: real scroll once the page is
+    taller than the viewport, page-turn only at the scroll edge."""
+    root, app = _make_app(tmp_path)
+    try:
+        _force_page_taller_than_viewport(app, root)
+        assert app._wheel_fits_viewport() is False
+
+        app._wheel_down()  # should scroll, not change page
+        assert app.viewer.page_num == 0
+        first, last = app.canvas.yview()
+        assert first > 0.0  # real scroll happened
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_wheel_down_turns_page_at_the_bottom_edge_landing_at_top(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        _force_page_taller_than_viewport(app, root)
+        app.canvas.yview_moveto(1.0)  # simulate already scrolled to the bottom
+        root.update()
+
+        app._wheel_down()
+        assert app.viewer.page_num == 1
+        first, _last = app.canvas.yview()
+        assert first < 0.01  # landed at top, same as every other next-page trigger
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_wheel_up_turns_page_at_the_top_edge_landing_at_bottom(tmp_path):
+    """The one asymmetric case in Fable's design: a wheel-driven
+    prev-page arrives from below and should land at the new page's
+    BOTTOM, not top (every other prev-page trigger -- keyboard/j/
+    PageUp/TOC -- keeps landing top-left, unchanged)."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.next()  # real page 2, so there's somewhere to go back to
+        _force_page_taller_than_viewport(app, root)
+        assert app.canvas.yview()[0] < 0.01  # fresh page starts at top (already-tested behavior)
+
+        app._wheel_up()
+        assert app.viewer.page_num == 0
+        _first, last = app.canvas.yview()
+        assert last > 0.99  # landed at bottom, not top
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_button_4_5_route_through_the_same_wheel_dispatch_as_mousewheel(tmp_path):
+    """Real X11/Windows parity gap Fable flagged, 2026-07-25: Button-4/5
+    used to bypass _on_mouse_wheel entirely and call page-nav directly
+    -- harmless only because both paths did the same unconditional
+    thing. Now both real bindings must resolve to the rubber-band
+    dispatch methods (_wheel_up/_wheel_down), not the old direct
+    page-nav shortcuts -- proven behaviorally via a real
+    event_generate (confirmed to actually fire the bound canvas
+    handler in this headless harness, unlike the click-drag/selection
+    cases elsewhere in this suite that need real screen coordinates):
+    zoomed past the viewport, a raw page-nav call would still flip
+    the page; the real rubber-band dispatch must scroll instead."""
+    root, app = _make_app(tmp_path)
+    try:
+        _force_page_taller_than_viewport(app, root)
+        app.canvas.focus_set()
+        root.update()
+
+        app.canvas.event_generate("<Button-5>")
+        root.update()
+        assert app.viewer.page_num == 0  # rubber-band scrolled, did NOT page-turn
+        first, _last = app.canvas.yview()
+        assert first > 0.0  # real scroll happened, same as calling _wheel_down directly
+
+        app.canvas.yview_moveto(0.0)
+        root.update()
+        app.canvas.event_generate("<Button-4>")
+        root.update()
+        assert app.viewer.page_num == 0  # already at the top, no page to scroll up into
     finally:
         app.doc.close()
         root.destroy()

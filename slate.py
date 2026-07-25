@@ -973,7 +973,12 @@ class SlateApp:
         # 2x2 canvas/scrollbar layout) so the PAIR can be added to the
         # PanedWindow as one pane.
         canvas_frame = tk.Frame(content)
-        self.canvas = tk.Canvas(canvas_frame, bg="gray80")
+        # highlightthickness=0/bd=0: Tk's default 1px focus-highlight
+        # border was silently offsetting every canvasx()/canvasy()
+        # click-to-pdf coordinate conversion by 1px -- invisible before
+        # render() forced update_idletasks() (real geometry realization
+        # made the border inset apply consistently instead of by luck).
+        self.canvas = tk.Canvas(canvas_frame, bg="gray80", highlightthickness=0, bd=0)
         self._vscroll = tk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview)
         self._hscroll = tk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
         self.canvas.configure(yscrollcommand=self._vscroll.set, xscrollcommand=self._hscroll.set)
@@ -1005,10 +1010,15 @@ class SlateApp:
         # event.delta; X11/Linux (this dev environment) instead sends
         # discrete Button-4 (up) / Button-5 (down) click events with no
         # delta at all -- both bound so this is actually testable here,
-        # not just assumed to work on the real deployment target.
+        # not just assumed to work on the real deployment target. Both
+        # now route through _wheel_up/_wheel_down (Fable design review,
+        # 2026-07-25) -- previously Button-4/5 bypassed _on_mouse_wheel
+        # entirely and called page-nav directly, a real X11/Windows
+        # parity gap that only happened to be invisible because both
+        # paths did the exact same unconditional thing.
         self.canvas.bind("<MouseWheel>", self._on_mouse_wheel)
-        self.canvas.bind("<Button-4>", self._kb_prev_page)
-        self.canvas.bind("<Button-5>", self._kb_next_page)
+        self.canvas.bind("<Button-4>", self._wheel_up)
+        self.canvas.bind("<Button-5>", self._wheel_down)
         # Ctrl+scroll = zoom (Devin, 2026-07-25), same platform split as
         # plain wheel above -- Tk's compound event names route the
         # Control-modified wheel to a separate binding automatically,
@@ -1442,6 +1452,11 @@ class SlateApp:
         self.canvas.delete("all")
         self.canvas.config(width=img.width, height=img.height)
         self.canvas.config(scrollregion=(0, 0, img.width, img.height))
+        # Force geometry to settle now -- callers that inspect
+        # canvas.yview() right after render() (rubber-band wheel logic,
+        # _wheel_fits_viewport) need a real reading immediately, not
+        # Tk's stale (0.0, 0.0) "not yet computed" sentinel.
+        self.canvas.update_idletasks()
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self._tk_img)
         self._draw_search_highlights()
         self._draw_text_selection()
@@ -1516,14 +1531,71 @@ class SlateApp:
         self.render()
         self._reset_scroll()
 
+    def _prev_page_landing_at_bottom(self):
+        """Same as prev(), except a wheel-driven page-turn arrives from
+        BELOW (scrolling up past the top edge) and should land at the
+        new page's bottom, not its top -- asymmetric from every other
+        prev-page trigger (keyboard/j/PageUp/TOC-select all keep
+        landing top-left via prev()+_reset_scroll(), unchanged, per
+        Fable's design review 2026-07-25: don't touch those paths)."""
+        if self.viewer is None:
+            return
+        self.viewer.prev_page()
+        self._selected_words = []
+        self.render()
+        self.canvas.yview_moveto(1.0)
+
+    def _wheel_fits_viewport(self) -> bool:
+        """True if the current page's scrollregion is already fully
+        visible (canvas.yview() returns the visible fraction range) --
+        the same test collapses rubber-band wheel to today's exact
+        unconditional-page-turn behavior whenever nothing has changed
+        (no zoom past viewport), so no regression for the common case."""
+        first, last = self.canvas.yview()
+        return (last - first) >= 0.999
+
+    def _wheel_up(self, event=None):
+        """Rubber-band wheel (Fable design review, 2026-07-25): page-
+        turn only when the page already fits the viewport OR the view
+        is scrolled to the very top edge; otherwise real scroll.
+        Direction-only -- X11 Button-4 and Windows/Mac MouseWheel(up)
+        both call this, neither needs delta magnitude for this logic
+        (a real gap Fable flagged: those two platforms went through
+        DIFFERENT code paths before this fix, which happened to agree
+        only because both did the same unconditional thing)."""
+        if self._typing_in_entry() or self.viewer is None:
+            return
+        if self._wheel_fits_viewport():
+            self.prev()
+            return
+        first, _last = self.canvas.yview()
+        if first <= 0.0001:
+            self._prev_page_landing_at_bottom()
+        else:
+            self.canvas.yview_scroll(-1, "units")
+
+    def _wheel_down(self, event=None):
+        """Rubber-band wheel, downward -- see _wheel_up's docstring."""
+        if self._typing_in_entry() or self.viewer is None:
+            return
+        if self._wheel_fits_viewport():
+            self.next()
+            return
+        _first, last = self.canvas.yview()
+        if last >= 0.9999:
+            self.next()  # lands at top via _reset_scroll(), same as every other next-page trigger
+        else:
+            self.canvas.yview_scroll(1, "units")
+
     def _on_mouse_wheel(self, event):
         """Windows/Mac only -- delivers a signed event.delta (Windows:
         +/-120 per notch); X11 has no <MouseWheel> event at all, wheel
-        arrives as Button-4/Button-5 clicks instead (bound separately)."""
+        arrives as Button-4/Button-5 clicks instead (bound separately,
+        routed through the same _wheel_up/_wheel_down dispatch)."""
         if event.delta > 0:
-            self._kb_prev_page()
+            self._wheel_up()
         else:
-            self._kb_next_page()
+            self._wheel_down()
 
     def _on_ctrl_mouse_wheel(self, event):
         """Ctrl+scroll = zoom (Devin, 2026-07-25), same signed-delta
