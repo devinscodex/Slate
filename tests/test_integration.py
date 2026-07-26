@@ -1477,6 +1477,138 @@ def test_declining_the_download_prompt_does_not_download_or_crash(tmp_path, monk
         root.destroy()
 
 
+def _make_doc_with_a_blank_middle_page(tmp_path):
+    """A real 3-page doc where page 1 (0-indexed) has no extractable
+    text at all -- the real case _advance_to_next_page_and_continue_
+    reading must skip silently rather than interrupting a hands-free
+    document read with a dialog."""
+    path = str(tmp_path / "blank_middle.pdf")
+    doc = fitz.open()
+    doc.new_page(width=595, height=842).insert_text((72, 72), "Page one has real text.")
+    doc.new_page(width=595, height=842)  # deliberately blank
+    doc.new_page(width=595, height=842).insert_text((72, 72), "Page three has real text.")
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_do_read_document_sets_the_reading_document_flag(tmp_path):
+    """do_read_page (single-page) and do_read_document (whole
+    document) must set _tts_reading_document oppositely -- switching
+    back to a plain single-page read cancels any in-progress
+    auto-continuation."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.do_read_document()
+        assert app._tts_reading_document is True
+
+        app.do_read_page()
+        assert app._tts_reading_document is False
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_do_tts_stop_cancels_reading_document(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app._tts_reading_document = True
+        app.do_tts_stop()
+        assert app._tts_reading_document is False
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_natural_completion_advances_to_the_next_page_when_reading_document(tmp_path, monkeypatch):
+    """The real auto-advance mechanism: a page's audio reaching its
+    natural end (was playing, now isn't, and NOT because of an
+    explicit pause) while _tts_reading_document is True must move to
+    the next page and start reading it -- simulated directly via
+    _tts_was_playing/Player state rather than real audio hardware."""
+    root, app = _make_app(tmp_path)
+    try:
+        app._tts_reading_document = True
+        app._tts_reading_page_num = app.viewer.page_num  # page 0
+        app._tts_was_playing = True  # simulate "was playing" on the previous poll tick
+        assert app.tts_player.is_playing() is False  # nothing actually loaded -- a real "stopped" state
+        assert app.tts_player.is_paused() is False  # NOT a pause -- the real distinguishing check
+
+        called = []
+        monkeypatch.setattr(app, "_read_current_page", lambda: called.append(app.viewer.page_num))
+        app._poll_tts_playback_state()
+
+        assert app.viewer.page_num == 1  # real navigation happened
+        assert called == [1]  # and the next page's read was actually triggered
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_pause_does_not_trigger_advance_to_the_next_page(tmp_path, monkeypatch):
+    """The real distinguishing case natural-completion detection
+    exists for: an explicit pause must NEVER advance to the next page,
+    only a genuine end of audio should."""
+    root, app = _make_app(tmp_path)
+    try:
+        app._tts_reading_document = True
+        app._tts_reading_page_num = app.viewer.page_num
+        app.tts_player.load(b"\x00\x00" * 22050, 22050, 1)
+        try:
+            app.tts_player.play()
+        except Exception:
+            pass  # no real audio device on this dev box (WSL2)
+        app._tts_was_playing = True
+        app.tts_player.pause()
+
+        called = []
+        monkeypatch.setattr(app, "_advance_to_next_page_and_continue_reading", lambda: called.append(True))
+        app._poll_tts_playback_state()
+
+        assert called == []  # pause must never trigger the advance
+        assert app.viewer.page_num == 0
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_advance_skips_a_blank_page_silently(tmp_path, monkeypatch):
+    """A blank page encountered while auto-advancing must be skipped
+    without any "nothing to read" dialog -- that would interrupt a
+    hands-free continuous read."""
+    root, app = _make_app(tmp_path, fixture=_make_doc_with_a_blank_middle_page(tmp_path))
+    try:
+        shown = []
+        monkeypatch.setattr(slate.messagebox, "showinfo", lambda title, msg: shown.append(title))
+        app._tts_reading_document = True
+        app._tts_reading_page_num = 0  # page 0 just "finished" -- page 1 is blank, page 2 has text
+
+        called = []
+        monkeypatch.setattr(app, "_read_current_page", lambda: called.append(app.viewer.page_num))
+        app._advance_to_next_page_and_continue_reading()
+
+        assert shown == []  # no interrupting dialog for the blank page
+        assert app.viewer.page_num == 2  # landed on the next REAL page, skipping the blank one
+        assert called == [2]
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_advance_stops_cleanly_at_the_end_of_the_document(tmp_path):
+    root, app = _make_app(tmp_path)  # basic3page.pdf -- 3 real pages, no blanks
+    try:
+        app._tts_reading_document = True
+        app._tts_reading_page_num = app.viewer.page_count - 1  # already on the last page
+
+        app._advance_to_next_page_and_continue_reading()
+
+        assert app._tts_reading_document is False  # cleanly stopped, not left dangling
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_changing_voice_restarts_the_current_page_when_something_is_already_loaded(tmp_path, monkeypatch):
     """Real bug fixed (Devin, 2026-07-25: "changing voices mid-read is
     not working"): the Voice menu's radiobuttons had no command

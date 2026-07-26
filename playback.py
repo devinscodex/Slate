@@ -104,6 +104,16 @@ class Player:
     def is_playing(self) -> bool:
         return self._stream is not None and self._stream.active and not self._paused
 
+    def is_paused(self) -> bool:
+        """Distinct from "not is_playing()" -- that's also true right
+        after playback reaches the natural end of the audio (no more
+        samples left, _callback's own sd.CallbackStop() path), which
+        is NOT a pause. Slate's "read entire document" auto-advance
+        (do_read_document, slate.py) needs to tell those two apart:
+        pause() should never trigger advancing to the next page,
+        reaching the real end of a page's audio should."""
+        return self._paused
+
     def has_audio(self) -> bool:
         """Something is loaded (playing, paused, or freshly load()ed
         and not yet played) -- distinct from is_playing(), which is

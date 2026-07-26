@@ -157,6 +157,13 @@ class SlateApp:
         # method and its honest limitation.
         self._tts_reading_page = None
         self._tts_reading_page_num = None
+        # Devin, 2026-07-25: "TTS: read entire document, not just
+        # current page." True between do_read_document() and either
+        # reaching the end of the document or an explicit Stop --
+        # _poll_tts_playback_state uses _tts_was_playing to tell a
+        # real natural end-of-audio apart from an explicit pause.
+        self._tts_reading_document = False
+        self._tts_was_playing = False
         # Gated feature (DESIGN.md's "Text editing"): a local UX gate,
         # not real access control -- re-locks every restart on purpose.
         self._textedit_unlocked_this_session = False
@@ -609,6 +616,7 @@ class SlateApp:
         readm.add_cascade(label="Speed", menu=speedm)
         readm.add_separator()
         readm.add_command(label="Read this page", command=self.do_read_page)
+        readm.add_command(label="Read entire document", command=self.do_read_document)
         readm.add_command(label="Pause / Resume", command=self.do_tts_pause_resume)
         readm.add_command(label="Stop", command=self.do_tts_stop)
         menubar.add_cascade(label="Read Aloud", menu=readm)
@@ -2646,6 +2654,29 @@ class SlateApp:
         return tts.is_available(voice_id)
 
     def do_read_page(self):
+        """Menu 'Read this page' / toolbar quick-play -- explicitly a
+        single-page read. Cancels any in-progress "read entire
+        document" auto-continuation (do_read_document) so switching
+        back to a plain single-page read doesn't keep auto-advancing
+        afterward."""
+        self._tts_reading_document = False
+        self._read_current_page()
+
+    def do_read_document(self):
+        """Devin, 2026-07-25: "TTS: read entire document, not just
+        current page." Reads from the current page onward, auto-
+        advancing (page nav + the reading-position highlight both
+        follow, via _go_to_page) as each page's audio naturally
+        finishes -- until the end of the document or Stop. Blank
+        pages encountered while auto-advancing are skipped silently
+        (see _advance_to_next_page_and_continue_reading) rather than
+        interrupting a hands-free read with a dialog; the page you
+        explicitly started on still gets the normal "nothing to read"
+        message if it's blank, same as "Read this page" always has."""
+        self._tts_reading_document = True
+        self._read_current_page()
+
+    def _read_current_page(self):
         """Real perf finding: synthesis alone (even with a warm, cached
         voice -- see tts.py's _voice_cache) takes on the order of a
         second or more for a normal page of text. Running that
@@ -2743,6 +2774,7 @@ class SlateApp:
         # stay set to match -- the highlight correctly redraws at the
         # first word (progress 0.0) rather than disappearing.
         self.tts_player.stop()
+        self._tts_reading_document = False  # explicit Stop always cancels auto-advance
         self._update_tts_ui()
 
     def do_tts_toggle_play(self):
@@ -2885,10 +2917,44 @@ class SlateApp:
         on sd.CallbackStop()), and the highlight's own estimated
         position, which needs to keep advancing while nothing else is
         triggering a redraw. Self-cancels once playback stops instead
-        of polling forever."""
+        of polling forever -- except mid "read entire document"
+        (Devin, 2026-07-25), where reaching a real natural end (was
+        playing, now isn't, and NOT because of an explicit pause --
+        Player.is_paused() is the real distinguishing check) triggers
+        _advance_to_next_page_and_continue_reading instead of just
+        stopping. That call itself re-triggers a fresh poll loop once
+        the next page's audio starts, so the chain keeps going on its
+        own without this method needing to reschedule itself through it."""
+        was_playing = self._tts_was_playing
+        is_playing_now = self.tts_player.is_playing()
+        self._tts_was_playing = is_playing_now
         self._update_tts_ui()
-        if self.tts_player.is_playing():
+        if (
+            was_playing and not is_playing_now and not self.tts_player.is_paused()
+            and getattr(self, "_tts_reading_document", False)
+        ):
+            self._advance_to_next_page_and_continue_reading()
+            return
+        if is_playing_now:
             self.root.after(250, self._poll_tts_playback_state)
+
+    def _advance_to_next_page_and_continue_reading(self):
+        """The real "read entire document" mechanism -- called once a
+        page's audio reaches its natural end while _tts_reading_document
+        is True. Blank pages are skipped silently (no "nothing to
+        read" dialog -- that would interrupt a hands-free continuous
+        read); reaching the end of the document just stops cleanly."""
+        if self.viewer is None or self._tts_reading_page_num is None:
+            self._tts_reading_document = False
+            return
+        next_page_num = self._tts_reading_page_num + 1
+        while next_page_num < self.viewer.page_count:
+            if self.doc[next_page_num].get_text().strip():
+                self._go_to_page(next_page_num)
+                self._read_current_page()
+                return
+            next_page_num += 1
+        self._tts_reading_document = False  # reached the end -- nothing left to read
 
     def _snapshot_current_edits(self) -> str:
         """Save self.doc's current in-memory state (including any
