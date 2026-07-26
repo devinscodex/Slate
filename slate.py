@@ -112,6 +112,7 @@ class SlateApp:
         # (_page_offset) -- always (0, 0) in continuous mode, where
         # rect_of()'s true absolute position is exactly what's wanted.
         self._static_row_offset = (0, 0)
+        self._autolayout_after_id = None  # debounce handle for _on_canvas_frame_configure
         # render()'s own geometry-settling update_idletasks() calls
         # (scrollregion/width/height config) fire the canvas's
         # yscrollcommand with whatever scroll position was current
@@ -1172,6 +1173,11 @@ class SlateApp:
         canvas_frame.grid_columnconfigure(0, weight=1)
         self._canvas_frame = canvas_frame  # _toggle_toc_panel needs the PANE widget, not the bare canvas
         content.add(canvas_frame, stretch="always")
+        # Devin, 2026-07-25: "if the horizontal size reaches 'side by
+        # side' size, Slate automatically toggles it" -- real width-
+        # based auto layout on top of the manual checkbox, not a
+        # replacement for it (see _on_canvas_frame_configure).
+        canvas_frame.bind("<Configure>", self._on_canvas_frame_configure)
         self.canvas.bind("<ButtonPress-1>", self._on_press)
         self.canvas.bind("<B1-Motion>", self._on_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
@@ -1358,6 +1364,39 @@ class SlateApp:
             self._scroll_to_page(self.viewer.page_num)
         else:
             self._reset_scroll()
+
+    def _on_canvas_frame_configure(self, event=None):
+        """Devin, 2026-07-25: "if the horizontal size reaches 'side by
+        side' size, Slate automatically toggles it." <Configure> fires
+        continuously during a live drag-resize (and once per render()'s
+        own canvas resize) -- debounced via after_cancel/after so the
+        real width check only runs once resizing actually settles,
+        not on every intermediate pixel."""
+        if self._autolayout_after_id is not None:
+            self.root.after_cancel(self._autolayout_after_id)
+        self._autolayout_after_id = self.root.after(150, self._apply_width_based_side_by_side)
+
+    def _apply_width_based_side_by_side(self):
+        """Real width threshold, not a guess: a two-page spread at the
+        CURRENT zoom needs 2 * (widest page's width) + one inter-page
+        gap. continuous_scroll is never touched here (Devin, same
+        thread: "continuous scroll stays a default") -- only the
+        side_by_side axis auto-follows width. Always follows (no
+        separate "did the user manually override this" tracking) --
+        Devin's own call: "simplest: always auto-follow... unless
+        Devin says otherwise once he sees it live." Reuses
+        side_by_side_var + _set_view_mode so the View menu's checkbox
+        stays visually in sync with whatever this decided."""
+        self._autolayout_after_id = None
+        if self.viewer is None or self.doc is None:
+            return
+        available_w = self._canvas_frame.winfo_width()
+        page_w = self.doc[0].rect.width * self.viewer.zoom
+        gap = self._layout.gap if self._layout is not None else 8
+        should_be_side_by_side = available_w >= (2 * page_w + gap)
+        if should_be_side_by_side != self.side_by_side_var.get():
+            self.side_by_side_var.set(should_be_side_by_side)
+            self._set_view_mode()
 
     def _goto_page_entry(self, event=None):
         """Foxit/Acrobat convention: type a page number into the

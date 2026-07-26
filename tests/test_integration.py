@@ -3083,3 +3083,98 @@ def test_continuous_and_side_by_side_combine_into_a_scrolling_two_column_layout(
     finally:
         app.doc.close()
         root.destroy()
+
+
+# ------------------------------------------------------------------
+# Width-based auto side-by-side (Devin, 2026-07-25: "if the
+# horizontal size reaches 'side by side' size, Slate automatically
+# toggles it")
+# ------------------------------------------------------------------
+
+def test_auto_toggle_enables_side_by_side_when_window_wide_enough(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        assert app.side_by_side is False
+        root.geometry("2400x1200")  # real, wide enough for a 2-up spread + TOC panel
+        root.update()
+
+        app._apply_width_based_side_by_side()
+        assert app.side_by_side is True
+        assert app.side_by_side_var.get() is True  # menu checkbox stays in sync
+        assert app._layout.cols == 2
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_auto_toggle_disables_side_by_side_when_window_too_narrow(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app.side_by_side_var.set(True)
+        app._set_view_mode()
+        assert app.side_by_side is True
+
+        root.geometry("900x1200")  # real, not wide enough for 2 pages
+        root.update()
+        app._apply_width_based_side_by_side()
+
+        assert app.side_by_side is False
+        assert app.side_by_side_var.get() is False
+        assert app._layout.cols == 1
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_auto_toggle_never_touches_continuous_scroll(tmp_path):
+    """continuous_scroll stays the default regardless (Devin, same
+    thread: "continuous scroll stays a default") -- this auto-toggle
+    only ever touches the side_by_side axis."""
+    root, app = _make_app(tmp_path)
+    try:
+        assert app.continuous_scroll is True
+        root.geometry("2400x1200")
+        root.update()
+        app._apply_width_based_side_by_side()
+        assert app.continuous_scroll is True
+
+        root.geometry("900x1200")
+        root.update()
+        app._apply_width_based_side_by_side()
+        assert app.continuous_scroll is True
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_configure_event_debounces_the_width_check(tmp_path):
+    """<Configure> fires continuously during a live resize -- must
+    schedule (and reschedule, not stack up) a single debounced check,
+    not run the real width logic on every intermediate event."""
+    root, app = _make_app(tmp_path)
+    try:
+        # Real widget construction already triggers at least one
+        # Configure event of its own (window mapping/initial layout)
+        # -- clear that pending handle first so this test starts from
+        # a known state rather than asserting nothing was ever scheduled.
+        if app._autolayout_after_id is not None:
+            root.after_cancel(app._autolayout_after_id)
+            app._autolayout_after_id = None
+
+        app._on_canvas_frame_configure()
+        first_id = app._autolayout_after_id
+        assert first_id is not None
+
+        app._on_canvas_frame_configure()  # a second event before the first fires
+        second_id = app._autolayout_after_id
+        assert second_id is not None
+        assert second_id != first_id  # rescheduled to a fresh handle, not left stacked
+    finally:
+        # Real pending callback cleanup -- letting this fire after
+        # root.destroy() is the same benign "invalid command name"
+        # Tcl noise already seen elsewhere in this suite from other
+        # after()-based mechanisms, harmless but avoidable here.
+        if app._autolayout_after_id is not None:
+            root.after_cancel(app._autolayout_after_id)
+        app.doc.close()
+        root.destroy()
