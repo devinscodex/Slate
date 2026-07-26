@@ -587,7 +587,7 @@ class SlateApp:
         for voice_id, info in tts.VOICES.items():
             voicem.add_radiobutton(
                 label=info["label"], variable=self.tts_voice, value=voice_id,
-                selectcolor=radio_select_color,
+                command=self._on_tts_voice_changed, selectcolor=radio_select_color,
             )
         readm.add_cascade(label="Voice", menu=voicem)
         speedm = tk.Menu(readm, tearoff=0)
@@ -2686,6 +2686,25 @@ class SlateApp:
         if self.tts_player.has_audio():
             self.do_tts_pause_resume()
         else:
+            self.do_read_page()
+
+    def _on_tts_voice_changed(self):
+        """Real bug report (Devin, 2026-07-25): "changing voices
+        mid-read is not working." Root cause: the Voice menu's
+        radiobuttons had no command callback at all -- selecting a
+        different voice only updated the tts_voice StringVar, with
+        nothing to actually apply it. Whatever was already loaded (or
+        mid-synthesis) just kept playing in the OLD voice with no way
+        to hear the new selection short of manually stopping and
+        clicking "Read this page" again. Real fix: if something is
+        already loaded, selecting a voice restarts the CURRENT page
+        fresh in the new one -- do_read_page() already stops old
+        playback itself (Player.load()'s own stop() call). Mid-
+        synthesis (audio not loaded yet) is a real, accepted gap left
+        for later: do_read_page()'s own _tts_synthesizing guard would
+        block a same-instant re-trigger, and synthesis is fast enough
+        (~1s) that this is a narrow window, not the reported bug."""
+        if self.tts_player.has_audio():
             self.do_read_page()
 
     def _update_tts_toolbar_button(self):

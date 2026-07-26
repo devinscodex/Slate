@@ -1476,6 +1476,43 @@ def test_declining_the_download_prompt_does_not_download_or_crash(tmp_path, monk
         root.destroy()
 
 
+def test_changing_voice_restarts_the_current_page_when_something_is_already_loaded(tmp_path, monkeypatch):
+    """Real bug fixed (Devin, 2026-07-25: "changing voices mid-read is
+    not working"): the Voice menu's radiobuttons had no command
+    callback at all, so selecting a different voice never applied
+    until some unrelated independent trigger. With audio already
+    loaded, selecting a voice must restart the current page fresh."""
+    root, app = _make_app(tmp_path)
+    try:
+        called = []
+        monkeypatch.setattr(app, "do_read_page", lambda: called.append("read"))
+        app.tts_player.load(b"\x00\x00" * 100, 22050, 1)  # real load, no device needed
+        assert app.tts_player.has_audio() is True
+
+        app._on_tts_voice_changed()
+        assert called == ["read"]
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_changing_voice_is_a_no_op_when_nothing_is_loaded_yet(tmp_path, monkeypatch):
+    """No accidental read triggered just from picking a voice before
+    ever reading anything -- only applies when something's already
+    loaded (the real "mid-read" case the bug report was about)."""
+    root, app = _make_app(tmp_path)
+    try:
+        called = []
+        monkeypatch.setattr(app, "do_read_page", lambda: called.append("read"))
+        assert app.tts_player.has_audio() is False
+
+        app._on_tts_voice_changed()
+        assert called == []
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_pause_resume_and_stop_do_not_raise_with_nothing_loaded(tmp_path):
     root, app = _make_app(tmp_path)
     try:
