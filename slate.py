@@ -2803,10 +2803,26 @@ class SlateApp:
         Honest limitation, not hidden: Piper's simple synthesize() API
         (tts.py) returns raw audio only, no per-word timing/alignment
         data -- there's no real way to know exactly which word is
-        playing at any instant. This estimates position as a fraction
-        of the page's word list proportional to Player.progress (0.0-
-        1.0 through the audio), assuming roughly constant speaking
-        rate -- close enough to track along by eye, not word-perfect.
+        playing at any instant. Estimated as a fraction of the page's
+        text proportional to Player.progress (0.0-1.0 through the
+        audio), weighted by CHARACTER count rather than plain word
+        count (Devin, 2026-07-25, real feedback: "the indicator is
+        off") -- a 12-letter word takes noticeably longer to speak
+        than "a", so a per-word index alone drifted visibly out of
+        sync over a page; a character-weighted cumulative position is
+        still an estimate (no true audio alignment exists to check
+        against) but tracks materially better.
+
+        Drawn as ONE merged rectangle over words sharing the current
+        line (Devin, same message: "it also looks weird...
+        rasterized... not a natural highlight") -- the earlier version
+        drew 2-3 SEPARATE small stippled boxes, which visibly
+        fragmented (and could jump to the start of the NEXT line
+        mid-window, drawing two disconnected boxes) instead of reading
+        as one smooth highlight. Constraining the window to one line
+        (PyMuPDF's own line_no field) and merging into a single
+        rectangle with a lighter stipple density fixes both.
+
         Cleared (canvas.delete by tag) whenever nothing's loaded, or
         when the page being read isn't part of what's currently drawn
         (scrolled/navigated away -- nothing to overlay onto)."""
@@ -2819,17 +2835,41 @@ class SlateApp:
         words = self._tts_reading_page.get_text("words")
         if not words:
             return
-        idx = min(int(self.tts_player.progress * len(words)), len(words) - 1)
-        window = words[idx:idx + 3]  # a small, visible window, not just one easy-to-miss word
+        char_counts = [len(w[4]) + 1 for w in words]  # +1 for the space/gap after each word
+        total_chars = sum(char_counts)
+        target_char = self.tts_player.progress * total_chars
+        idx = 0
+        seen = 0
+        for i, n in enumerate(char_counts):
+            if seen + n > target_char:
+                idx = i
+                break
+            seen += n
+        else:
+            idx = len(words) - 1
+        anchor = words[idx]
+        anchor_block, anchor_line = anchor[5], anchor[6]
+        # Same line only -- a handful of words starting at idx, but
+        # never spilling onto the next line (which would draw a second,
+        # disconnected box instead of one clean highlight).
+        window = []
+        for w in words[idx:idx + 6]:
+            if w[5] != anchor_block or w[6] != anchor_line:
+                break
+            window.append(w)
+        if not window:
+            window = [anchor]
         ox, oy = self._page_offset(page_num)
         z = self.viewer.zoom
         colors = theme.get_palette(self.theme_name.get())
-        for w in window:
-            x0, y0, x1, y1 = w[:4]
-            self.canvas.create_rectangle(
-                ox + x0 * z, oy + y0 * z, ox + x1 * z, oy + y1 * z,
-                fill=colors["highlight_bg"], outline="", stipple="gray50", tags=("tts_highlight",),
-            )
+        x0 = min(w[0] for w in window)
+        y0 = min(w[1] for w in window)
+        x1 = max(w[2] for w in window)
+        y1 = max(w[3] for w in window)
+        self.canvas.create_rectangle(
+            ox + x0 * z, oy + y0 * z, ox + x1 * z, oy + y1 * z,
+            fill=colors["highlight_bg"], outline="", stipple="gray25", tags=("tts_highlight",),
+        )
 
     def _update_tts_ui(self):
         self._update_tts_toolbar_button()

@@ -1650,6 +1650,34 @@ def test_tts_highlight_estimates_position_from_playback_progress(tmp_path):
         root.destroy()
 
 
+def test_tts_highlight_is_one_merged_box_spanning_same_line_words(tmp_path):
+    """Devin, 2026-07-25, real live feedback: "it also looks
+    weird...rasterized or something, not a natural 'highlight'" --
+    the earlier version drew a SEPARATE stippled rectangle per word
+    (2-3 of them), which visibly fragmented and could jump to a
+    disconnected box on the next line mid-window. Real fix: exactly
+    ONE rectangle, merged across every word sharing the anchor's line
+    (basic3page.pdf's page 1 is a real single line: "Slate fixture
+    page 1", all 4 words, block_no=0/line_no=0)."""
+    root, app = _make_app(tmp_path)
+    try:
+        app._tts_reading_page = app.page
+        app._tts_reading_page_num = app.viewer.page_num
+        app.tts_player.load(b"\x00\x00" * 200, 22050, 1)  # progress 0.0 -- anchors on "Slate"
+
+        app._update_tts_highlight()
+        items = app.canvas.find_withtag("tts_highlight")
+        assert len(items) == 1  # one merged box, not one per word
+
+        words = app.page.get_text("words")
+        last_word_x1 = words[-1][2] * app.viewer.zoom  # "1", the last word on the same line
+        drawn_x1 = app.canvas.coords(items[0])[2]
+        assert abs(drawn_x1 - last_word_x1) < 1.0  # box extends across the whole line, not just one word
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_tts_highlight_clears_when_nothing_is_loaded_or_never_read(tmp_path):
     """A fresh app (never read anything) must show no highlight."""
     root, app = _make_app(tmp_path)
