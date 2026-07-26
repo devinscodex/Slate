@@ -138,6 +138,37 @@ def _get_cached_voice(voice_id: str):
     return voice
 
 
+# Real, deliberate calibration (Devin, 2026-07-25: "make the default
+# audio reading voice slower, more natural pace... do this for all
+# voices. that is '1.0x' speed, base other speeds around that once we
+# get a good natural default reading cadence"). Piper's own native
+# length_scale=1.0 reads noticeably rushed for continuous-prose
+# reading -- a common report for VITS-family TTS models at their raw
+# default rate, not specific to any one voice here. This shifts what
+# the UI calls "1.0x" to a slower, more natural pace; every other
+# speed preset (0.75x/1.25x/1.5x/2.0x, see slate.py's Speed menu)
+# scales proportionally FROM this new baseline via speed_to_length_
+# scale() below, not from Piper's raw default -- the whole speed
+# range moves together as one calibrated unit, applied uniformly to
+# every voice in VOICES (nothing here is voice-specific).
+#
+# NOT tuned by ear here -- confirmed live: this dev environment (WSL2)
+# has zero real audio output devices (sd.query_devices() returns an
+# empty list). 1.15 is a reasonable starting point (VITS-family models
+# commonly read ~10-20% too fast at their raw default), not a value
+# verified against real playback -- needs Devin's live listen on real
+# Windows hardware and a follow-up adjustment if it's still off.
+BASE_LENGTH_SCALE = 1.15
+
+
+def speed_to_length_scale(user_speed: float) -> float:
+    """User-facing speed multiplier (1.0 = the calibrated natural
+    default above, NOT Piper's raw native rate) -> Piper's own
+    length_scale parameter (inverse relationship: higher length_scale
+    is slower speech, lower is faster)."""
+    return BASE_LENGTH_SCALE / user_speed
+
+
 def synthesize(text: str, voice_id: str, length_scale: float = 1.0):
     """Returns (audio_int16_bytes, sample_rate, sample_width, sample_channels)
     for the whole text (Piper yields one AudioChunk per sentence;

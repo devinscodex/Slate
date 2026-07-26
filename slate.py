@@ -2675,7 +2675,11 @@ class SlateApp:
         if not self._ensure_voice_available(voice_id):
             return
 
-        length_scale = 1.0 / self.tts_speed.get()
+        # tts.speed_to_length_scale (not a plain 1.0/speed inverse):
+        # Devin, 2026-07-25, "make the default... voice slower, more
+        # natural pace... base other speeds around that" -- "1.0x" is
+        # now a calibrated natural default, not Piper's raw native rate.
+        length_scale = tts.speed_to_length_scale(self.tts_speed.get())
         self._tts_synthesizing = True
         self.status.config(text="Synthesizing speech...")
         result = {"done": False, "audio": None, "error": None}

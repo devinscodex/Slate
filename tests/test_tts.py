@@ -130,3 +130,20 @@ def test_synthesize_caches_the_loaded_voice_across_calls():
 
     tts.synthesize("Second call.", "northern_english_male")
     assert tts._voice_cache["northern_english_male"] is first_instance  # same object, not reloaded
+
+
+def test_speed_to_length_scale_calibrates_around_a_slower_natural_default():
+    """Devin, 2026-07-25: "make the default audio reading voice
+    slower, more natural pace... that is '1.0x' speed, base other
+    speeds around that." "1.0x" (user_speed=1.0) must map to
+    BASE_LENGTH_SCALE, not Piper's raw native 1.0 -- and every other
+    speed preset must scale proportionally FROM that new baseline,
+    not from Piper's raw default."""
+    assert tts.speed_to_length_scale(1.0) == tts.BASE_LENGTH_SCALE
+    assert tts.BASE_LENGTH_SCALE > 1.0  # a real, deliberate slowdown from Piper's native rate
+
+    # Faster/slower presets stay proportional to the SAME calibrated
+    # baseline (higher user_speed -> lower length_scale -> faster speech).
+    assert tts.speed_to_length_scale(2.0) == tts.BASE_LENGTH_SCALE / 2.0
+    assert tts.speed_to_length_scale(0.75) == tts.BASE_LENGTH_SCALE / 0.75
+    assert tts.speed_to_length_scale(2.0) < tts.speed_to_length_scale(1.0) < tts.speed_to_length_scale(0.75)
