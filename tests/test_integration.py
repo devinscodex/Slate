@@ -21,6 +21,7 @@ import gate  # noqa: E402
 import slate  # noqa: E402
 import sign  # noqa: E402
 import theme  # noqa: E402
+import tts  # noqa: E402
 import version  # noqa: E402
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "basic3page.pdf")
@@ -1592,6 +1593,89 @@ def test_tts_toolbar_button_glyph_reflects_playback_state(tmp_path):
 
         app.do_tts_stop()
         assert app.tts_play_button.cget("text") == "▶"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_tts_status_text_shows_voice_and_speed_only_while_loaded(tmp_path):
+    """Devin, 2026-07-25: "is there a way to tell what is the current
+    voice/speed is on readback?" -- real, minimal answer, empty when
+    nothing's loaded so it doesn't clutter the toolbar otherwise."""
+    root, app = _make_app(tmp_path)
+    try:
+        assert app._tts_status_text() == ""
+
+        app.tts_voice.set("northern_english_male")
+        app.tts_speed.set(1.25)
+        app.tts_player.load(b"\x00\x00" * 100, 22050, 1)
+        text = app._tts_status_text()
+        assert "1.25x" in text
+        assert tts.VOICES["northern_english_male"]["label"] in text
+
+        # Player.stop() deliberately rewinds rather than unloads (own
+        # docstring: "Unlike pause(), resets position to the start")
+        # -- has_audio() stays True on purpose so a subsequent play()
+        # replays this page from 0, so the status text correctly stays
+        # visible too, not cleared.
+        app.do_tts_stop()
+        assert app._tts_status_text() != ""
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_tts_highlight_estimates_position_from_playback_progress(tmp_path):
+    """Real follow-along highlight (Devin, 2026-07-25, same message as
+    the status-text ask) -- estimated from Player.progress against the
+    page's own word list (no per-word timing data exists to do this
+    exactly, an honest, documented approximation). At progress 0.0 the
+    highlight should sit on the page's first word."""
+    root, app = _make_app(tmp_path)  # basic3page.pdf -- real text, page 1: "Slate fixture page 1"
+    try:
+        app._tts_reading_page = app.page
+        app._tts_reading_page_num = app.viewer.page_num
+        app.tts_player.load(b"\x00\x00" * 200, 22050, 1)  # has_audio() True, progress 0.0
+
+        app._update_tts_highlight()
+        items = app.canvas.find_withtag("tts_highlight")
+        assert len(items) > 0  # something drawn
+
+        words = app.page.get_text("words")
+        first_word_x0 = words[0][0] * app.viewer.zoom
+        drawn_x0 = app.canvas.coords(items[0])[0]
+        assert abs(drawn_x0 - first_word_x0) < 1.0  # anchored at the first word, progress 0.0
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_tts_highlight_clears_when_nothing_is_loaded_or_never_read(tmp_path):
+    """A fresh app (never read anything) must show no highlight."""
+    root, app = _make_app(tmp_path)
+    try:
+        app._update_tts_highlight()
+        assert len(app.canvas.find_withtag("tts_highlight")) == 0
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_tts_highlight_clears_when_the_read_page_scrolls_out_of_view(tmp_path):
+    """The page being read isn't necessarily what's on screen (the
+    user can keep scrolling/navigating while listening) -- nothing
+    should be drawn once it's no longer part of the current window/row."""
+    root, app = _make_app(tmp_path)
+    try:
+        app._tts_reading_page = app.page
+        app._tts_reading_page_num = app.viewer.page_num
+        app.tts_player.load(b"\x00\x00" * 200, 22050, 1)
+        app._update_tts_highlight()
+        assert len(app.canvas.find_withtag("tts_highlight")) > 0
+
+        app._last_window = set()  # simulate the read page scrolling out of the current window
+        app._update_tts_highlight()
+        assert len(app.canvas.find_withtag("tts_highlight")) == 0
     finally:
         app.doc.close()
         root.destroy()

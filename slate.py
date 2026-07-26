@@ -147,6 +147,15 @@ class SlateApp:
         self.tts_voice = tk.StringVar(value="northern_english_male")
         self.tts_speed = tk.DoubleVar(value=1.0)  # user-facing multiplier, not Piper's length_scale directly
         self.tts_player = TTSPlayer()
+        # Position-indicator state (Devin, 2026-07-25: "is there a way
+        # to tell what is the current voice/speed... a good application
+        # for our green accent" + a real follow-along highlight) --
+        # which page do_read_page() actually started reading, kept
+        # fixed even if the user scrolls/navigates elsewhere while
+        # listening. See _update_tts_highlight for the real estimation
+        # method and its honest limitation.
+        self._tts_reading_page = None
+        self._tts_reading_page_num = None
         # Gated feature (DESIGN.md's "Text editing"): a local UX gate,
         # not real access control -- re-locks every restart on purpose.
         self._textedit_unlocked_this_session = False
@@ -1078,6 +1087,11 @@ class SlateApp:
             toolbar_right, text="▶", width=2, padx=0, command=self.do_tts_toggle_play,
         )
         self.tts_play_button.pack(side=tk.RIGHT, padx=(0, 2))
+        # Fixed green accent regardless of theme -- same convention as
+        # the About dialog's permanent accent bar, empty text (so no
+        # layout gap) whenever nothing's actually loaded.
+        self.tts_status_label = tk.Label(toolbar_right, text="", fg="#62a945")
+        self.tts_status_label.pack(side=tk.RIGHT, padx=(0, 8))
 
         self.find_frame = tk.Frame(self.body_frame)
         tk.Label(self.find_frame, text="Find:").pack(side=tk.LEFT, padx=(6, 4))
@@ -2612,6 +2626,11 @@ class SlateApp:
         if not text:
             messagebox.showinfo("Nothing to read", "This page has no extractable text.")
             return
+        # Captured for _update_tts_highlight's position estimate -- the
+        # actual page being read stays fixed even if the user scrolls/
+        # navigates elsewhere while listening (self.page would drift).
+        self._tts_reading_page = self.page
+        self._tts_reading_page_num = self.viewer.page_num
 
         voice_id = self.tts_voice.get()
         if not self._ensure_voice_available(voice_id):
@@ -2673,8 +2692,15 @@ class SlateApp:
         self._poll_tts_playback_state()
 
     def do_tts_stop(self):
+        # Player.stop() deliberately rewinds rather than unloads (its
+        # own docstring: "Unlike pause(), resets position to the
+        # start") -- has_audio() stays True on purpose, so a
+        # subsequent play() replays this same page from 0 instead of
+        # needing a fresh "Read this page". _tts_reading_page/_num
+        # stay set to match -- the highlight correctly redraws at the
+        # first word (progress 0.0) rather than disappearing.
         self.tts_player.stop()
-        self._update_tts_toolbar_button()
+        self._update_tts_ui()
 
     def do_tts_toggle_play(self):
         """Toolbar quick-access button (Devin, 2026-07-25: "easier
@@ -2712,14 +2738,72 @@ class SlateApp:
             return  # home screen, no doc-view toolbar built yet
         self.tts_play_button.config(text="⏸" if self.tts_player.is_playing() else "▶")
 
-    def _poll_tts_playback_state(self):
-        """Keeps the toolbar button's glyph accurate across state
-        changes nothing else calls back for -- most notably playback
-        reaching the natural end of a page's audio, which the Player
-        has no callback for at all (see playback.py's own note on
-        sd.CallbackStop()). Self-cancels once playback stops instead
-        of polling forever."""
+    def _tts_status_text(self) -> str:
+        """Devin, 2026-07-25: "is there a way to tell what is the
+        current voice/speed is on readback? that might be a good
+        application for our green accent." Real, minimal answer:
+        voice name + speed multiplier, shown only while something is
+        actually loaded (empty otherwise, so it doesn't clutter the
+        toolbar the rest of the time)."""
+        if not self.tts_player.has_audio():
+            return ""
+        voice_label = tts.VOICES.get(self.tts_voice.get(), {}).get("label", self.tts_voice.get())
+        return f"\U0001F50A {voice_label} · {self.tts_speed.get():g}x"
+
+    def _update_tts_highlight(self):
+        """Devin, 2026-07-25, same message as the status text ask: a
+        real "follow along" highlight for what's currently being read,
+        using the house green accent (the one other place, besides
+        text selection, green is allowed to appear per the manga-
+        essence minimal-accent rule).
+
+        Honest limitation, not hidden: Piper's simple synthesize() API
+        (tts.py) returns raw audio only, no per-word timing/alignment
+        data -- there's no real way to know exactly which word is
+        playing at any instant. This estimates position as a fraction
+        of the page's word list proportional to Player.progress (0.0-
+        1.0 through the audio), assuming roughly constant speaking
+        rate -- close enough to track along by eye, not word-perfect.
+        Cleared (canvas.delete by tag) whenever nothing's loaded, or
+        when the page being read isn't part of what's currently drawn
+        (scrolled/navigated away -- nothing to overlay onto)."""
+        self.canvas.delete("tts_highlight")
+        page_num = self._tts_reading_page_num
+        if page_num is None or not self.tts_player.has_audio() or self._tts_reading_page is None:
+            return
+        if self._layout is not None and page_num not in self._last_window:
+            return  # not currently drawn -- nothing to overlay onto
+        words = self._tts_reading_page.get_text("words")
+        if not words:
+            return
+        idx = min(int(self.tts_player.progress * len(words)), len(words) - 1)
+        window = words[idx:idx + 3]  # a small, visible window, not just one easy-to-miss word
+        ox, oy = self._page_offset(page_num)
+        z = self.viewer.zoom
+        colors = theme.get_palette(self.theme_name.get())
+        for w in window:
+            x0, y0, x1, y1 = w[:4]
+            self.canvas.create_rectangle(
+                ox + x0 * z, oy + y0 * z, ox + x1 * z, oy + y1 * z,
+                fill=colors["highlight_bg"], outline="", stipple="gray50", tags=("tts_highlight",),
+            )
+
+    def _update_tts_ui(self):
         self._update_tts_toolbar_button()
+        if hasattr(self, "tts_status_label"):
+            self.tts_status_label.config(text=self._tts_status_text())
+        self._update_tts_highlight()
+
+    def _poll_tts_playback_state(self):
+        """Keeps the toolbar button/status/highlight accurate across
+        state changes nothing else calls back for -- most notably
+        playback reaching the natural end of a page's audio, which the
+        Player has no callback for at all (see playback.py's own note
+        on sd.CallbackStop()), and the highlight's own estimated
+        position, which needs to keep advancing while nothing else is
+        triggering a redraw. Self-cancels once playback stops instead
+        of polling forever."""
+        self._update_tts_ui()
         if self.tts_player.is_playing():
             self.root.after(250, self._poll_tts_playback_state)
 
