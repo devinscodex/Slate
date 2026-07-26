@@ -1790,21 +1790,32 @@ def test_tts_highlight_is_one_merged_box_spanning_same_line_words(tmp_path):
     disconnected box on the next line mid-window. Real fix: exactly
     ONE rectangle, merged across every word sharing the anchor's line
     (basic3page.pdf's page 1 is a real single line: "Slate fixture
-    page 1", all 4 words, block_no=0/line_no=0)."""
+    page 1", all 4 words, block_no=0/line_no=0).
+
+    Anchored near the END of the line (progress near 1.0), not the
+    start -- the highlight window became TRAILING (2026-07-26, "TTS
+    indicator too fast" fix: it used to look 5 words AHEAD of the
+    estimate, which visibly read unspoken text). At progress 0.0 a
+    trailing window correctly shows just the FIRST word (nothing has
+    been read yet, so there's nothing earlier to merge with) -- that's
+    real, intentional behavior, not a regression; this test instead
+    anchors at the last word to exercise the "merges multiple already-
+    read words into one box" property the trailing window does provide."""
     root, app = _make_app(tmp_path)
     try:
         app._tts_reading_page = app.page
         app._tts_reading_page_num = app.viewer.page_num
-        app.tts_player.load(b"\x00\x00" * 200, 22050, 1)  # progress 0.0 -- anchors on "Slate"
+        app.tts_player.load(b"\x00\x00" * 200, 22050, 1)
+        app.tts_player._position = 199  # progress ~1.0 -- anchors on "1", the last word
 
         app._update_tts_highlight()
         items = app.canvas.find_withtag("tts_highlight")
         assert len(items) == 1  # one merged box, not one per word
 
         words = app.page.get_text("words")
-        last_word_x1 = words[-1][2] * app.viewer.zoom  # "1", the last word on the same line
-        drawn_x1 = app.canvas.coords(items[0])[2]
-        assert abs(drawn_x1 - last_word_x1) < 1.0  # box extends across the whole line, not just one word
+        first_word_x0 = words[0][0] * app.viewer.zoom  # "Slate", first word on the same line
+        drawn_x0, _drawn_y0 = app.canvas.coords(items[0])
+        assert abs(drawn_x0 - first_word_x0) < 1.0  # box extends back across the whole line, not just the last word
     finally:
         app.doc.close()
         root.destroy()
@@ -1955,17 +1966,27 @@ def test_mouse_wheel_navigates_pages_both_platform_styles(tmp_path):
 def test_view_mode_drag_selects_text_not_a_rectangle(tmp_path):
     """Default interaction (Devin, 2026-07-25: "default to arrow/select
     text over rectangle select") -- a click-drag in the default "view"
-    mode selects real text (word bboxes intersecting the drag rect),
-    it does NOT create a redaction mark or leave a stray drag-rectangle
-    behind. basic3page.pdf page 1's real text: "Slate fixture page 1"."""
+    mode selects real text, it does NOT create a redaction mark or
+    leave a stray drag-rectangle behind. basic3page.pdf page 1's real
+    text: "Slate fixture page 1".
+
+    Real, continuous text-FLOW selection (Devin, 2026-07-26: "mouse
+    down should be point of highlight start... continuous highlight
+    like you'd expect a highlight tool to do") -- selects every word
+    in READING ORDER between the drag's anchor (mouse-down) and
+    current cursor position, not just words whose bbox literally
+    overlaps the drag rectangle. This specific drag's endpoint lands
+    closer to "page" than to "fixture" in PDF space, so "page" is
+    correctly included even though the old rect-intersection version
+    stopped at "fixture" -- confirmed against the real live app."""
     root, app = _make_app(tmp_path)
     try:
         assert app.mode == "view"  # the actual default, confirmed
         z = app.viewer.zoom
         _drag(app, int(70 * z), int(55 * z), int(148 * z), int(78 * z))
         selected = [w[4] for w in app._selected_words]
-        assert selected == ["Slate", "fixture"]
-        assert app._selected_text() == "Slate fixture"
+        assert selected == ["Slate", "fixture", "page"]
+        assert app._selected_text() == "Slate fixture page"
         # Real, not a redaction -- view-mode drags must never populate this.
         assert app._pending_redactions == []
     finally:
@@ -2010,7 +2031,10 @@ def test_copy_selection_puts_real_text_on_the_clipboard(tmp_path):
         z = app.viewer.zoom
         _drag(app, int(70 * z), int(55 * z), int(148 * z), int(78 * z))
         app._copy_selection()
-        assert root.clipboard_get() == "Slate fixture"
+        # "page" included -- same anchor-to-cursor reading-order
+        # selection as test_view_mode_drag_selects_text_not_a_rectangle,
+        # see that test's docstring for why.
+        assert root.clipboard_get() == "Slate fixture page"
     finally:
         app.doc.close()
         root.destroy()
@@ -2111,7 +2135,9 @@ def test_drag_selection_accounts_for_scroll_offset(tmp_path):
     is what this test actually exercises: scroll the canvas first,
     then confirm a drag at the SAME raw pixel position that worked at
     zero scroll now resolves through the offset to the correct words
-    ("Slate fixture", same target as the zero-scroll selection test)."""
+    ("Slate fixture page", same target as the zero-scroll selection
+    test -- see test_view_mode_drag_selects_text_not_a_rectangle's
+    docstring for why "page" is included)."""
     root, app = _make_app(tmp_path)
     try:
         # canvas.config(width=, height=) alone can't force a real
@@ -2138,7 +2164,7 @@ def test_drag_selection_accounts_for_scroll_offset(tmp_path):
         _drag(app, vx0, vy0, vx1, vy1)
 
         selected = [w[4] for w in app._selected_words]
-        assert selected == ["Slate", "fixture"]
+        assert selected == ["Slate", "fixture", "page"]
     finally:
         app.doc.close()
         root.destroy()

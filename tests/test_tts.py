@@ -99,21 +99,23 @@ def test_synthesize_unavailable_voice_raises_clear_error():
 def test_synthesize_bundled_voice_produces_real_audio():
     """Genuine Piper inference against the real bundled model -- not
     mocked, since northern_english_male.onnx actually ships in the repo."""
-    audio, sample_rate, sample_width, channels = tts.synthesize(
+    audio, sample_rate, sample_width, channels, chunk_sample_counts = tts.synthesize(
         "This is a real test.", "northern_english_male"
     )
     assert len(audio) > 1000  # real audio data, not empty
     assert sample_rate == 22050
     assert sample_width == 2  # 16-bit PCM
     assert channels == 1
+    assert chunk_sample_counts  # real per-sentence durations, added 2026-07-26
+    assert sum(chunk_sample_counts) == len(audio) // (sample_width * channels)
 
 
 def test_synthesize_length_scale_changes_audio_duration():
     """Piper's own real length_scale (speed) parameter -- a real
     number, not assumed: a larger length_scale (slower) must produce
     MORE audio samples for the same text than a smaller one (faster)."""
-    fast_audio, _, _, _ = tts.synthesize("This is a somewhat longer test sentence.", "northern_english_male", length_scale=0.7)
-    slow_audio, _, _, _ = tts.synthesize("This is a somewhat longer test sentence.", "northern_english_male", length_scale=1.5)
+    fast_audio, _, _, _, _ = tts.synthesize("This is a somewhat longer test sentence.", "northern_english_male", length_scale=0.7)
+    slow_audio, _, _, _, _ = tts.synthesize("This is a somewhat longer test sentence.", "northern_english_male", length_scale=1.5)
     assert len(slow_audio) > len(fast_audio)
 
 

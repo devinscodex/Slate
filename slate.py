@@ -14,7 +14,7 @@ import webbrowser
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import fitz  # PyMuPDF
-from PIL import ImageOps, ImageTk
+from PIL import Image, ImageOps, ImageTk
 
 import annotate
 import convert
@@ -74,6 +74,15 @@ class SlateApp:
         self.doc = None
         self.viewer = None
         self.page = None
+        # Theme-colorize opt-out (Devin, 2026-07-26): _colorize_for_theme
+        # deliberately flattens every page to the theme's fg/bg pair so
+        # documents visually match the app chrome (2026-07-25 design
+        # call) -- correct default for prose/book reading, but it
+        # destroys real color content (a categorical-color-coded diagram,
+        # a photo) where color IS the information. Per-session toggle,
+        # default True (unchanged existing behavior) so nothing regresses
+        # for the common case.
+        self.colorize_pages = True
         self._tk_img = None  # keep a reference or Tkinter garbage-collects it
         self.mode = "view"  # view | redact | annotate:<kind> | forms | textedit
         self._drag_start = None
@@ -88,6 +97,7 @@ class SlateApp:
         # correctly ordered without re-sorting by geometry.
         self._selected_words = []
         self._selected_page_num = None  # which page _selected_words belongs to (continuous mode needs this to draw the right offset)
+        self._selection_highlight_photos = []  # PhotoImage refs for the current selection overlay -- see _draw_text_selection_for_page
         # Slice 4 (Fable design review, 2026-07-25): two INDEPENDENT
         # axes, not one mode string -- Devin: "side by side option
         # (both can be turned on, checkbox in menu)", matching how
@@ -124,6 +134,7 @@ class SlateApp:
         # scrolling (wheel/scrollbar-drag) is unaffected.
         self._suppress_scroll_sync = False
         self._drag_page = None  # page a click/drag started on, pinned for the whole gesture (continuous mode: a drag can visually cross page rects, but a redaction/annotation belongs to exactly one page)
+        self._drag_anchor_pdf = None  # (x, y) in PDF space where the drag started -- text-flow selection's fixed start point, see _on_press/_on_drag
         # Slice 3 perf fix (Fable design review, 2026-07-25), after
         # Devin hit a real lockup on PageUp/PageDown: continuous mode
         # used to eager-render EVERY page on EVERY render() call. Now
@@ -157,6 +168,7 @@ class SlateApp:
         # method and its honest limitation.
         self._tts_reading_page = None
         self._tts_reading_page_num = None
+        self._tts_chunk_sample_counts = []  # real per-sentence audio durations from tts.synthesize(), see _update_tts_highlight
         # Devin, 2026-07-25: "TTS: read entire document, not just
         # current page." True between do_read_document() and either
         # reaching the end of the document or an explicit Stop --
@@ -238,6 +250,16 @@ class SlateApp:
             # (Fable design review, 2026-07-25, Slice 3 perf consult).
             self._page_cache.invalidate_all()
             self.render()  # re-invert the currently-visible page immediately, not on next nav
+
+    def _on_colorize_toggle(self):
+        # Same cache-bust discipline as _on_theme_changed -- colorize is
+        # baked into the cached PhotoImage at fill-time, not reapplied
+        # per-draw, so a toggle needs a full invalidate to take effect
+        # immediately instead of on next nav.
+        self.colorize_pages = self.colorize_pages_var.get()
+        if self.doc is not None:
+            self._page_cache.invalidate_all()
+            self.render()
 
     def _apply_native_titlebar_theme(self):
         """The window title bar itself is drawn by the OS, not Tk --
@@ -589,6 +611,15 @@ class SlateApp:
                 command=self._on_theme_changed, selectcolor=radio_select_color,
             )
         viewm.add_cascade(label="Theme", menu=thememenu)
+        # Colorize opt-out (Devin, 2026-07-26): _colorize_for_theme
+        # flattens every page to the theme's fg/bg pair, which destroys
+        # real color content (a categorical diagram, a photo). Default
+        # stays on (self.colorize_pages=True, unchanged prior behavior).
+        self.colorize_pages_var = tk.BooleanVar(value=self.colorize_pages)
+        viewm.add_checkbutton(
+            label="Colorize pages to theme", variable=self.colorize_pages_var,
+            command=self._on_colorize_toggle, selectcolor=radio_select_color,
+        )
         menubar.add_cascade(label="View", menu=viewm)
 
         convertm = tk.Menu(menubar, tearoff=0)
@@ -1223,6 +1254,11 @@ class SlateApp:
         self.canvas.bind("<Control-MouseWheel>", self._on_ctrl_mouse_wheel)
         self.canvas.bind("<Control-Button-4>", lambda e: self.zoom_in())
         self.canvas.bind("<Control-Button-5>", lambda e: self.zoom_out())
+        # Shift+scroll = horizontal scroll (Devin, 2026-07-26), same
+        # platform split as Ctrl+scroll above.
+        self.canvas.bind("<Shift-MouseWheel>", self._on_shift_mouse_wheel)
+        self.canvas.bind("<Shift-Button-4>", self._shift_wheel_left)
+        self.canvas.bind("<Shift-Button-5>", self._shift_wheel_right)
 
         # Sumatra-style keyboard nav. Guarded on "typing somewhere" (any
         # Entry has focus, e.g. the find box itself) so these don't
@@ -1585,6 +1621,22 @@ class SlateApp:
             self.home_frame = None
         self.body_frame.pack(fill=tk.BOTH, expand=True)
 
+        # Fit-to-width default (Devin, 2026-07-26): a page wider than
+        # DEFAULT_ZOOM's fixed 1.5x used to open running off-screen.
+        # update_idletasks() forces Tk to compute real geometry
+        # synchronously (same class of timing gotcha already documented
+        # once in this file for tab-select) instead of waiting for the
+        # next idle-loop pass -- without it, canvas.winfo_width() can
+        # still report a stale/unrealized size. viewport_w<=1 means the
+        # canvas genuinely isn't realized yet (e.g. the very first
+        # document opened before the window has ever been mapped) --
+        # leave Viewer's own DEFAULT_ZOOM untouched rather than fit
+        # against a meaningless width.
+        self.canvas.update_idletasks()
+        viewport_w = self.canvas.winfo_width()
+        if viewport_w > 1:
+            new_tab.viewer.fit_width(viewport_w)
+
         placeholder = tk.Frame(self.tab_strip)  # never shown -- a pure tab-strip entry
         self.tab_strip.add(placeholder, text=f"{os.path.basename(path)}  {_TAB_CLOSE_GLYPH}")
         self._tab_frames.append(placeholder)
@@ -1767,6 +1819,16 @@ class SlateApp:
         # black and white->near-white). Photos/images on the page
         # recolor too, same accepted simple tradeoff as Sumatra's own
         # basic color-inversion feature, just via a nicer mapping.
+        #
+        # Opt-out (Devin, 2026-07-26): that tradeoff actively destroys
+        # content where color IS the payload (a categorical-color-coded
+        # diagram's legend went meaningless once flattened to one tint,
+        # caught live). self.colorize_pages defaults True (identical to
+        # this method always running before), so nothing regresses --
+        # unchecking "Colorize pages to theme" in the View menu returns
+        # the page's real original colors untouched.
+        if not self.colorize_pages:
+            return img
         colors = theme.get_palette(self.theme_name.get())
         return ImageOps.colorize(img.convert("L"), black=colors["fg"], white=colors["canvas_bg"])
 
@@ -1809,6 +1871,7 @@ class SlateApp:
         self.canvas.delete("all")
         self._page_canvas_items = {}
         self._page_placeholder_items = {}
+        self._selection_highlight_photos = []  # once per render pass -- see _draw_text_selection_for_page
         max_x1 = max_y1 = 0.0
         for page_num in row_pages:
             x0, y0, _x1, _y1 = self._layout.rect_of(page_num)
@@ -1923,6 +1986,7 @@ class SlateApp:
         self.canvas.delete("all")
         self._page_canvas_items = {}
         self._page_placeholder_items = {}
+        self._selection_highlight_photos = []  # once per render pass -- see _draw_text_selection_for_page
         # Anchored to viewer.page_num (the page we KNOW should be
         # visible), not canvas.yview() -- the scrollregion for THIS
         # layout hasn't been set yet at this point in the call, so any
@@ -2025,17 +2089,64 @@ class SlateApp:
         place green survives as a real, minimal, pure accent (Devin,
         2026-07-25), not select_bg (tabs, now monochrome). A selection
         belongs to exactly one page (self._selected_page_num, pinned at
-        drag-start) -- only that page draws it."""
+        drag-start) -- only that page draws it.
+
+        Devin, 2026-07-25: "make it a true highlighter" -- this used to
+        draw one stippled rectangle PER SELECTED WORD, which read as a
+        scattered multicursor-style pattern (gaps between words, a
+        dithered fill) instead of one smooth highlighter bar. Same two
+        root causes as _update_tts_highlight's docstring (that fix is
+        the reference pattern this one follows, code not shared since
+        the TTS path stays untouched): per-word boxes instead of one
+        box per LINE, and `stipple` faking transparency by literally
+        not painting ~50% of pixels rather than real alpha-blending. Fixed
+        the same way -- group words by PyMuPDF's (block_no, line_no)
+        into one continuous rectangle per line, spanning min(x0)..
+        max(x1) for that line, and paint it as a real translucent RGBA
+        PhotoImage instead of a stippled canvas fill.
+
+        A selection can span many lines (unlike the single-window TTS
+        highlight), so this keeps a LIST of PhotoImage references in
+        self._selection_highlight_photos (Tk drops a PhotoImage's pixels
+        blank once nothing references it, even though the canvas item
+        persists). The list is reset ONCE per render pass, at the top
+        of _render_continuous/_render_static_row (alongside their own
+        canvas.delete("all")) -- NOT here.
+
+        Real bug caught live 2026-07-26 ("TTS highlight works, drag
+        selection doesn't"): this function runs once per VISIBLE page
+        (_draw_real_page is called for every resident page in the
+        window, and continuous mode routinely has 2+ pages resident).
+        The old version reset self._selection_highlight_photos = []
+        on EVERY non-matching page's early return -- so the correct
+        page's images got created and drawn, then wiped by the very
+        next page processed in the SAME render pass (whichever page
+        that was, matching or not), going blank before the frame was
+        even fully drawn. Fix: this function only ever APPENDS its own
+        page's images to the list (via the caller having already reset
+        it once for the whole pass); a non-matching page does a bare
+        return, touching nothing."""
         if not self._selected_words or self._selected_page_num != page_num:
             return
         colors = theme.get_palette(self.theme_name.get())
         z = self.viewer.zoom
-        for w in self._selected_words:
-            x0, y0, x1, y1 = w[:4]
-            self.canvas.create_rectangle(
-                ox + x0 * z, oy + y0 * z, ox + x1 * z, oy + y1 * z,
-                fill=colors["highlight_bg"], outline="", stipple="gray50",
-            )
+        hexc = colors["highlight_bg"].lstrip("#")
+        r, g, b = (int(hexc[i:i + 2], 16) for i in (0, 2, 4))
+        lines = {}
+        for word in self._selected_words:
+            lines.setdefault((word[5], word[6]), []).append(word)
+        for line_words in lines.values():
+            lx0 = min(word[0] for word in line_words)
+            ly0 = min(word[1] for word in line_words)
+            lx1 = max(word[2] for word in line_words)
+            ly1 = max(word[3] for word in line_words)
+            px0, py0 = ox + lx0 * z, oy + ly0 * z
+            px1, py1 = ox + lx1 * z, oy + ly1 * z
+            pw, ph = max(1, round(px1 - px0)), max(1, round(py1 - py0))
+            overlay = Image.new("RGBA", (pw, ph), (r, g, b, 90))  # ~35% opacity
+            photo = ImageTk.PhotoImage(overlay)
+            self._selection_highlight_photos.append(photo)  # keep ref, Tk drops GC'd images
+            self.canvas.create_image(px0, py0, anchor="nw", image=photo, tags=("text_selection",))
 
     def _selected_text(self) -> str:
         return " ".join(w[4] for w in self._selected_words)
@@ -2169,6 +2280,24 @@ class SlateApp:
         else:
             self.zoom_out()
 
+    def _on_shift_mouse_wheel(self, event):
+        """Shift+scroll = horizontal scroll (Devin, 2026-07-26). Windows/Mac
+        deliver a signed event.delta same as plain wheel; X11 has no
+        <Shift-MouseWheel>, bound separately via Shift-Button-4/5 below."""
+        if self._typing_in_entry() or self.viewer is None:
+            return
+        self.canvas.xview_scroll(-1 if event.delta > 0 else 1, "units")
+
+    def _shift_wheel_left(self, event=None):
+        if self._typing_in_entry() or self.viewer is None:
+            return
+        self.canvas.xview_scroll(-1, "units")
+
+    def _shift_wheel_right(self, event=None):
+        if self._typing_in_entry() or self.viewer is None:
+            return
+        self.canvas.xview_scroll(1, "units")
+
     def zoom_in(self):
         self.viewer.zoom_in()
         self.render()
@@ -2197,6 +2326,34 @@ class SlateApp:
         x0, y0, _x1, _y1 = self._layout.rect_of(page_num)
         ox, oy = self._static_row_offset
         return x0 - ox, y0 - oy
+
+    def _word_index_near_point(self, words, x, y) -> int:
+        """Index into `words` (PyMuPDF's get_text("words") list, already
+        in natural reading order) of whichever word is under (x, y) in
+        PDF space, or nearest it if the point falls in blank space
+        between/around words (the common case -- most clicks don't
+        land pixel-exact on a glyph). Line distance (y) dominates over
+        horizontal distance (x) so a click in the gap between two
+        lines resolves to the nearer LINE first, matching how every
+        real text editor's click-to-position behaves, rather than
+        picking whichever word happens to be geometrically closest in
+        raw Euclidean distance (which can jump to an adjacent line's
+        word if a page's line-height is tight relative to word gaps).
+        Used by _on_drag to turn an anchor+cursor pair into a
+        continuous reading-order selection range -- see its own
+        docstring for why this replaced a plain rectangle-intersection
+        test (Devin, 2026-07-26)."""
+        for i, w in enumerate(words):
+            if w[0] <= x <= w[2] and w[1] <= y <= w[3]:
+                return i
+        best_i, best_key = 0, None
+        for i, w in enumerate(words):
+            line_dist = abs((w[1] + w[3]) / 2 - y)
+            x_dist = 0.0 if w[0] <= x <= w[2] else min(abs(w[0] - x), abs(w[2] - x))
+            key = (line_dist, x_dist)
+            if best_key is None or key < best_key:
+                best_key, best_i = key, i
+        return best_i
 
     def _canvas_to_pdf_rect(self, x0, y0, x1, y1, page_num=None) -> fitz.Rect:
         z = self.viewer.zoom
@@ -2244,6 +2401,12 @@ class SlateApp:
         # self.page until the next render() call.
         self.page = self.doc[page_num]
         self._drag_start = (cx, cy)
+        # Anchor point for a real text-flow selection (Devin, 2026-07-26:
+        # "mouse down should be point of highlight start... continuous
+        # highlight like you'd expect a highlight tool to do") -- fixed
+        # for the whole gesture, in PDF space so it survives scrolling.
+        rect = self._canvas_to_pdf_rect(cx, cy, cx, cy, page_num)
+        self._drag_anchor_pdf = (rect.x0, rect.y0)
         if self.mode == "forms":
             self._handle_form_click(cx, cy)
             self._drag_start = None
@@ -2263,18 +2426,54 @@ class SlateApp:
         x0, y0 = self._drag_start
         cx, cy = self._event_canvas_xy(event)
         if self.mode == "view":
-            # Real text selection, not a rectangle mark -- default
-            # interaction (Devin, 2026-07-25: "default to arrow/select
-            # text over rectangle select"). Redact/annotate modes below
-            # keep the original rectangle-drag behavior unchanged.
-            # Pinned to self._drag_page for the whole gesture -- a drag
-            # that visually crosses a page boundary in continuous mode
-            # stays on the page it started on (a selection/redaction/
-            # annotation is a PDF object parented to exactly one page,
-            # there's no such thing as a rect spanning two).
-            rect = self._canvas_to_pdf_rect(x0, y0, cx, cy, self._drag_page)
-            words = self.page.get_text("words")
-            self._selected_words = [w for w in words if fitz.Rect(w[:4]).intersects(rect)]
+            # Real text-FLOW selection (Devin, 2026-07-26: "mouse down
+            # should be point of highlight start, dragging direction
+            # determines which direction and how long highlight goes...
+            # continuous highlight like you'd expect a highlight tool
+            # to do") -- not a geometric rectangle-intersection test.
+            #
+            # History of two wrong approaches this replaces, both real
+            # bugs caught live the same day: (1) plain rect-intersection
+            # against every word on the page selected every line the
+            # drag's bounding box happened to cross, even lines/
+            # paragraphs only partly overlapped -- looked like several
+            # disconnected lines highlighting at once. (2) restricting
+            # to whichever single line sits nearest the CURRENT cursor
+            # position fixed that, but made the highlight jump from
+            # line to line as the mouse moved instead of accumulating
+            # a continuous run -- not how a real highlighter/text
+            # selection works.
+            #
+            # Real fix: PyMuPDF's get_text("words") is already in
+            # natural reading order (top-to-bottom, left-to-right) --
+            # find the word index nearest the drag's ANCHOR (mouse-down
+            # point, pinned in self._drag_anchor_pdf) and the word index
+            # nearest the CURRENT cursor, then select every word between
+            # those two indices in reading order, regardless of which
+            # one is temporally first (dragging upward just swaps which
+            # index is "start"). _draw_text_selection_for_page already
+            # groups the result by (block_no, line_no) into one bar per
+            # line -- a partial first/last line and full middle lines
+            # fall out of that grouping for free once the word RANGE
+            # itself is a continuous reading-order span instead of a
+            # rectangle test.
+            #
+            # self.doc[self._drag_page], NOT self.page -- render() (called
+            # at the end of this same method, every mouse-move) unconditionally
+            # resyncs self.page to self.viewer.page_num, which in continuous
+            # mode is very often a DIFFERENT page than the one being dragged
+            # on. Real bug caught live 2026-07-26 ("highlighter doesn't do
+            # anything"), not a rendering/compositing problem.
+            words = self.doc[self._drag_page].get_text("words")
+            if not words:
+                self._selected_words = []
+            else:
+                ax, ay = self._drag_anchor_pdf
+                cur = self._canvas_to_pdf_rect(cx, cy, cx, cy, self._drag_page)
+                i_anchor = self._word_index_near_point(words, ax, ay)
+                i_current = self._word_index_near_point(words, cur.x0, cur.y0)
+                lo, hi = sorted((i_anchor, i_current))
+                self._selected_words = words[lo:hi + 1]
             self._selected_page_num = self._drag_page
             self.render()
             return
@@ -2731,7 +2930,8 @@ class SlateApp:
             if result["error"]:
                 messagebox.showinfo("Playback failed", result["error"])
                 return
-            audio, sample_rate, _width, channels = result["audio"]
+            audio, sample_rate, _width, channels, chunk_sample_counts = result["audio"]
+            self._tts_chunk_sample_counts = chunk_sample_counts  # real per-sentence durations, see _update_tts_highlight
             try:
                 self.tts_player.load(audio, sample_rate, channels)
                 self.tts_player.play()
@@ -2853,7 +3053,20 @@ class SlateApp:
         mid-window, drawing two disconnected boxes) instead of reading
         as one smooth highlight. Constraining the window to one line
         (PyMuPDF's own line_no field) and merging into a single
-        rectangle with a lighter stipple density fixes both.
+        rectangle fixes the fragmentation.
+
+        STILL rasterized after that fix (Devin, 2026-07-26, same
+        complaint recurring: "coloring in between letters instead of
+        true highlight") -- root cause was `stipple`, not the box
+        count. Tk canvas fill colors have no alpha channel; `stipple`
+        is Tk's only built-in fake-transparency trick, and it works by
+        literally not painting ~75% of the pixels in a fixed dot
+        pattern, which reads exactly as "rasterized" because it is.
+        Real fix: build a genuinely translucent RGBA PhotoImage (Tk
+        8.6+ canvas images DO alpha-composite for real against
+        whatever's already drawn underneath) and draw that instead of
+        a stippled rectangle -- a true semi-transparent highlighter
+        color over the text, not a dither pattern.
 
         Cleared (canvas.delete by tag) whenever nothing's loaded, or
         when the page being read isn't part of what's currently drawn
@@ -2867,25 +3080,122 @@ class SlateApp:
         words = self._tts_reading_page.get_text("words")
         if not words:
             return
-        char_counts = [len(w[4]) + 1 for w in words]  # +1 for the space/gap after each word
-        total_chars = sum(char_counts)
-        target_char = self.tts_player.progress * total_chars
-        idx = 0
-        seen = 0
-        for i, n in enumerate(char_counts):
-            if seen + n > target_char:
-                idx = i
-                break
-            seen += n
+        # Real mechanism behind "TTS indicator is too fast" (Devin,
+        # 2026-07-26). Piper inserts a genuine pause at sentence ends
+        # and a much smaller one at clause breaks -- real elapsed audio
+        # time producing zero new characters of speech; a flat +1-per-
+        # word model charges punctuation the same time-cost as any
+        # letter, implicitly assuming pauses take no time. Weights below
+        # are MEASURED, not guessed: headless A/B synthesis via this
+        # exact voice/length_scale (northern_english_male, 1.0x),
+        # holding word content fixed and comparing a sentence-final
+        # period against a mid-sentence comma at the identical
+        # position, then solving for the extra pause time in character-
+        # equivalents. Real result: a period costs ~9.3 char-equivalents
+        # of pause; a comma costs only ~0.7 (my first guess of +8/+3 had
+        # the comma 4x too high -- wrong direction for "too fast," and
+        # negligible either way).
+        def _char_weight(word_text):
+            n = len(word_text) + 1  # +1 for the trailing space/gap
+            if word_text.endswith((".", "!", "?")):
+                n += 9  # sentence-end pause, measured ~9.3
+            elif word_text.endswith((",", ";", ":")):
+                n += 1  # clause-break pause, measured ~0.7 -- nearly negligible
+            return n
+
+        def _weighted_local_idx(word_list, fraction):
+            """Char-weighted position estimate scoped to whatever word
+            list is passed in -- the same math as before this pass,
+            just reusable for both the per-sentence path and the
+            whole-page fallback below."""
+            counts = [_char_weight(w[4]) for w in word_list]
+            total = sum(counts)
+            if total <= 0:
+                return 0
+            target = fraction * total
+            seen = 0
+            for i, n in enumerate(counts):
+                if seen + n > target:
+                    return i
+                seen += n
+            return len(word_list) - 1
+
+        # Per-SENTENCE calibration (Devin, 2026-07-26: "build the real
+        # alignment version"). True per-phoneme alignment was
+        # investigated and ruled out: confirmed live that these voice
+        # models' ONNX sessions return only one output tensor (audio),
+        # so `include_alignments=True` yields nothing to use --
+        # tts.synthesize() was never built with the duration-output
+        # branch this needs. What IS real and available: Piper still
+        # synthesizes one audio chunk per SENTENCE, and
+        # tts.synthesize() now returns each chunk's real sample count
+        # (self._tts_chunk_sample_counts, set in _read_current_page).
+        # Grouping `words` into sentences (splitting after any word
+        # ending in .!?) and pairing each group 1:1 with a real chunk
+        # duration turns "one uniform character-rate guess across the
+        # WHOLE PAGE" into "one uniform rate per SENTENCE, with real
+        # measured pauses between them" -- a much smaller, more honest
+        # approximation window, without needing model-level alignment
+        # support that doesn't exist here.
+        #
+        # Real risk, handled rather than ignored: my sentence split is
+        # a simple heuristic and won't always match Piper/espeak's own
+        # internal sentence boundaries -- an abbreviation like "vv." or
+        # "Jer." (both real strings in Devin's own sermon-note PDFs)
+        # can fool it into splitting where espeak didn't. Rather than
+        # silently mismatching chunk N to the wrong sentence, the
+        # sentence COUNT is checked against the real chunk count first;
+        # any mismatch falls back to the same whole-page weighted
+        # estimate this function already used (still real, still
+        # correctly calibrated punctuation weights -- just without
+        # per-sentence pause precision), never a guess dressed as a
+        # confident per-sentence position.
+        chunk_counts = self._tts_chunk_sample_counts
+        sentence_groups = None
+        if chunk_counts:
+            groups, current = [], []
+            for w in words:
+                current.append(w)
+                if w[4].endswith((".", "!", "?")):
+                    groups.append(current)
+                    current = []
+            if current:
+                groups.append(current)
+            if len(groups) == len(chunk_counts):
+                sentence_groups = groups
+
+        if sentence_groups is not None:
+            total_samples = sum(chunk_counts)
+            position_samples = self.tts_player.progress * total_samples
+            cumulative = 0
+            sentence_idx = len(chunk_counts) - 1
+            fraction_within = 1.0
+            for i, count in enumerate(chunk_counts):
+                if position_samples < cumulative + count:
+                    sentence_idx = i
+                    fraction_within = (position_samples - cumulative) / count if count > 0 else 0.0
+                    break
+                cumulative += count
+            sentence_words = sentence_groups[sentence_idx]
+            local_idx = _weighted_local_idx(sentence_words, fraction_within)
+            offset = sum(len(g) for g in sentence_groups[:sentence_idx])
+            idx = offset + local_idx
         else:
-            idx = len(words) - 1
+            idx = _weighted_local_idx(words, self.tts_player.progress)
         anchor = words[idx]
         anchor_block, anchor_line = anchor[5], anchor[6]
-        # Same line only -- a handful of words starting at idx, but
-        # never spilling onto the next line (which would draw a second,
-        # disconnected box instead of one clean highlight).
+        # Same line only, TRAILING up to 5 words ending AT idx (not
+        # leading from idx) -- a handful of words never spilling onto
+        # the PREVIOUS line. Real bug caught live 2026-07-26 ("TTS
+        # indicator is too fast"): this used to take words[idx:idx+6],
+        # i.e. the current word PLUS the next 5 -- so the highlight's
+        # leading edge always showed 5 words not yet spoken, which
+        # reads exactly as "racing ahead of the audio." A trailing
+        # window (already-spoken words ending at the current estimate)
+        # keeps the same "one merged rectangle, not a choppy single
+        # word" goal without visually promising unspoken content.
         window = []
-        for w in words[idx:idx + 6]:
+        for w in reversed(words[max(0, idx - 5):idx + 1]):
             if w[5] != anchor_block or w[6] != anchor_line:
                 break
             window.append(w)
@@ -2898,10 +3208,14 @@ class SlateApp:
         y0 = min(w[1] for w in window)
         x1 = max(w[2] for w in window)
         y1 = max(w[3] for w in window)
-        self.canvas.create_rectangle(
-            ox + x0 * z, oy + y0 * z, ox + x1 * z, oy + y1 * z,
-            fill=colors["highlight_bg"], outline="", stipple="gray25", tags=("tts_highlight",),
-        )
+        px0, py0 = ox + x0 * z, oy + y0 * z
+        px1, py1 = ox + x1 * z, oy + y1 * z
+        w, h = max(1, round(px1 - px0)), max(1, round(py1 - py0))
+        hexc = colors["highlight_bg"].lstrip("#")
+        r, g, b = (int(hexc[i:i + 2], 16) for i in (0, 2, 4))
+        overlay = Image.new("RGBA", (w, h), (r, g, b, 90))  # ~35% opacity
+        self._tts_highlight_photo = ImageTk.PhotoImage(overlay)  # keep ref, Tk drops GC'd images
+        self.canvas.create_image(px0, py0, anchor="nw", image=self._tts_highlight_photo, tags=("tts_highlight",))
 
     def _update_tts_ui(self):
         self._update_tts_toolbar_button()

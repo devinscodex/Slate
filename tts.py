@@ -170,11 +170,25 @@ def speed_to_length_scale(user_speed: float) -> float:
 
 
 def synthesize(text: str, voice_id: str, length_scale: float = 1.0):
-    """Returns (audio_int16_bytes, sample_rate, sample_width, sample_channels)
-    for the whole text (Piper yields one AudioChunk per sentence;
-    concatenated here into one buffer). length_scale is Piper's own
+    """Returns (audio_int16_bytes, sample_rate, sample_width, sample_channels,
+    chunk_sample_counts) for the whole text (Piper yields one AudioChunk per
+    sentence; concatenated here into one buffer). length_scale is Piper's own
     real speed control (>1 slower, <1 faster) -- confirmed live via
     SynthesisConfig's actual signature, not guessed.
+
+    chunk_sample_counts (added 2026-07-26, real "TTS indicator too fast"
+    fix) is the number of audio samples EACH sentence-chunk contributed,
+    in order -- real, measured per-sentence durations for
+    _update_tts_highlight (slate.py) to calibrate the read-along
+    highlight per sentence instead of assuming one uniform character
+    rate across the whole page. True per-PHONEME alignment
+    (voice.synthesize(..., include_alignments=True)) was investigated
+    first and ruled out: confirmed live against the actual bundled/
+    downloadable voice models that the ONNX session returns only one
+    output tensor (audio) -- these specific voice exports were never
+    built with the duration-output branch alignment needs, not
+    something a config flag can turn on. Per-sentence chunk boundaries
+    are the real data that IS available without that.
 
     Real perf finding, not assumed: PiperVoice.load() alone takes
     ~1.2s (loading the ~60MB ONNX model + building an onnxruntime
@@ -189,8 +203,11 @@ def synthesize(text: str, voice_id: str, length_scale: float = 1.0):
     config = SynthesisConfig(length_scale=length_scale)
     chunks = list(voice.synthesize(text, config))
     if not chunks:
-        return b"", voice.config.sample_rate, 2, 1
+        return b"", voice.config.sample_rate, 2, 1, []
 
     audio = b"".join(c.audio_int16_bytes for c in chunks)
     first = chunks[0]
-    return audio, first.sample_rate, first.sample_width, first.sample_channels
+    chunk_sample_counts = [
+        len(c.audio_int16_bytes) // (c.sample_width * c.sample_channels) for c in chunks
+    ]
+    return audio, first.sample_rate, first.sample_width, first.sample_channels, chunk_sample_counts
