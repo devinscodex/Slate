@@ -2514,6 +2514,198 @@ def test_ctrl_scroll_zooms_instead_of_navigating_pages(tmp_path):
         root.destroy()
 
 
+def test_middle_click_drag_pans_the_document(tmp_path):
+    """Devin, 2026-07-26: "middle click/drag should pan the document" --
+    same convention as most PDF viewers/image editors. Tk's canvas.scan_mark/
+    scan_dragto is the built-in idiom; real check that a scroll fraction
+    actually changes, not just that the calls don't raise."""
+    root, app = _make_app(tmp_path)
+    try:
+        _force_page_taller_than_viewport(app, root)
+        before = app.canvas.yview()
+
+        app._on_pan_press(_FakeEvent(50, 400))
+        app.canvas.scan_dragto(50, 100, gain=1)  # drag up 300px -- should scroll down
+        root.update()
+
+        after = app.canvas.yview()
+        assert after != before  # real scroll happened, not a no-op
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_pan_cursor_shows_fleur_while_dragging_and_restores_after(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        assert app.mode == "view"
+        before_cursor = app.canvas.cget("cursor")
+
+        app._on_pan_press(_FakeEvent(50, 50))
+        assert app.canvas.cget("cursor") == "fleur"
+
+        # Real movement before release (>4px) -- the DRAG branch, not
+        # the click-to-toggle-autoscroll branch (same start point would
+        # read as a plain click, see the autoscroll tests below).
+        app._on_pan_release(_FakeEvent(60, 60))
+        assert app.canvas.cget("cursor") == before_cursor  # restored, not stuck on fleur
+        assert not app._autoscroll_active
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_middle_click_without_drag_starts_autoscroll(tmp_path):
+    """Devin, 2026-07-26: "extend the middle click pan to a middle
+    click 'scroll'" -- browser-style click-to-autoscroll, distinct
+    from the drag-to-pan above. A plain click (press+release at
+    essentially the same point) toggles it on."""
+    root, app = _make_app(tmp_path)
+    try:
+        assert not app._autoscroll_active
+        app._on_pan_press(_FakeEvent(50, 50))
+        app._on_pan_release(_FakeEvent(51, 51))  # negligible movement -- a click, not a drag
+
+        assert app._autoscroll_active
+        assert app._autoscroll_anchor == (50, 50)
+        assert app.canvas.cget("cursor") == "fleur"
+        assert app.canvas.find_withtag("autoscroll_indicator")  # real visual indicator drawn
+    finally:
+        app._stop_autoscroll()
+        app.doc.close()
+        root.destroy()
+
+
+def test_second_middle_click_stops_autoscroll(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app._on_pan_press(_FakeEvent(50, 50))
+        app._on_pan_release(_FakeEvent(50, 50))
+        assert app._autoscroll_active
+
+        app._on_pan_press(_FakeEvent(80, 80))  # the cancel click -- anywhere works
+        assert not app._autoscroll_active
+        assert app.canvas.find_withtag("autoscroll_indicator") == ()  # indicator cleared
+    finally:
+        app._stop_autoscroll()
+        app.doc.close()
+        root.destroy()
+
+
+def test_left_click_while_autoscrolling_cancels_it_instead_of_selecting_text(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app._on_pan_press(_FakeEvent(50, 50))
+        app._on_pan_release(_FakeEvent(50, 50))
+        assert app._autoscroll_active
+
+        app._on_press(_FakeEvent(70, 70))
+        assert not app._autoscroll_active
+        assert app._drag_start is None  # did not also start a text-selection drag
+    finally:
+        app._stop_autoscroll()
+        app.doc.close()
+        root.destroy()
+
+
+def test_escape_cancels_autoscroll(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app._on_pan_press(_FakeEvent(50, 50))
+        app._on_pan_release(_FakeEvent(50, 50))
+        assert app._autoscroll_active
+
+        app._on_escape_cancels_autoscroll()
+        assert not app._autoscroll_active
+    finally:
+        app._stop_autoscroll()
+        app.doc.close()
+        root.destroy()
+
+
+def test_autoscroll_tick_scrolls_toward_cursor_drift_and_not_within_the_deadzone(tmp_path):
+    """Real speed/direction check, not just that it toggles on: moving
+    the tracked cursor well below the anchor should scroll DOWN;
+    sitting still within the small deadzone right at the anchor
+    should not scroll at all (lets the cursor rest without drift)."""
+    root, app = _make_app(tmp_path)
+    try:
+        _force_page_taller_than_viewport(app, root)
+        app._on_pan_press(_FakeEvent(50, 50))
+        app._on_pan_release(_FakeEvent(50, 50))
+        assert app._autoscroll_active
+        app.root.after_cancel(app._autoscroll_after_id)  # drive ticks manually, not on a timer
+
+        before = app.canvas.yview()
+        app._autoscroll_pos = (50, 50)  # dead center -- within the deadzone
+        app._autoscroll_tick()
+        app.root.after_cancel(app._autoscroll_after_id)
+        assert app.canvas.yview() == before  # no drift while sitting still at the anchor
+
+        app._autoscroll_pos = (50, 250)  # well below the anchor -- should scroll down
+        app._autoscroll_tick()
+        app.root.after_cancel(app._autoscroll_after_id)
+        after = app.canvas.yview()
+        assert after[0] > before[0]
+    finally:
+        app._stop_autoscroll()
+        app.doc.close()
+        root.destroy()
+
+
+def test_autoscroll_cursor_reflects_the_dominant_drift_axis(tmp_path):
+    """Devin, 2026-07-26: "change the 'scroll' cursor to an up/down
+    arrow or left/right arrow for those autoscrolling times" -- the
+    cursor now follows whichever axis is actually dominant each tick,
+    not a fixed fleur the whole time."""
+    root, app = _make_app(tmp_path)
+    try:
+        app._on_pan_press(_FakeEvent(50, 50))
+        app._on_pan_release(_FakeEvent(50, 50))
+        app.root.after_cancel(app._autoscroll_after_id)
+
+        app._autoscroll_pos = (50, 50)  # deadzone -- neutral
+        app._autoscroll_tick()
+        app.root.after_cancel(app._autoscroll_after_id)
+        assert app.canvas.cget("cursor") == "fleur"
+
+        app._autoscroll_pos = (50, 250)  # well below -- vertical drift dominates
+        app._autoscroll_tick()
+        app.root.after_cancel(app._autoscroll_after_id)
+        assert app.canvas.cget("cursor") == "sb_v_double_arrow"
+
+        app._autoscroll_pos = (250, 50)  # well to the right -- horizontal drift dominates
+        app._autoscroll_tick()
+        app.root.after_cancel(app._autoscroll_after_id)
+        assert app.canvas.cget("cursor") == "sb_h_double_arrow"
+    finally:
+        app._stop_autoscroll()
+        app.doc.close()
+        root.destroy()
+
+
+def test_cursor_matches_the_active_interaction_mode(tmp_path):
+    """Devin, 2026-07-26: "please use better cursors" -- a drag-to-mark
+    tool (redact) gets crosshair, a click-a-spot tool (forms) gets a
+    pointer hand, plain reading (view) keeps the text I-beam."""
+    root, app = _make_app(tmp_path)
+    try:
+        app._set_mode("view")
+        assert app.canvas.cget("cursor") == "xterm"
+
+        app._set_mode("redact")
+        assert app.canvas.cget("cursor") == "crosshair"
+
+        app._set_mode("forms")
+        assert app.canvas.cget("cursor") == "hand2"
+
+        app._set_mode("annotate:highlight")
+        assert app.canvas.cget("cursor") == "crosshair"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_chrome_cascade_colors_menubar_tabstrip_toolbar_as_three_real_steps(tmp_path):
     """Devin, 2026-07-25: "make menu bar cascade down in color from
     window bar down to tabs, to toolbar making it aesthetic." Real

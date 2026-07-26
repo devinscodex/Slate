@@ -135,6 +135,12 @@ class SlateApp:
         self._suppress_scroll_sync = False
         self._drag_page = None  # page a click/drag started on, pinned for the whole gesture (continuous mode: a drag can visually cross page rects, but a redaction/annotation belongs to exactly one page)
         self._drag_anchor_pdf = None  # (x, y) in PDF space where the drag started -- text-flow selection's fixed start point, see _on_press/_on_drag
+        self._pan_press_pos = None  # canvas (x, y) at ButtonPress-2 -- distinguishes a real drag-pan from a plain click (autoscroll toggle) at release
+        self._autoscroll_active = False
+        self._autoscroll_anchor = None  # (x, y), fixed for the session -- speed/direction come from cursor drift away from this point
+        self._autoscroll_pos = None  # live cursor (x, y), updated by _on_canvas_motion
+        self._autoscroll_indicator_id = None
+        self._autoscroll_after_id = None
         # Slice 3 perf fix (Fable design review, 2026-07-25), after
         # Devin hit a real lockup on PageUp/PageDown: continuous mode
         # used to eager-render EVERY page on EVERY render() call. Now
@@ -879,8 +885,142 @@ class SlateApp:
         )
         return f"Slate — {os.path.basename(self.path)}{signed}"
 
+    def _cursor_for_mode(self, mode: str) -> str:
+        """Devin, 2026-07-26: "please use better cursors" -- prompted
+        right after adding middle-click-drag pan (_on_pan_press/
+        _on_pan_release below swap to a "fleur" move cursor for the
+        duration of an active pan, then restore whatever this
+        returns). A distinct cursor per interaction SHAPE, not
+        decoration: a drag-to-mark-a-region tool (redact, highlight,
+        rect) gets crosshair, the standard convention for precise
+        rectangular selection; a single-click-a-spot tool (forms,
+        stamp, freetext) gets a pointer hand; plain reading/text-select
+        (view, textedit) keeps the I-beam every text app already uses."""
+        if mode in ("redact", "annotate:highlight", "annotate:rect"):
+            return "crosshair"
+        if mode in ("forms", "annotate:stamp", "annotate:freetext"):
+            return "hand2"
+        return "xterm"  # view, textedit
+
+    def _on_pan_press(self, event):
+        """Devin, 2026-07-26: "extend the middle click pan to a middle
+        click 'scroll'" -- the other real middle-button convention,
+        browser-style click-to-autoscroll, alongside the drag-to-pan
+        already here. Both share ButtonPress-2; which one you get is
+        decided at RELEASE (_on_pan_release) by whether the mouse
+        actually moved before letting go -- a real drag pans (already
+        happened live via scan_dragto during the drag itself, this
+        press just arms it), a plain click starts/stops autoscroll."""
+        if self._autoscroll_active:
+            # A click while autoscroll is already running is the
+            # cancel gesture (browser convention) -- stop here, don't
+            # also arm scan_mark for what would read as a real pan.
+            self._stop_autoscroll()
+            return
+        self._pan_press_pos = (event.x, event.y)
+        self.canvas.scan_mark(event.x, event.y)
+        self.canvas.config(cursor="fleur")
+
+    def _on_pan_release(self, event):
+        if self._autoscroll_active:
+            return  # this release belongs to the click that just cancelled it, above
+        px, py = self._pan_press_pos or (event.x, event.y)
+        moved = ((event.x - px) ** 2 + (event.y - py) ** 2) ** 0.5
+        if moved > 4:
+            self.canvas.config(cursor=self._cursor_for_mode(self.mode))
+        else:
+            self._start_autoscroll(px, py)  # anchor at the click's PRESS point, not release
+
+    def _on_canvas_motion(self, event):
+        """Tracks the live cursor position for _autoscroll_tick while
+        autoscroll is running -- cheap no-op otherwise (autoscroll is
+        the only thing that needs plain, no-button mouse movement)."""
+        if self._autoscroll_active:
+            self._autoscroll_pos = (event.x, event.y)
+
+    def _start_autoscroll(self, x, y):
+        self._autoscroll_active = True
+        self._autoscroll_anchor = (x, y)
+        self._autoscroll_pos = (x, y)
+        self.canvas.config(cursor="fleur")
+        r = 8
+        self._autoscroll_indicator_id = self.canvas.create_oval(
+            x - r, y - r, x + r, y + r, outline="gray50", width=2, tags=("autoscroll_indicator",)
+        )
+        self._autoscroll_tick()
+
+    def _stop_autoscroll(self):
+        self._autoscroll_active = False
+        if self._autoscroll_after_id is not None:
+            self.root.after_cancel(self._autoscroll_after_id)
+            self._autoscroll_after_id = None
+        if self._autoscroll_indicator_id is not None:
+            self.canvas.delete(self._autoscroll_indicator_id)
+            self._autoscroll_indicator_id = None
+        self.canvas.config(cursor=self._cursor_for_mode(self.mode))
+
+    def _on_escape_cancels_autoscroll(self, event=None):
+        """root-level, so it works regardless of focus -- a no-op
+        (never returns "break") when autoscroll isn't running, so it
+        can't interfere with any other widget's own Escape handling
+        (e.g. find_entry's "close the find bar")."""
+        if self._autoscroll_active:
+            self._stop_autoscroll()
+
+    def _autoscroll_tick(self):
+        """Runs every 30ms while autoscroll is active -- scroll speed
+        is proportional to how far the CURRENT cursor position has
+        drifted from the anchor (click point), zero within a small
+        deadzone right at the anchor (lets the cursor sit still
+        without drifting the view), same shape as every browser's
+        middle-click autoscroll. Converts a target pixel-per-tick
+        amount into a scrollregion FRACTION (xview_moveto/yview_moveto
+        take 0.0-1.0, not pixels) -- generic across single-page and
+        continuous mode, no mode-specific math needed since both
+        already keep canvas["scrollregion"] current."""
+        if not self._autoscroll_active:
+            return
+        ax, ay = self._autoscroll_anchor
+        cx, cy = self._autoscroll_pos
+        dx, dy = cx - ax, cy - ay
+        deadzone, ramp, max_px = 10, 150, 25
+
+        def speed(delta):
+            if abs(delta) <= deadzone:
+                return 0.0
+            extra = min(abs(delta) - deadzone, ramp)
+            return (extra / ramp) * max_px * (1 if delta > 0 else -1)
+
+        sx, sy = speed(dx), speed(dy)
+        # Directional cursor (Devin, 2026-07-26: "change the 'scroll'
+        # cursor to an up/down arrow or left/right arrow for those
+        # autoscrolling times") -- reflects whichever axis is actually
+        # dominant right now, updated every tick so it follows the
+        # cursor as it moves; "fleur" (four-way) only while sitting
+        # inside the deadzone, not yet committed to a direction.
+        if sx == 0 and sy == 0:
+            cursor = "fleur"
+        elif abs(sx) >= abs(sy):
+            cursor = "sb_h_double_arrow"
+        else:
+            cursor = "sb_v_double_arrow"
+        self.canvas.config(cursor=cursor)
+        if sx or sy:
+            try:
+                rx0, ry0, rx1, ry1 = (float(v) for v in self.canvas["scrollregion"].split())
+                total_w, total_h = rx1 - rx0, ry1 - ry0
+                if sx and total_w > 0:
+                    self.canvas.xview_moveto(self.canvas.xview()[0] + sx / total_w)
+                if sy and total_h > 0:
+                    self.canvas.yview_moveto(self.canvas.yview()[0] + sy / total_h)
+            except (ValueError, tk.TclError):
+                pass  # no real scrollregion yet (e.g. nothing open) -- nothing to scroll
+        self._autoscroll_after_id = self.root.after(30, self._autoscroll_tick)
+
     def _set_mode(self, mode):
         self.mode = mode
+        if hasattr(self, "canvas"):
+            self.canvas.config(cursor=self._cursor_for_mode(mode))
         if mode == "redact":
             # Real safety nudge, not just cosmetics: redact is the one
             # mode where a mis-drag has irreversible consequences
@@ -1232,8 +1372,10 @@ class SlateApp:
         # this built in -- scan_mark/scan_dragto is the standard idiom,
         # no manual delta/xview math needed. Distinct from Button-2 on
         # self.tab_strip (closes a tab) -- different widget, no clash.
-        self.canvas.bind("<ButtonPress-2>", lambda e: self.canvas.scan_mark(e.x, e.y))
+        self.canvas.bind("<ButtonPress-2>", self._on_pan_press)
         self.canvas.bind("<B2-Motion>", lambda e: self.canvas.scan_dragto(e.x, e.y, gain=1))
+        self.canvas.bind("<ButtonRelease-2>", self._on_pan_release)
+        self.canvas.bind("<Motion>", self._on_canvas_motion)
 
         # All routed through the same guarded _kb_prev_page/_kb_next_page
         # as j/k below -- a real pre-existing gap fixed while adding
@@ -1305,6 +1447,7 @@ class SlateApp:
         self.root.bind("<Control-Shift-Tab>", self._kb_prev_tab)
         self.root.bind("<Control-Next>", self._kb_next_tab)  # Ctrl+PageDown, browser-tab convention
         self.root.bind("<Control-Prior>", self._kb_prev_tab)  # Ctrl+PageUp
+        self.root.bind("<Escape>", self._on_escape_cancels_autoscroll)
 
         self._doc_view_built = True
         # Real bug caught live: these widgets are built lazily, on first
@@ -2439,6 +2582,12 @@ class SlateApp:
         return self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
 
     def _on_press(self, event):
+        if self._autoscroll_active:
+            # Left-click while autoscrolling cancels it (browser
+            # convention) instead of ALSO starting a text-selection
+            # drag at the same time.
+            self._stop_autoscroll()
+            return
         cx, cy = self._event_canvas_xy(event)
         if self._layout is not None:
             # Translate back to the layout's own absolute coordinate
