@@ -1486,6 +1486,80 @@ def test_pause_resume_and_stop_do_not_raise_with_nothing_loaded(tmp_path):
         root.destroy()
 
 
+def test_toolbar_has_real_tts_play_and_stop_buttons(tmp_path):
+    """Devin, 2026-07-25: "easier 'audio readback' controls, preferably
+    also available on the main toolbar" -- previously only reachable
+    via the Read Aloud menu."""
+    root, app = _make_app(tmp_path)
+    try:
+        assert app.tts_play_button.winfo_ismapped()
+        assert app.tts_stop_button.winfo_ismapped()
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_tts_toggle_play_routes_to_read_page_when_nothing_loaded(tmp_path, monkeypatch):
+    """do_tts_toggle_play is the toolbar button's one action for every
+    state -- with nothing loaded yet, it must start a fresh read, not
+    a no-op pause/resume."""
+    root, app = _make_app(tmp_path)
+    try:
+        called = []
+        monkeypatch.setattr(app, "do_read_page", lambda: called.append("read"))
+        monkeypatch.setattr(app, "do_tts_pause_resume", lambda: called.append("pause_resume"))
+        assert app.tts_player.has_audio() is False
+
+        app.do_tts_toggle_play()
+        assert called == ["read"]
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_tts_toggle_play_routes_to_pause_resume_when_already_loaded(tmp_path, monkeypatch):
+    """Once something's loaded (playing or paused), the same toolbar
+    button must toggle pause/resume, not start a redundant fresh read."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.tts_player.load(b"\x00\x00" * 100, 22050, 1)  # real load, no device needed
+        called = []
+        monkeypatch.setattr(app, "do_read_page", lambda: called.append("read"))
+        monkeypatch.setattr(app, "do_tts_pause_resume", lambda: called.append("pause_resume"))
+        assert app.tts_player.has_audio() is True
+
+        app.do_tts_toggle_play()
+        assert called == ["pause_resume"]
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_tts_toolbar_button_glyph_reflects_playback_state(tmp_path):
+    """The toolbar button's own label must track real player state --
+    stale glyphs are exactly the kind of small-but-real gap that reads
+    as broken even when the underlying feature works."""
+    root, app = _make_app(tmp_path)
+    try:
+        app._update_tts_toolbar_button()
+        assert app.tts_play_button.cget("text") == "▶"
+
+        app.tts_player.load(b"\x00\x00" * 22050, 22050, 1)
+        try:
+            app.tts_player.play()
+        except Exception:
+            pass  # no real audio device on this dev box (WSL2) -- state still updates
+        app._update_tts_toolbar_button()
+        expected = "⏸" if app.tts_player.is_playing() else "▶"
+        assert app.tts_play_button.cget("text") == expected
+
+        app.do_tts_stop()
+        assert app.tts_play_button.cget("text") == "▶"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def _all_descendants(widget):
     for child in widget.winfo_children():
         yield child

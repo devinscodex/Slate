@@ -1065,6 +1065,19 @@ class SlateApp:
         toolbar_right.grid(row=0, column=2, sticky="e")
         self.status = tk.Label(toolbar_right, text="")
         self.status.pack(side=tk.RIGHT, padx=8)
+        # Read Aloud quick-access controls (Devin, 2026-07-25: "easier
+        # 'audio readback' controls, preferably also available on the
+        # main toolbar" -- previously only reachable via the Read
+        # Aloud menu). Two buttons: one smart play/pause/resume toggle
+        # (do_tts_toggle_play decides which action makes sense for the
+        # current state) plus a stop, same real actions the menu
+        # already exposes, not a separate mechanism.
+        self.tts_stop_button = tk.Button(toolbar_right, text="⏹", width=2, padx=0, command=self.do_tts_stop)
+        self.tts_stop_button.pack(side=tk.RIGHT, padx=(0, 6))
+        self.tts_play_button = tk.Button(
+            toolbar_right, text="▶", width=2, padx=0, command=self.do_tts_toggle_play,
+        )
+        self.tts_play_button.pack(side=tk.RIGHT, padx=(0, 2))
 
         self.find_frame = tk.Frame(self.body_frame)
         tk.Label(self.find_frame, text="Find:").pack(side=tk.LEFT, padx=(6, 4))
@@ -2631,6 +2644,7 @@ class SlateApp:
                 self.tts_player.play()
             except Exception as e:
                 messagebox.showinfo("Playback failed", str(e))
+            self._poll_tts_playback_state()
 
         # Real crash caught live building Slice 3 (after defaulting
         # view_mode to "continuous" made every test do more Tk work
@@ -2656,9 +2670,39 @@ class SlateApp:
                 self.tts_player.play()
             except Exception as e:
                 messagebox.showinfo("Playback failed", str(e))
+        self._poll_tts_playback_state()
 
     def do_tts_stop(self):
         self.tts_player.stop()
+        self._update_tts_toolbar_button()
+
+    def do_tts_toggle_play(self):
+        """Toolbar quick-access button (Devin, 2026-07-25: "easier
+        audio readback controls, preferably also available on the
+        main toolbar") -- one button that does whichever action makes
+        sense right now instead of making the user pick the right menu
+        command: starts reading the current page if nothing's loaded
+        yet, otherwise toggles pause/resume of what's already loaded."""
+        if self.tts_player.has_audio():
+            self.do_tts_pause_resume()
+        else:
+            self.do_read_page()
+
+    def _update_tts_toolbar_button(self):
+        if not hasattr(self, "tts_play_button"):
+            return  # home screen, no doc-view toolbar built yet
+        self.tts_play_button.config(text="⏸" if self.tts_player.is_playing() else "▶")
+
+    def _poll_tts_playback_state(self):
+        """Keeps the toolbar button's glyph accurate across state
+        changes nothing else calls back for -- most notably playback
+        reaching the natural end of a page's audio, which the Player
+        has no callback for at all (see playback.py's own note on
+        sd.CallbackStop()). Self-cancels once playback stops instead
+        of polling forever."""
+        self._update_tts_toolbar_button()
+        if self.tts_player.is_playing():
+            self.root.after(250, self._poll_tts_playback_state)
 
     def _snapshot_current_edits(self) -> str:
         """Save self.doc's current in-memory state (including any

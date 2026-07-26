@@ -104,6 +104,15 @@ class Player:
     def is_playing(self) -> bool:
         return self._stream is not None and self._stream.active and not self._paused
 
+    def has_audio(self) -> bool:
+        """Something is loaded (playing, paused, or freshly load()ed
+        and not yet played) -- distinct from is_playing(), which is
+        only True while actively producing sound. The toolbar's single
+        play/pause/resume button (Devin, 2026-07-25: "easier audio
+        readback controls... on the main toolbar") needs this to know
+        whether to start a fresh read or just toggle pause/resume."""
+        return self._audio is not None
+
     @property
     def progress(self) -> float:
         """0.0-1.0 fraction of the loaded audio already played, for a
