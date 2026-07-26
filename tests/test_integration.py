@@ -1112,6 +1112,103 @@ def test_middle_click_on_a_background_tab_does_not_disturb_the_active_tab(tmp_pa
         root.destroy()
 
 
+def _find_tab_right_edge(app, index, y=10):
+    """Real edge of `index`'s tab, found by probing tab_strip.index()
+    directly rather than trusting bbox() (confirmed broken -- always
+    returns (0,0,0,0), see _on_tab_strip_left_click's docstring). Same
+    technique the app itself uses to hit-test the close glyph."""
+    x, right_edge = 0, None
+    strip_width = app.tab_strip.winfo_width()
+    while x < strip_width:
+        try:
+            idx_here = app.tab_strip.index(f"@{x},{y}")
+        except tk.TclError:
+            break
+        if idx_here == index:
+            right_edge = x
+        elif idx_here > index:
+            break
+        x += 1
+    return right_edge
+
+
+def test_left_click_near_the_close_glyph_closes_that_tab(tmp_path):
+    """Devin, 2026-07-26: "'x' on last document tab doesn't close it" --
+    real root cause was left-click never having any close behavior at
+    all (only middle-click did); this exercises the new left-click
+    close-zone hit-test on a BACKGROUND tab first (simplest case)."""
+    root, app = _make_app(tmp_path)
+    try:
+        second_path = str(tmp_path / "second.pdf")
+        shutil.copy(FIXTURE, second_path)
+        app._open_document(second_path)
+        assert len(app._tabs) == 2
+        root.update()
+
+        right_edge = _find_tab_right_edge(app, 0)
+        assert right_edge is not None
+        close_x = right_edge - 2  # comfortably inside the close zone
+        assert app.tab_strip.index(f"@{close_x},10") == 0
+
+        app._on_tab_strip_left_click(_FakeEvent(close_x, 10))
+        assert len(app._tabs) == 1
+    finally:
+        for t in app._tabs:
+            t.doc.close()
+        root.destroy()
+
+
+def test_left_click_away_from_close_glyph_just_selects_the_tab(tmp_path):
+    """A left-click anywhere else on a tab must keep its normal
+    select behavior -- the new close-zone hit-test must not turn
+    every click on a tab into an accidental close."""
+    root, app = _make_app(tmp_path)
+    try:
+        second_path = str(tmp_path / "second.pdf")
+        shutil.copy(FIXTURE, second_path)
+        app._open_document(second_path)
+        assert len(app._tabs) == 2
+        root.update()
+
+        assert app.tab_strip.index("@10,10") == 0
+        app._on_tab_strip_left_click(_FakeEvent(10, 10))
+
+        assert len(app._tabs) == 2  # not closed -- nowhere near the close glyph
+    finally:
+        for t in app._tabs:
+            t.doc.close()
+        root.destroy()
+
+
+def test_left_click_on_close_glyph_of_the_last_remaining_tab_returns_to_home(tmp_path):
+    """The actual reported bug, end to end: Devin, 2026-07-26 -- "'x'
+    on last document tab doesn't close it and go to home." Confirms
+    the fix at the real interaction layer (left-click), not just at
+    _close_tab_by_index (already covered, and already correct, by
+    test_closing_the_last_tab_returns_to_home_screen below -- the gap
+    was purely that nothing routed a left-click there)."""
+    root, app = _make_app(tmp_path)
+    try:
+        assert len(app._tabs) == 1
+        root.update()
+
+        right_edge = _find_tab_right_edge(app, 0)
+        assert right_edge is not None
+        close_x = right_edge - 2
+        assert app.tab_strip.index(f"@{close_x},10") == 0
+
+        app._on_tab_strip_left_click(_FakeEvent(close_x, 10))
+
+        assert app._tabs == []
+        assert app.doc is None
+        assert app.home_frame is not None
+    finally:
+        if app._tabs:
+            for t in app._tabs:
+                t.doc.close()
+        root.destroy()
+
+
 def test_closing_the_last_tab_returns_to_home_screen(tmp_path):
     root, app = _make_app(tmp_path)
     try:

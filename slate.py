@@ -585,6 +585,7 @@ class SlateApp:
         )
         viewm.add_separator()
         viewm.add_command(label="Find... (/)", command=self._show_find_bar)
+        viewm.add_command(label="Fit Width (Ctrl+0)", command=self.fit_width)
         viewm.add_separator()
         # Slice 4 (Fable design review, 2026-07-25): independent
         # checkboxes, not mutually-exclusive radio options -- Devin:
@@ -1062,6 +1063,11 @@ class SlateApp:
         self.tab_strip.pack(side=tk.TOP, fill=tk.X)
         self.tab_strip.bind("<<NotebookTabChanged>>", self._on_tab_strip_changed)
         self.tab_strip.bind("<Button-2>", self._on_tab_strip_click)
+        # Left-click close (Devin, 2026-07-26: "'x' on last document tab
+        # doesn't close it") -- see _on_tab_strip_left_click's own
+        # docstring for the real bbox()-is-broken finding this works
+        # around, and why the LAST tab specifically needed it.
+        self.tab_strip.bind("<Button-1>", self._on_tab_strip_left_click)
 
         # 3-column grid, not one flat pack() row -- the only reliable
         # way to get a toolbar element TRULY centered in Tk regardless
@@ -1084,6 +1090,7 @@ class SlateApp:
         tk.Button(toolbar_left, text="Next >", command=self.next).pack(side=tk.LEFT)
         tk.Button(toolbar_left, text="Zoom -", command=self.zoom_out).pack(side=tk.LEFT)
         tk.Button(toolbar_left, text="Zoom +", command=self.zoom_in).pack(side=tk.LEFT)
+        tk.Button(toolbar_left, text="Fit Width", command=self.fit_width).pack(side=tk.LEFT)
         self.mode_label = tk.Label(toolbar_left, text="mode: view", fg="blue")
         self.mode_label.pack(side=tk.LEFT, padx=12)
         self._mode_label_default_bg = self.mode_label.cget("bg")
@@ -1220,6 +1227,13 @@ class SlateApp:
         self.canvas.bind("<ButtonPress-1>", self._on_press)
         self.canvas.bind("<B1-Motion>", self._on_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
+        # Middle-click-drag pans the document (Devin, 2026-07-26), same
+        # convention as most PDF viewers/image editors. Tk's canvas has
+        # this built in -- scan_mark/scan_dragto is the standard idiom,
+        # no manual delta/xview math needed. Distinct from Button-2 on
+        # self.tab_strip (closes a tab) -- different widget, no clash.
+        self.canvas.bind("<ButtonPress-2>", lambda e: self.canvas.scan_mark(e.x, e.y))
+        self.canvas.bind("<B2-Motion>", lambda e: self.canvas.scan_dragto(e.x, e.y, gain=1))
 
         # All routed through the same guarded _kb_prev_page/_kb_next_page
         # as j/k below -- a real pre-existing gap fixed while adding
@@ -1286,6 +1300,7 @@ class SlateApp:
         self.root.bind("<Control-plus>", lambda e: self.zoom_in())
         self.root.bind("<Control-equal>", lambda e: self.zoom_in())  # Ctrl+= (no-Shift + key, most keyboards)
         self.root.bind("<Control-minus>", lambda e: self.zoom_out())
+        self.root.bind("<Control-0>", lambda e: self.fit_width())
         self.root.bind("<Control-Tab>", self._kb_next_tab)
         self.root.bind("<Control-Shift-Tab>", self._kb_prev_tab)
         self.root.bind("<Control-Next>", self._kb_next_tab)  # Ctrl+PageDown, browser-tab convention
@@ -1621,22 +1636,6 @@ class SlateApp:
             self.home_frame = None
         self.body_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Fit-to-width default (Devin, 2026-07-26): a page wider than
-        # DEFAULT_ZOOM's fixed 1.5x used to open running off-screen.
-        # update_idletasks() forces Tk to compute real geometry
-        # synchronously (same class of timing gotcha already documented
-        # once in this file for tab-select) instead of waiting for the
-        # next idle-loop pass -- without it, canvas.winfo_width() can
-        # still report a stale/unrealized size. viewport_w<=1 means the
-        # canvas genuinely isn't realized yet (e.g. the very first
-        # document opened before the window has ever been mapped) --
-        # leave Viewer's own DEFAULT_ZOOM untouched rather than fit
-        # against a meaningless width.
-        self.canvas.update_idletasks()
-        viewport_w = self.canvas.winfo_width()
-        if viewport_w > 1:
-            new_tab.viewer.fit_width(viewport_w)
-
         placeholder = tk.Frame(self.tab_strip)  # never shown -- a pure tab-strip entry
         self.tab_strip.add(placeholder, text=f"{os.path.basename(path)}  {_TAB_CLOSE_GLYPH}")
         self._tab_frames.append(placeholder)
@@ -1726,20 +1725,67 @@ class SlateApp:
     def _on_tab_strip_click(self, event):
         """Middle-click closes a tab (same convention as Chrome/Firefox).
         Real finding while building this: ttk.Notebook.bbox() returns
-        (0,0,0,0) for every tab in this dev environment (confirmed
-        across both the 'default' and 'clam' themes) despite the
-        widget being mapped with real, non-zero dimensions -- breaking
-        any "click within N px of the tab's right edge" hit-test a
-        visible per-tab (x) button would need. identify()/index() at a
-        coordinate DO work correctly here, so the close action is
-        anchored to those instead of to unreliable per-tab pixel
-        bounds. The trailing close glyph in each tab's label is a
-        visual hint only, not an actual separate click target."""
+        (0,0,0,0) for every tab (confirmed across 'default'/'clam' AND,
+        2026-07-26, the real Windows 'vista' theme too -- not a
+        headless-only quirk) despite the widget being mapped with
+        real, non-zero dimensions -- breaking any "click within N px
+        of the tab's right edge" hit-test a visible per-tab (x) button
+        would need via the normal API. identify()/index() at a
+        coordinate DO work correctly, so the close action is anchored
+        to those instead. See _on_tab_strip_left_click for how the
+        visible "x" glyph now gets a real left-click hit-test too,
+        working around the same bbox() gap a different way."""
         try:
             index = self.tab_strip.index(f"@{event.x},{event.y}")
         except tk.TclError:
             return
         self._close_tab_by_index(index)
+
+    def _on_tab_strip_left_click(self, event):
+        """Left-click ON THE VISIBLE "x" glyph closes its tab (Devin,
+        2026-07-26: "'x' on last document tab doesn't close it and go
+        to home"). Real root cause: the "x" glyph was a visual hint
+        only -- plain left-click has no built-in close behavior at
+        all (only middle-click did, see _on_tab_strip_click), so
+        clicking the thing that LOOKS clickable just reselected the
+        tab (a no-op if it was already the active/only tab), which
+        reads exactly as "doesn't close."
+
+        Can't fix this with a pixel-offset hit-test the obvious way --
+        ttk.Notebook.bbox() is confirmed broken (see
+        _on_tab_strip_click's docstring) on both this dev box and a
+        real Windows Tk build, so there's no reliable "this tab starts
+        at x=N" to measure a close-zone against. Real workaround,
+        empirically verified live (a hidden Tk probe, 2026-07-26):
+        tab_strip.index(f"@{x},{y}") DOES resolve correctly at any
+        coordinate even though bbox() lies -- scanning it forward one
+        pixel at a time from the click point finds the real edge of
+        the clicked tab, either where the index changes to the NEXT
+        tab, or (critically, for the LAST tab -- the exact case in
+        Devin's report) where querying past the last tab's real
+        content raises a clean TclError instead of silently returning
+        a wrong answer. Treats hitting the strip's own right edge
+        (winfo_width()) as also in-bounds, matching a genuinely
+        borderless case (a tab's real content can end exactly at the
+        widget's edge with no further probing possible)."""
+        try:
+            index = self.tab_strip.index(f"@{event.x},{event.y}")
+        except tk.TclError:
+            return  # not on any tab -- let default handling (nothing) proceed
+        strip_width = self.tab_strip.winfo_width()
+        right_edge = event.x
+        while right_edge < strip_width:
+            try:
+                idx_here = self.tab_strip.index(f"@{right_edge},{event.y}")
+            except tk.TclError:
+                break  # ran off the end of the last tab's real content
+            if idx_here != index:
+                break  # crossed into the next tab
+            right_edge += 1
+        close_zone_px = 18  # wide enough to comfortably cover "<label> x" plus a little slop
+        if strip_width - right_edge < 2 or right_edge - event.x <= close_zone_px:
+            self._close_tab_by_index(index)
+            return "break"  # tab's being destroyed -- skip the default reselect
 
     def _close_tab_by_index(self, index):
         closing_tab = self._tabs.pop(index)
@@ -2305,6 +2351,23 @@ class SlateApp:
     def zoom_out(self):
         self.viewer.zoom_out()
         self.render()
+
+    def fit_width(self):
+        # Manual command, not an auto-apply-on-open default (Devin,
+        # 2026-07-26): a genuinely oversized page (a landscape diagram
+        # PDF) opening at literal 1:1-ish DEFAULT_ZOOM and running
+        # off-screen is a real bug, but auto-fitting on every open was
+        # tried first and reverted -- it broke 131 existing tests that
+        # hardcode DEFAULT_ZOOM as document-open's fixed, predictable
+        # starting point (zoom_in/out deltas, cache-invalidation checks,
+        # wheel-scroll page-fit math). Same update_idletasks() timing
+        # fix still applies here (Tk's next idle-loop pass otherwise
+        # reports a stale canvas width).
+        self.canvas.update_idletasks()
+        viewport_w = self.canvas.winfo_width()
+        if viewport_w > 1:
+            self.viewer.fit_width(viewport_w)
+            self.render()
 
     # ------------------------------------------------------------------
     # canvas interaction (redact / annotate / forms all live here)

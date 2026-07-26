@@ -57,6 +57,23 @@ class Viewer:
         self.zoom = max(floor, self.zoom - step)
         return self.zoom
 
+    def fit_width(self, viewport_width: float, page_num=None, floor=0.25, ceiling=8.0):
+        """Set zoom so the current (or given) page's native width exactly
+        fills viewport_width. Fixes a real bug (Devin, 2026-07-26): pages
+        wider than DEFAULT_ZOOM's fixed 1.5x (e.g. a landscape diagram
+        PDF) opened at literal 1:1-ish size and ran off-screen -- every
+        document should default to fitting the view, not a fixed zoom
+        that only happens to work for common page sizes. Clamped to the
+        same practical range zoom_in/zoom_out already allow (floor stops
+        a degenerate near-zero zoom on a very wide page; ceiling stops a
+        tiny page from zooming absurdly large)."""
+        page_num = self.page_num if page_num is None else page_num
+        native_width = self.doc[page_num].rect.width
+        if native_width <= 0:
+            return self.zoom  # degenerate page geometry -- leave zoom untouched
+        self.zoom = max(floor, min(ceiling, viewport_width / native_width))
+        return self.zoom
+
     def get_outline(self) -> list:
         """(level, title, page_num) for the document's real embedded
         outline/bookmarks (PyMuPDF's `get_toc()`) -- a separate thing
