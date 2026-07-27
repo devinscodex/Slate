@@ -34,6 +34,16 @@ def add_recent(path: str):
     _save(entries[:MAX_ENTRIES])
 
 
+def remove_recent(path: str):
+    """Drop one entry by path -- Devin, 2026-07-26: "delete items from
+    the recently opened list." Comparing by abspath, same normalization
+    add_recent already uses, so a relative/absolute mismatch can't leave
+    a stale duplicate behind."""
+    abspath = os.path.abspath(path)
+    entries = [e for e in _load() if e.get("path") != abspath]
+    _save(entries)
+
+
 def get_recent(limit=MAX_ENTRIES) -> list:
     """Most-recent-first. Entries whose file no longer exists on disk are
     dropped silently -- a dead link in a recent-files list is worse than

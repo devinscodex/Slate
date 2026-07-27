@@ -537,9 +537,21 @@ def test_scan_folder_menu_command_via_real_downloads_style_layout(tmp_path, monk
 
 def test_launch_with_no_path_shows_home_screen_not_a_document(tmp_path, monkeypatch):
     import recent as recent_module
+    import settings as settings_module
 
     monkeypatch.setattr(recent_module, "CONFIG_DIR", tmp_path / ".slate")
     monkeypatch.setattr(recent_module, "RECENT_FILE", tmp_path / ".slate" / "recent.json")
+    # Real gap this test tripped over first (Devin, 2026-07-26): unlike
+    # recent_module above, settings.py was never isolated from Devin's
+    # REAL ~/.slate/settings.json here -- harmless while open_tabs was
+    # always empty in practice, but genuinely wrong the moment session
+    # restore (this same day) started branching on its real content:
+    # a real populated open_tabs list on the actual dev machine made
+    # this "no path -> home screen" test silently open real documents
+    # instead, home_frame staying None. Same CONFIG_DIR/*_FILE pair-patch
+    # pattern as recent_module, just for the module that was missing it.
+    monkeypatch.setattr(settings_module, "CONFIG_DIR", tmp_path / ".slate")
+    monkeypatch.setattr(settings_module, "SETTINGS_FILE", tmp_path / ".slate" / "settings.json")
 
     root = tk.Tk()
     app = slate.SlateApp(root, path=None)
@@ -568,9 +580,12 @@ def test_window_icon_loads_from_branding_without_crashing(tmp_path, monkeypatch)
 
 def test_home_screen_shows_real_version_and_summary(tmp_path, monkeypatch):
     import recent as recent_module
+    import settings as settings_module
 
     monkeypatch.setattr(recent_module, "CONFIG_DIR", tmp_path / ".slate")
     monkeypatch.setattr(recent_module, "RECENT_FILE", tmp_path / ".slate" / "recent.json")
+    monkeypatch.setattr(settings_module, "CONFIG_DIR", tmp_path / ".slate")
+    monkeypatch.setattr(settings_module, "SETTINGS_FILE", tmp_path / ".slate" / "settings.json")
 
     root = tk.Tk()
     app = slate.SlateApp(root, path=None)
@@ -595,9 +610,12 @@ def test_home_screen_shows_real_version_and_summary(tmp_path, monkeypatch):
 
 def test_open_from_home_screen_then_close_returns_to_home_with_recent_entry(tmp_path, monkeypatch):
     import recent as recent_module
+    import settings as settings_module
 
     monkeypatch.setattr(recent_module, "CONFIG_DIR", tmp_path / ".slate")
     monkeypatch.setattr(recent_module, "RECENT_FILE", tmp_path / ".slate" / "recent.json")
+    monkeypatch.setattr(settings_module, "CONFIG_DIR", tmp_path / ".slate")
+    monkeypatch.setattr(settings_module, "SETTINGS_FILE", tmp_path / ".slate" / "settings.json")
 
     path = str(tmp_path / "doc.pdf")
     shutil.copy(FIXTURE, path)
@@ -2087,7 +2105,9 @@ def test_view_mode_drag_selects_text_not_a_rectangle(tmp_path):
         assert app.mode == "view"  # the actual default, confirmed
         z = app.viewer.zoom
         _drag(app, int(70 * z), int(55 * z), int(148 * z), int(78 * z))
-        selected = [w[4] for w in app._selected_words]
+        # self._selected_words is (page_num, word) pairs now (Devin,
+        # 2026-07-26: cross-page selection) -- unpack accordingly.
+        selected = [w[4] for _pn, w in app._selected_words]
         assert selected == ["Slate", "fixture", "page"]
         assert app._selected_text() == "Slate fixture page"
         # Real, not a redaction -- view-mode drags must never populate this.
@@ -2266,7 +2286,7 @@ def test_drag_selection_accounts_for_scroll_offset(tmp_path):
         vx1, vy1 = int(148 * z - offset_x), int(78 * z - offset_y)
         _drag(app, vx0, vy0, vx1, vy1)
 
-        selected = [w[4] for w in app._selected_words]
+        selected = [w[4] for _pn, w in app._selected_words]  # (page_num, word) pairs, see 2026-07-26 cross-page selection
         assert selected == ["Slate", "fixture", "page"]
     finally:
         app.doc.close()
@@ -2795,13 +2815,18 @@ def test_toc_panel_is_visible_by_default_on_document_open(tmp_path):
         root.destroy()
 
 
-def test_home_screen_matches_the_active_theme(tmp_path):
+def test_home_screen_matches_the_active_theme(tmp_path, monkeypatch):
     """Real bug caught live (Devin's screenshot, 2026-07-25): the home
     screen never themed itself at all -- __init__ calls _apply_theme()
     BEFORE _show_home_screen() ever builds home_frame, so it always
     rendered plain default Tk light styling regardless of the active
     theme. Covers both real call sites: fresh launch with no path, and
     closing the last tab back to home."""
+    import settings as settings_module
+
+    monkeypatch.setattr(settings_module, "CONFIG_DIR", tmp_path / ".slate")
+    monkeypatch.setattr(settings_module, "SETTINGS_FILE", tmp_path / ".slate" / "settings.json")
+
     root = tk.Tk()
     app = slate.SlateApp(root, None)  # no path -- launches straight to home screen
     try:

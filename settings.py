@@ -31,9 +31,12 @@ DEFAULTS = {
     "tts_voice": "northern_english_male",
     "tts_speed": 1.0,
     # Session restore (Devin, 2026-07-26: "keep documents open across
-    # sessions too like VSCodium/Sumatra") -- which documents were open
-    # and the main window's size/position, so relaunching Slate lands
-    # back where it left off instead of a blank home screen every time.
+    # sessions too like VSCodium/Sumatra"; extended same day to include
+    # page position: "i want my Slate session to be restored (document
+    # position)") -- which documents were open, each as {"path": ...,
+    # "page": N}, plus the main window's size/position, so relaunching
+    # Slate lands back exactly where it left off, not just at the right
+    # file with a blank first page.
     "open_tabs": [],
     "window_geometry": None,  # Tk geometry string "WxH+X+Y", or None = center-on-screen (first run)
 }

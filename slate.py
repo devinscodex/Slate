@@ -104,8 +104,7 @@ class SlateApp:
         # line_no, word_no) -- page.get_text("words") already returns
         # words in natural reading order, so the selected subset stays
         # correctly ordered without re-sorting by geometry.
-        self._selected_words = []
-        self._selected_page_num = None  # which page _selected_words belongs to (continuous mode needs this to draw the right offset)
+        self._selected_words = []  # (page_num, word) pairs -- Devin, 2026-07-26: cross-page selection
         self._selection_highlight_photos = []  # PhotoImage refs for the current selection overlay -- see _draw_text_selection_for_page
         # Slice 4 (Fable design review, 2026-07-25): two INDEPENDENT
         # axes, not one mode string -- Devin: "side by side option
@@ -218,13 +217,25 @@ class SlateApp:
             # with.
             self._open_document(path)
         elif self._saved_open_tabs:
-            # Session restore (Devin, 2026-07-26). Missing/moved files
-            # are skipped silently (same "a dead link is worse than no
+            # Session restore (Devin, 2026-07-26, extended same day to
+            # include page position: "i want my Slate session to be
+            # restored (document position)"). Missing/moved files are
+            # skipped silently (same "a dead link is worse than no
             # entry" philosophy already used by recent.py) rather than
             # erroring on launch over a file that's since been deleted.
-            for saved_path in self._saved_open_tabs:
+            # Each entry is normally {"path": ..., "page": N} now, but a
+            # settings.json written by an earlier build of this feature
+            # (same day, before page position existed) still has plain
+            # path strings -- handled here rather than forcing a manual
+            # file edit or a migration script for one dev's own local file.
+            for entry in self._saved_open_tabs:
+                saved_path = entry["path"] if isinstance(entry, dict) else entry
+                saved_page = entry.get("page") if isinstance(entry, dict) else None
                 if os.path.exists(saved_path):
                     self._open_document(saved_path)
+                    if saved_page is not None and self.viewer is not None:
+                        saved_page = max(0, min(saved_page, self.viewer.page_count - 1))
+                        self._go_to_page(saved_page)
             if not self._tabs:
                 self._show_home_screen()
         else:
@@ -1347,6 +1358,17 @@ class SlateApp:
             self._recent_listbox.pack(fill=tk.BOTH, expand=True, pady=6)
             self._recent_listbox.bind("<Double-Button-1>", self._open_recent_selected)
             self._recent_listbox.bind("<Return>", self._open_recent_selected)
+            # Delete/Backspace on the selected row + a right-click "Remove"
+            # (Devin, 2026-07-26: "delete items from the recently opened
+            # list") -- two paths to the same removal, mouse-only still
+            # works while Start's own search box is fighting keyboard
+            # input. Right-click selects the row under the cursor FIRST
+            # (a Listbox doesn't do this by default), so the removal
+            # always acts on what was actually clicked, not whatever the
+            # previous selection happened to be.
+            self._recent_listbox.bind("<Delete>", self._remove_recent_selected)
+            self._recent_listbox.bind("<BackSpace>", self._remove_recent_selected)
+            self._recent_listbox.bind("<Button-3>", self._show_recent_context_menu)
 
         # Real bug, caught live (Devin's screenshot, 2026-07-25): the
         # home screen never themed itself at all -- __init__ calls
@@ -1368,6 +1390,34 @@ class SlateApp:
         sel = self._recent_listbox.curselection()
         if sel:
             self._open_document(self._recent_entries[sel[0]]["path"])
+
+    def _remove_recent_selected(self, event=None):
+        """Delete/Backspace on the home screen's recent-files listbox.
+        Same index-into-_recent_entries lookup as _open_recent_selected,
+        same reason (display text isn't the raw path). Rebuilds the whole
+        home screen afterward -- simplest way to keep the listbox and
+        self._recent_entries in sync, same pattern _refresh_recent_menu
+        already uses for the File>Recent submenu."""
+        sel = self._recent_listbox.curselection()
+        if sel:
+            recent.remove_recent(self._recent_entries[sel[0]]["path"])
+            self._show_home_screen()
+
+    def _show_recent_context_menu(self, event):
+        """Right-click on a recent-files row -- Devin, 2026-07-26: works
+        mouse-only, no keyboard needed (relevant right now: Start's own
+        search box is fighting keyboard input on his machine). Selects
+        the row under the cursor first, since a Listbox doesn't do that
+        on a right-click by itself -- without this, a right-click far
+        from the current selection would remove the WRONG entry."""
+        row = self._recent_listbox.nearest(event.y)
+        self._recent_listbox.selection_clear(0, "end")
+        self._recent_listbox.selection_set(row)
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Open", command=self._open_recent_selected)
+        menu.add_command(label="Remove from Recent", command=self._remove_recent_selected)
+        self._paint_widget(menu, theme.get_palette(self.theme_name.get()))
+        menu.tk_popup(event.x_root, event.y_root)
 
     # ------------------------------------------------------------------
     # document view (toolbar + canvas + toc panel) -- built once, reused
@@ -1564,6 +1614,11 @@ class SlateApp:
         # only thing actually doing the panning; ButtonPress-2/
         # ButtonRelease-2 stay bound because they're also what runs
         # click-to-autoscroll, below).
+        # Right-click = "Read from here" (Devin, 2026-07-26), view mode
+        # only (the handler itself also guards this -- see its own
+        # docstring) so redact/annotate/forms/textedit's own drag
+        # gestures aren't disturbed by an unrelated right-click binding.
+        self.canvas.bind("<Button-3>", self._read_from_word_click)
         self.canvas.bind("<ButtonPress-2>", self._on_pan_press)
         # self.canvas.bind("<B2-Motion>", lambda e: self.canvas.scan_dragto(e.x, e.y, gain=1))
         self.canvas.bind("<ButtonRelease-2>", self._on_pan_release)
@@ -1582,6 +1637,12 @@ class SlateApp:
         self.root.bind("<Down>", self._kb_next_page)
         self.root.bind("<Prior>", self._kb_prev_page)  # Page Up
         self.root.bind("<Next>", self._kb_next_page)  # Page Down
+        # Home/End = first/last page (Devin, 2026-07-26: "home/end
+        # aren't work[ing]") -- same handlers vim-style g/G already use
+        # below; Home/End is the more universal Adobe/Foxit/Sumatra
+        # convention, this was just never bound to it.
+        self.root.bind("<Home>", self._kb_first_page)
+        self.root.bind("<End>", self._kb_last_page)
         # Mouse wheel: Windows/Mac deliver <MouseWheel> with a signed
         # event.delta; X11/Linux (this dev environment) instead sends
         # discrete Button-4 (up) / Button-5 (down) click events with no
@@ -1710,6 +1771,17 @@ class SlateApp:
             self._scroll_to_page(self.viewer.page_num)
         else:
             self._reset_scroll()
+        # Checkpoint the new position (Devin, 2026-07-26: restore
+        # document position, not just which files were open). Plain
+        # scrolling in continuous mode also moves page_num (see
+        # _sync_page_num_from_scroll) but isn't checkpointed here on
+        # purpose -- that fires on every scroll tick, and writing
+        # settings.json that often is real, needless I/O; window close
+        # (main()'s _on_close) does one final save covering wherever
+        # scrolling actually left things, so a clean quit is never
+        # stale even though mid-session scroll positions aren't
+        # continuously persisted.
+        self._save_open_tabs()
 
     def _on_canvas_yscroll(self, first, last):
         """The canvas's yscrollcommand -- fires on every y-view change
@@ -1942,8 +2014,20 @@ class SlateApp:
         """Called after every tab open/close, not just on window-close,
         so a crash or a hard kill (not just a clean Quit) still leaves
         an accurate session to restore -- same "resumable by
-        construction" reasoning as recent.py's own self-healing list."""
-        settings.save({"open_tabs": [t.path for t in self._tabs]})
+        construction" reasoning as recent.py's own self-healing list.
+
+        Also called on every page turn (_go_to_page, Devin, 2026-07-26:
+        "i want my Slate session to be restored (document position)")
+        so the saved position is never stale -- open/close alone would
+        only capture whatever page a tab happened to be on at the LAST
+        add/remove, not wherever it was actually left. t.viewer is the
+        real, live Viewer object for that tab (Tab.__init__ keeps it,
+        tab.py's own docstring), the same object self.viewer points at
+        while that tab is active -- so t.viewer.page_num is always
+        current, no extra sync needed even for background tabs."""
+        settings.save({
+            "open_tabs": [{"path": t.path, "page": t.viewer.page_num} for t in self._tabs]
+        })
 
     def _open_document(self, path):
         abspath = os.path.abspath(path)
@@ -2491,8 +2575,10 @@ class SlateApp:
         "#3a5a7a" regardless of theme) -- for inkbone this is the one
         place green survives as a real, minimal, pure accent (Devin,
         2026-07-25), not select_bg (tabs, now monochrome). A selection
-        belongs to exactly one page (self._selected_page_num, pinned at
-        drag-start) -- only that page draws it.
+        holds (page_num, word) pairs now (Devin, 2026-07-26: cross-page
+        selection) -- each page draws only its own words, filtered out
+        of the whole selection here, so a selection spanning several
+        pages still renders correctly, once per resident page.
 
         Devin, 2026-07-25: "make it a true highlighter" -- this used to
         draw one stippled rectangle PER SELECTED WORD, which read as a
@@ -2529,14 +2615,15 @@ class SlateApp:
         page's images to the list (via the caller having already reset
         it once for the whole pass); a non-matching page does a bare
         return, touching nothing."""
-        if not self._selected_words or self._selected_page_num != page_num:
+        page_words = [w for pn, w in self._selected_words if pn == page_num]
+        if not page_words:
             return
         colors = theme.get_palette(self.theme_name.get())
         z = self.viewer.zoom
         hexc = colors["highlight_bg"].lstrip("#")
         r, g, b = (int(hexc[i:i + 2], 16) for i in (0, 2, 4))
         lines = {}
-        for word in self._selected_words:
+        for word in page_words:
             lines.setdefault((word[5], word[6]), []).append(word)
         for line_words in lines.values():
             lx0 = min(word[0] for word in line_words)
@@ -2552,7 +2639,10 @@ class SlateApp:
             self.canvas.create_image(px0, py0, anchor="nw", image=photo, tags=("text_selection",))
 
     def _selected_text(self) -> str:
-        return " ".join(w[4] for w in self._selected_words)
+        # self._selected_words is (page_num, word) pairs, already built
+        # in page/reading order (see _on_drag) -- just pull the text
+        # field back out.
+        return " ".join(w[4] for _pn, w in self._selected_words)
 
     def _copy_selection(self, event=None):
         text = self._selected_text()
@@ -2893,17 +2983,60 @@ class SlateApp:
             # mode is very often a DIFFERENT page than the one being dragged
             # on. Real bug caught live 2026-07-26 ("highlighter doesn't do
             # anything"), not a rendering/compositing problem.
-            words = self.doc[self._drag_page].get_text("words")
-            if not words:
-                self._selected_words = []
+            # Cross-page extension (Devin, 2026-07-26: "i want the
+            # highlight feature to not be restricted to a single page")
+            # -- self._selected_words now holds (page_num, word) pairs
+            # instead of bare words, so a selection can span every page
+            # it visually crosses in continuous scroll, not just the one
+            # the drag started on. cursor_page is which page the mouse
+            # is CURRENTLY over (None in the inter-page gap, or in
+            # static/single-page mode where there's nothing else to drag
+            # onto) -- equal to self._drag_page in the common single-page
+            # case, which keeps that path's exact original behavior.
+            ox, oy = self._static_row_offset
+            cursor_page = self._layout.page_at(cx + ox, cy + oy) if self._layout is not None else self._drag_page
+            if cursor_page is None or cursor_page == self._drag_page:
+                words = self.doc[self._drag_page].get_text("words")
+                if not words:
+                    self._selected_words = []
+                else:
+                    ax, ay = self._drag_anchor_pdf
+                    cur = self._canvas_to_pdf_rect(cx, cy, cx, cy, self._drag_page)
+                    i_anchor = self._word_index_near_point(words, ax, ay)
+                    i_current = self._word_index_near_point(words, cur.x0, cur.y0)
+                    lo, hi = sorted((i_anchor, i_current))
+                    self._selected_words = [(self._drag_page, w) for w in words[lo:hi + 1]]
             else:
+                # Dragged onto a different page. Forward (cursor_page >
+                # anchor page): anchor word to the end of the anchor
+                # page, every word on every fully-spanned page in
+                # between, anchor-word-to-cursor-word on the final page.
+                # Backward (dragging back up past where it started) is
+                # the mirror image. Anchor/cursor word index is always
+                # found within EACH page's own word list, in that page's
+                # own PDF space -- never extrapolated across a page
+                # boundary the way the old single-page code implicitly
+                # did (which is what made this restriction real in the
+                # first place).
+                anchor_words = self.doc[self._drag_page].get_text("words")
                 ax, ay = self._drag_anchor_pdf
-                cur = self._canvas_to_pdf_rect(cx, cy, cx, cy, self._drag_page)
-                i_anchor = self._word_index_near_point(words, ax, ay)
-                i_current = self._word_index_near_point(words, cur.x0, cur.y0)
-                lo, hi = sorted((i_anchor, i_current))
-                self._selected_words = words[lo:hi + 1]
-            self._selected_page_num = self._drag_page
+                i_anchor = self._word_index_near_point(anchor_words, ax, ay) if anchor_words else 0
+                cursor_words = self.doc[cursor_page].get_text("words")
+                cur = self._canvas_to_pdf_rect(cx, cy, cx, cy, cursor_page)
+                i_cursor = self._word_index_near_point(cursor_words, cur.x0, cur.y0) if cursor_words else 0
+                forward = cursor_page > self._drag_page
+                selected = []
+                if forward:
+                    selected += [(self._drag_page, w) for w in anchor_words[i_anchor:]]
+                    for pn in range(self._drag_page + 1, cursor_page):
+                        selected += [(pn, w) for w in self.doc[pn].get_text("words")]
+                    selected += [(cursor_page, w) for w in cursor_words[:i_cursor + 1]]
+                else:
+                    selected += [(cursor_page, w) for w in cursor_words[i_cursor:]]
+                    for pn in range(cursor_page + 1, self._drag_page):
+                        selected += [(pn, w) for w in self.doc[pn].get_text("words")]
+                    selected += [(self._drag_page, w) for w in anchor_words[:i_anchor + 1]]
+                self._selected_words = selected
             self.render()
             return
         if self._drag_rect_id:
@@ -3317,18 +3450,53 @@ class SlateApp:
         the actual playback."""
         if not self._require_doc():
             return
-        if getattr(self, "_tts_synthesizing", False):
-            return  # a previous read is still being synthesized
-
         text = self.page.get_text().strip()
         if not text:
             messagebox.showinfo("Nothing to read", "This page has no extractable text.")
             return
+        self._speak_text(text, self.page, self.viewer.page_num)
+
+    def _read_from_word_click(self, event):
+        """Right-click a word in view mode -> "Read from here" (Devin,
+        2026-07-26: "a way to tell TTS where to start reading"), same
+        right-click-picks-the-item-under-the-cursor convention as the
+        home screen's recent-files context menu. Reuses
+        _word_index_near_point (the same nearest-word lookup drag-
+        selection already relies on) to find where the click landed,
+        then reads from that word to the end of the page -- a coarser
+        granularity than the selection highlight's exact ranges, but
+        matches how a reader actually thinks about "start reading
+        here": from this point in the page onward, not word-perfect."""
+        if self.mode != "view" or not self._require_doc():
+            return
+        cx, cy = self._event_canvas_xy(event)
+        ox, oy = self._static_row_offset
+        page_num = self._layout.page_at(cx + ox, cy + oy) if self._layout is not None else self.viewer.page_num
+        if page_num is None:
+            return
+        page = self.doc[page_num]
+        words = page.get_text("words")
+        if not words:
+            messagebox.showinfo("Nothing to read", "This page has no extractable text.")
+            return
+        click_pdf = self._canvas_to_pdf_rect(cx, cy, cx, cy, page_num)
+        i = self._word_index_near_point(words, click_pdf.x0, click_pdf.y0)
+        text = " ".join(w[4] for w in words[i:])
+        self._speak_text(text, page, page_num)
+
+    def _speak_text(self, text, page, page_num):
+        """Shared synthesis+playback kickoff for both a whole-page read
+        (_read_current_page) and a from-this-point read
+        (_read_from_word_click) -- everything past "what text and which
+        page" is identical between the two."""
+        if getattr(self, "_tts_synthesizing", False):
+            return  # a previous read is still being synthesized
+
         # Captured for _update_tts_highlight's position estimate -- the
         # actual page being read stays fixed even if the user scrolls/
         # navigates elsewhere while listening (self.page would drift).
-        self._tts_reading_page = self.page
-        self._tts_reading_page_num = self.viewer.page_num
+        self._tts_reading_page = page
+        self._tts_reading_page_num = page_num
 
         voice_id = self.tts_voice.get()
         if not self._ensure_voice_available(voice_id):
@@ -3826,6 +3994,12 @@ def main():
         # winfo_geometry() returns "WxHX+Y" in exactly the format
         # geometry() itself accepts -- a direct round-trip, no parsing.
         settings.save({"window_geometry": root.winfo_geometry()})
+        # Final position checkpoint (Devin, 2026-07-26) -- _go_to_page's
+        # own checkpoints cover explicit navigation, but plain scrolling
+        # in continuous mode isn't saved on every tick (real I/O cost);
+        # this catches wherever that actually left things before the
+        # window really closes.
+        app._save_open_tabs()
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", _on_close)
