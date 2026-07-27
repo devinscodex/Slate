@@ -30,6 +30,7 @@ import redact
 import scan
 import search
 import security
+import settings
 import sign
 import singleinstance
 import tab as tabmodule
@@ -70,6 +71,14 @@ class SlateApp:
         # a moment later, once a saved preference applies, is exactly
         # the jarring effect this line order avoids.
         root.configure(bg=theme.get_palette(theme.load_preference())["bg"])
+        # Persisted user prefs (Devin, 2026-07-26 handoff): loaded once
+        # here, applied below as each corresponding variable's initial
+        # value instead of a hardcoded default. self._saved_zoom is kept
+        # separately (not applied yet) since no Viewer/document exists
+        # this early -- _open_document applies it once a doc is loaded.
+        _saved = settings.load()
+        self._saved_zoom = _saved["zoom"]
+        self._saved_open_tabs = _saved["open_tabs"]
         self.path = None
         self.doc = None
         self.viewer = None
@@ -82,7 +91,7 @@ class SlateApp:
         # a photo) where color IS the information. Per-session toggle,
         # default True (unchanged existing behavior) so nothing regresses
         # for the common case.
-        self.colorize_pages = True
+        self.colorize_pages = _saved["colorize_pages"]
         self._tk_img = None  # keep a reference or Tkinter garbage-collects it
         self.mode = "view"  # view | redact | annotate:<kind> | forms | textedit
         self._drag_start = None
@@ -109,8 +118,8 @@ class SlateApp:
         # (layout.PageLayout) exists in ALL FOUR combinations now --
         # every coordinate-resolution call site generalizes to "does
         # self._layout exist" rather than a mode check.
-        self.continuous_scroll = True
-        self.side_by_side = False
+        self.continuous_scroll = _saved["continuous_scroll"]
+        self.side_by_side = _saved["side_by_side"]
         self._layout = None
         # Static (non-scrolling) row rendering draws the CURRENT row
         # translated to canvas origin (0, 0) -- self._layout's own
@@ -157,13 +166,15 @@ class SlateApp:
         self._page_placeholder_items = {}
         self._doc_view_built = False
         self.home_frame = None
-        # Devin, 2026-07-25: "default TOC view = true."
-        self.toc_visible = tk.BooleanVar(value=True)
+        # Devin, 2026-07-25: "default TOC view = true." (now overridden
+        # by a persisted value once the user has actually changed it --
+        # 2026-07-26 -- default stays true for a first-ever launch.)
+        self.toc_visible = tk.BooleanVar(value=_saved["toc_visible"])
         self.theme_name = tk.StringVar(value=theme.load_preference())
         # Read Aloud (TTS): app-wide, not per-tab -- reading one document
         # while switching tabs isn't a supported combination in v1.
-        self.tts_voice = tk.StringVar(value="northern_english_male")
-        self.tts_speed = tk.DoubleVar(value=1.0)  # user-facing multiplier, not Piper's length_scale directly
+        self.tts_voice = tk.StringVar(value=_saved["tts_voice"])
+        self.tts_speed = tk.DoubleVar(value=_saved["tts_speed"])  # user-facing multiplier, not Piper's length_scale directly
         self.tts_player = TTSPlayer()
         # Position-indicator state (Devin, 2026-07-25: "is there a way
         # to tell what is the current voice/speed... a good application
@@ -201,7 +212,21 @@ class SlateApp:
         self._apply_theme()  # establishes the ttk 'clam' baseline even in light mode
 
         if path:
+            # Explicit command-line/IPC-handoff path always wins over
+            # session restore -- opening a specific file is a deliberate
+            # ask, not something a leftover saved tab list should compete
+            # with.
             self._open_document(path)
+        elif self._saved_open_tabs:
+            # Session restore (Devin, 2026-07-26). Missing/moved files
+            # are skipped silently (same "a dead link is worse than no
+            # entry" philosophy already used by recent.py) rather than
+            # erroring on launch over a file that's since been deleted.
+            for saved_path in self._saved_open_tabs:
+                if os.path.exists(saved_path):
+                    self._open_document(saved_path)
+            if not self._tabs:
+                self._show_home_screen()
         else:
             self._show_home_screen()
 
@@ -263,6 +288,7 @@ class SlateApp:
         # per-draw, so a toggle needs a full invalidate to take effect
         # immediately instead of on next nav.
         self.colorize_pages = self.colorize_pages_var.get()
+        settings.save({"colorize_pages": self.colorize_pages})
         if self.doc is not None:
             self._page_cache.invalidate_all()
             self.render()
@@ -492,6 +518,22 @@ class SlateApp:
                     widget.configure(
                         bg=colors["button_bg"], fg=colors["fg"], activebackground=colors["select_bg"]
                     )
+                elif cls in ("Checkbutton", "Radiobutton"):
+                    # First real use of bare (non-menu) Checkbutton/
+                    # Radiobutton widgets in the app -- the Settings
+                    # dialog's menu-equivalent checkboxes/radios are Menu
+                    # entries (a different code path, handled by the
+                    # "Menu" branch below), never a standalone widget
+                    # class, so this branch never existed until now.
+                    # selectcolor (the checked-indicator color) is left
+                    # alone -- callers already pass their own green
+                    # accent for it at construction time.
+                    widget.configure(
+                        bg=colors["bg"], fg=colors["fg"], activebackground=colors["bg"],
+                        activeforeground=colors["fg"],
+                    )
+                elif cls == "Labelframe":
+                    widget.configure(bg=colors["bg"], fg=colors["fg"])
                 elif cls == "Canvas":
                     widget.configure(bg=colors["canvas_bg"])
                 elif cls == "Listbox":
@@ -618,15 +660,21 @@ class SlateApp:
                 command=self._on_theme_changed, selectcolor=radio_select_color,
             )
         viewm.add_cascade(label="Theme", menu=thememenu)
-        # Colorize opt-out (Devin, 2026-07-26): _colorize_for_theme
-        # flattens every page to the theme's fg/bg pair, which destroys
-        # real color content (a categorical diagram, a photo). Default
-        # stays on (self.colorize_pages=True, unchanged prior behavior).
+        # Colorize opt-OUT-by-default (Devin, 2026-07-26, flipped same day
+        # after actually hitting it): _colorize_for_theme flattens every
+        # page to the theme's fg/bg pair, which destroys real color
+        # content (a categorical diagram, a photo) -- real example hit
+        # live the same day, a bake-off comparison diagram with real
+        # blue/orange bars. Default is now off (self.colorize_pages=False);
+        # a prose-only reader who wants the old tinted-to-match-theme look
+        # can still opt back in via this checkbox.
         self.colorize_pages_var = tk.BooleanVar(value=self.colorize_pages)
         viewm.add_checkbutton(
             label="Colorize pages to theme", variable=self.colorize_pages_var,
             command=self._on_colorize_toggle, selectcolor=radio_select_color,
         )
+        viewm.add_separator()
+        viewm.add_command(label="Settings...", command=self._show_settings)
         menubar.add_cascade(label="View", menu=viewm)
 
         convertm = tk.Menu(menubar, tearoff=0)
@@ -649,7 +697,7 @@ class SlateApp:
         for speed in (0.75, 1.0, 1.25, 1.5, 2.0):
             speedm.add_radiobutton(
                 label=f"{speed}x", variable=self.tts_speed, value=speed,
-                selectcolor=radio_select_color,
+                command=self._on_tts_speed_changed, selectcolor=radio_select_color,
             )
         readm.add_cascade(label="Speed", menu=speedm)
         readm.add_separator()
@@ -845,6 +893,142 @@ class SlateApp:
         y = root_y + (root_h - dlg_h) // 2
         top.geometry(f"+{x}+{y}")
 
+    def _show_settings(self):
+        """Settings dialog (Devin, 2026-07-26 handoff): a single place to
+        see and change every persisted preference, modeled on
+        _show_about's own Toplevel/accent-bar/centering pattern. Every
+        control here binds to the SAME Tk variable and calls the SAME
+        handler the corresponding menu item already uses (continuous_scroll_var
+        -> _set_view_mode, colorize_pages_var -> _on_colorize_toggle,
+        tts_voice/tts_speed -> their existing _on_..._changed handlers)
+        -- one source of truth, so this dialog and the menus can never
+        drift out of sync with each other. This dialog is a second
+        place to reach settings that already persist via those handlers,
+        not a second mechanism that persists them independently."""
+        colors = theme.get_palette(self.theme_name.get())
+        top = tk.Toplevel(self.root)
+        top.title("Settings")
+        top.resizable(False, False)
+
+        header = tk.Frame(top)
+        header.pack(padx=24, pady=(18, 6), anchor="w")
+        tk.Label(
+            header, text="Settings", font=("TkDefaultFont", 14, "bold")
+        ).pack(side=tk.LEFT)
+        accent_bar = tk.Frame(top, bg="#62a945", height=2)
+        accent_bar.pack(fill=tk.X, padx=24, pady=(0, 10))
+
+        # -- Theme -- same THEME_LABELS/self.theme_name/_on_theme_changed
+        # the View>Theme submenu already uses, not a second theme picker.
+        # _on_theme_changed_and_repaint (below) runs the normal handler
+        # (repaints the main window, saves the preference, invalidates the
+        # page cache) THEN repaints this still-open dialog too, same
+        # _paint_widget + accent-bar-reassert pattern this function already
+        # runs once at the bottom for the initial paint -- Devin, 2026-07-26:
+        # "the settings page should fully match the theme," not just at
+        # open time.
+        def _on_theme_changed_and_repaint():
+            self._on_theme_changed()
+            self._paint_widget(top, theme.get_palette(self.theme_name.get()))
+            accent_bar.configure(bg="#62a945")
+
+        theme_frame = tk.LabelFrame(top, text="Theme")
+        theme_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
+        for label, name in theme.THEME_LABELS.items():
+            tk.Radiobutton(
+                theme_frame, text=label, variable=self.theme_name, value=name,
+                command=_on_theme_changed_and_repaint,
+            ).pack(anchor="w", padx=10, pady=1)
+
+        # -- View --
+        view_frame = tk.LabelFrame(top, text="View")
+        view_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
+        tk.Checkbutton(
+            view_frame, text="Continuous Scroll", variable=self.continuous_scroll_var,
+            command=self._set_view_mode,
+        ).pack(anchor="w", padx=10, pady=(6, 2))
+        tk.Checkbutton(
+            view_frame, text="Side by Side", variable=self.side_by_side_var,
+            command=self._set_view_mode,
+        ).pack(anchor="w", padx=10, pady=2)
+        tk.Checkbutton(
+            view_frame, text="Colorize pages to theme", variable=self.colorize_pages_var,
+            command=self._on_colorize_toggle,
+        ).pack(anchor="w", padx=10, pady=2)
+        tk.Checkbutton(
+            view_frame, text="Show Table of Contents", variable=self.toc_visible,
+            command=self._toggle_toc_panel,
+        ).pack(anchor="w", padx=10, pady=(2, 6))
+
+        # -- Zoom -- read-only display + the existing commands, not a
+        # parallel editable field (avoids a second place zoom state could
+        # drift from self.viewer.zoom).
+        zoom_frame = tk.LabelFrame(top, text="Zoom")
+        zoom_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
+        zoom_row = tk.Frame(zoom_frame)
+        zoom_row.pack(fill=tk.X, padx=10, pady=6)
+        zoom_label = tk.Label(
+            zoom_row,
+            text=f"Current: {self.viewer.zoom:.2f}x" if self.viewer else "No document open",
+        )
+        zoom_label.pack(side=tk.LEFT)
+
+        def _refresh_zoom_label():
+            if self.viewer:
+                zoom_label.config(text=f"Current: {self.viewer.zoom:.2f}x")
+
+        def _zoom_in_and_refresh():
+            self.zoom_in()
+            _refresh_zoom_label()
+
+        def _zoom_out_and_refresh():
+            self.zoom_out()
+            _refresh_zoom_label()
+
+        def _fit_width_and_refresh():
+            self.fit_width()
+            _refresh_zoom_label()
+
+        zoom_btns = tk.Frame(zoom_row)
+        zoom_btns.pack(side=tk.RIGHT)
+        zoom_state = "normal" if self.viewer else "disabled"
+        tk.Button(zoom_btns, text="-", width=2, command=_zoom_out_and_refresh, state=zoom_state).pack(side=tk.LEFT)
+        tk.Button(zoom_btns, text="+", width=2, command=_zoom_in_and_refresh, state=zoom_state).pack(side=tk.LEFT, padx=4)
+        tk.Button(zoom_btns, text="Fit Width", command=_fit_width_and_refresh, state=zoom_state).pack(side=tk.LEFT)
+
+        # -- Read Aloud --
+        tts_frame = tk.LabelFrame(top, text="Read Aloud")
+        tts_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
+        tk.Label(tts_frame, text="Voice:").pack(anchor="w", padx=10, pady=(6, 0))
+        voice_row = tk.Frame(tts_frame)
+        voice_row.pack(fill=tk.X, padx=10)
+        for voice_id, info in tts.VOICES.items():
+            tk.Radiobutton(
+                voice_row, text=info["label"], variable=self.tts_voice, value=voice_id,
+                command=self._on_tts_voice_changed,
+            ).pack(anchor="w")
+        tk.Label(tts_frame, text="Speed:").pack(anchor="w", padx=10, pady=(6, 0))
+        speed_row = tk.Frame(tts_frame)
+        speed_row.pack(fill=tk.X, padx=10, pady=(0, 6))
+        for speed in (0.75, 1.0, 1.25, 1.5, 2.0):
+            tk.Radiobutton(
+                speed_row, text=f"{speed}x", variable=self.tts_speed, value=speed,
+                command=self._on_tts_speed_changed,
+            ).pack(side=tk.LEFT, padx=(0, 8))
+
+        tk.Button(top, text="Close", command=top.destroy).pack(pady=(0, 16))
+
+        self._paint_widget(top, colors)
+        accent_bar.configure(bg="#62a945")  # same re-assert-after-paint fix as _show_about
+
+        top.update_idletasks()
+        root_x, root_y = self.root.winfo_rootx(), self.root.winfo_rooty()
+        root_w, root_h = self.root.winfo_width(), self.root.winfo_height()
+        dlg_w, dlg_h = top.winfo_width(), top.winfo_height()
+        x = root_x + (root_w - dlg_w) // 2
+        y = root_y + (root_h - dlg_h) // 2
+        top.geometry(f"+{x}+{y}")
+
     def _refresh_recent_menu(self):
         self.recent_menu.delete(0, "end")
         entries = recent.get_recent()
@@ -918,8 +1102,11 @@ class SlateApp:
             self._stop_autoscroll()
             return
         self._pan_press_pos = (event.x, event.y)
-        self.canvas.scan_mark(event.x, event.y)
-        self.canvas.config(cursor="fleur")
+        # Pan disabled (see the commented-out B2-Motion binding above) --
+        # scan_mark/fleur cursor commented out to match; _pan_press_pos
+        # is still needed below to detect click-vs-drag for autoscroll.
+        # self.canvas.scan_mark(event.x, event.y)
+        # self.canvas.config(cursor="fleur")
 
     def _on_pan_release(self, event):
         if self._autoscroll_active:
@@ -1367,13 +1554,18 @@ class SlateApp:
         self.canvas.bind("<ButtonPress-1>", self._on_press)
         self.canvas.bind("<B1-Motion>", self._on_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
-        # Middle-click-drag pans the document (Devin, 2026-07-26), same
-        # convention as most PDF viewers/image editors. Tk's canvas has
-        # this built in -- scan_mark/scan_dragto is the standard idiom,
-        # no manual delta/xview math needed. Distinct from Button-2 on
-        # self.tab_strip (closes a tab) -- different widget, no clash.
+        # Middle-click-drag-to-pan DISABLED (Devin, 2026-07-26): any tiny
+        # hand tremor during a middle-click-to-autoscroll gesture was
+        # live-panning the page via this B2-Motion binding before the
+        # click/drag distinction below even got checked at release --
+        # "defaults to pan so quickly when I try to scroll right after."
+        # Commented out, not deleted, in case pan is wanted back later --
+        # to re-enable, uncomment the B2-Motion line below (it was the
+        # only thing actually doing the panning; ButtonPress-2/
+        # ButtonRelease-2 stay bound because they're also what runs
+        # click-to-autoscroll, below).
         self.canvas.bind("<ButtonPress-2>", self._on_pan_press)
-        self.canvas.bind("<B2-Motion>", lambda e: self.canvas.scan_dragto(e.x, e.y, gain=1))
+        # self.canvas.bind("<B2-Motion>", lambda e: self.canvas.scan_dragto(e.x, e.y, gain=1))
         self.canvas.bind("<ButtonRelease-2>", self._on_pan_release)
         self.canvas.bind("<Motion>", self._on_canvas_motion)
 
@@ -1558,6 +1750,7 @@ class SlateApp:
         options."""
         self.continuous_scroll = self.continuous_scroll_var.get()
         self.side_by_side = self.side_by_side_var.get()
+        settings.save({"continuous_scroll": self.continuous_scroll, "side_by_side": self.side_by_side})
         if self.viewer is None:
             return
         self._selected_words = []
@@ -1702,6 +1895,7 @@ class SlateApp:
         self._jump_to_current_match()
 
     def _toggle_toc_panel(self):
+        settings.save({"toc_visible": self.toc_visible.get()})
         if self.toc_visible.get():
             # before=self._canvas_frame guarantees the TOC lands as the
             # LEFT pane every time it's re-shown -- PanedWindow.add()
@@ -1744,6 +1938,13 @@ class SlateApp:
     # ------------------------------------------------------------------
     # opening / closing documents
     # ------------------------------------------------------------------
+    def _save_open_tabs(self):
+        """Called after every tab open/close, not just on window-close,
+        so a crash or a hard kill (not just a clean Quit) still leaves
+        an accurate session to restore -- same "resumable by
+        construction" reasoning as recent.py's own self-healing list."""
+        settings.save({"open_tabs": [t.path for t in self._tabs]})
+
     def _open_document(self, path):
         abspath = os.path.abspath(path)
         for i, existing in enumerate(self._tabs):
@@ -1770,7 +1971,15 @@ class SlateApp:
         # Tab keeps the ORIGINAL path (tab label/title/recent-files all
         # show the real filename) even when doc was actually opened
         # from a corrected temp copy.
-        new_tab = tabmodule.Tab(path, doc, Viewer(doc))
+        new_viewer = Viewer(doc)
+        # Persisted zoom (Devin, 2026-07-26 handoff): a user-chosen zoom
+        # carries across documents/launches instead of every new
+        # document silently reverting to Viewer.DEFAULT_ZOOM. None means
+        # "never explicitly set yet" (a first-ever launch, or zoom never
+        # touched) -- leaves the class's own default alone in that case.
+        if self._saved_zoom is not None:
+            new_viewer.zoom = self._saved_zoom
+        new_tab = tabmodule.Tab(path, doc, new_viewer)
         self._tabs.append(new_tab)
 
         self._ensure_doc_view_widgets()
@@ -1785,6 +1994,7 @@ class SlateApp:
         self._select_tab(placeholder)
 
         recent.add_recent(path)
+        self._save_open_tabs()
 
     def _select_tab(self, frame):
         """Selecting a Notebook tab only fires <<NotebookTabChanged>> on
@@ -1937,6 +2147,7 @@ class SlateApp:
         closing_tab.doc.close()
         self.tab_strip.forget(closing_frame)
         closing_frame.destroy()
+        self._save_open_tabs()
 
         if not was_active:
             return  # closed a background tab -- nothing currently displayed changes
@@ -2009,13 +2220,16 @@ class SlateApp:
         # recolor too, same accepted simple tradeoff as Sumatra's own
         # basic color-inversion feature, just via a nicer mapping.
         #
-        # Opt-out (Devin, 2026-07-26): that tradeoff actively destroys
-        # content where color IS the payload (a categorical-color-coded
-        # diagram's legend went meaningless once flattened to one tint,
-        # caught live). self.colorize_pages defaults True (identical to
-        # this method always running before), so nothing regresses --
-        # unchecking "Colorize pages to theme" in the View menu returns
-        # the page's real original colors untouched.
+        # Opt-out, then flipped to opt-IN (both same day, 2026-07-26):
+        # that tradeoff actively destroys content where color IS the
+        # payload -- first caught live on a categorical-color-coded
+        # diagram whose legend went meaningless once flattened to one
+        # tint; recurred the same day on a real blue/orange bake-off
+        # comparison diagram, which is what prompted flipping the
+        # DEFAULT to off rather than leaving it an opt-out most people
+        # would never find. self.colorize_pages now defaults False --
+        # checking "Colorize pages to theme" in the View menu is how a
+        # prose-only reader opts back into the old tinted-to-theme look.
         if not self.colorize_pages:
             return img
         colors = theme.get_palette(self.theme_name.get())
@@ -2490,10 +2704,12 @@ class SlateApp:
     def zoom_in(self):
         self.viewer.zoom_in()
         self.render()
+        settings.save({"zoom": self.viewer.zoom})
 
     def zoom_out(self):
         self.viewer.zoom_out()
         self.render()
+        settings.save({"zoom": self.viewer.zoom})
 
     def fit_width(self):
         # Manual command, not an auto-apply-on-open default (Devin,
@@ -2511,6 +2727,7 @@ class SlateApp:
         if viewport_w > 1:
             self.viewer.fit_width(viewport_w)
             self.render()
+            settings.save({"zoom": self.viewer.zoom})
 
     # ------------------------------------------------------------------
     # canvas interaction (redact / annotate / forms all live here)
@@ -3217,8 +3434,19 @@ class SlateApp:
         for later: do_read_page()'s own _tts_synthesizing guard would
         block a same-instant re-trigger, and synthesis is fast enough
         (~1s) that this is a narrow window, not the reported bug."""
+        settings.save({"tts_voice": self.tts_voice.get()})
         if self.tts_player.has_audio():
             self.do_read_page()
+
+    def _on_tts_speed_changed(self):
+        """Speed menu's radiobuttons had no command callback at all
+        (only Voice's did, see _on_tts_voice_changed above) -- added
+        purely to persist the choice, matching that same fix's own
+        precedent. Unlike voice, changing the speed mid-read doesn't
+        need to restart anything: length_scale only takes effect at the
+        next synthesize() call, and there's no equivalent live bug
+        report asking for an immediate restart here."""
+        settings.save({"tts_speed": self.tts_speed.get()})
 
     def _update_tts_toolbar_button(self):
         if not hasattr(self, "tts_play_button"):
@@ -3574,17 +3802,33 @@ def main():
     root = tk.Tk()
     app = SlateApp(root, path)
 
-    # Center on screen, not the top-left corner (Devin, 2026-07-25:
-    # "Slate is still opening in top left of screen, can you make that
-    # center load plz?") -- real geometry only exists once the home
-    # screen/document widgets above are actually laid out, hence
-    # update_idletasks() first, same pattern as _show_about's own
-    # centering (which centers over the main window; this one has no
-    # parent window to center over, so it centers on the screen itself).
+    # Restore window size+position (Devin, 2026-07-26: "remember window
+    # size, location, etc"). A saved geometry wins outright -- it
+    # already encodes both size and position together, nothing left for
+    # the centering logic below to add. Only a genuine first-ever launch
+    # (or a corrupt/missing settings file, load()'s own fallback) has no
+    # saved value, in which case centering (Devin, 2026-07-25: "Slate is
+    # still opening in top left of screen, can you make that center load
+    # plz?") is still the right first-run default. update_idletasks()
+    # first either way -- real geometry only exists once the home
+    # screen/document widgets above are actually laid out, same pattern
+    # as _show_about's own centering.
     root.update_idletasks()
-    screen_w, screen_h = root.winfo_screenwidth(), root.winfo_screenheight()
-    win_w, win_h = root.winfo_width(), root.winfo_height()
-    root.geometry(f"+{(screen_w - win_w) // 2}+{(screen_h - win_h) // 2}")
+    saved_geometry = settings.load()["window_geometry"]
+    if saved_geometry:
+        root.geometry(saved_geometry)
+    else:
+        screen_w, screen_h = root.winfo_screenwidth(), root.winfo_screenheight()
+        win_w, win_h = root.winfo_width(), root.winfo_height()
+        root.geometry(f"+{(screen_w - win_w) // 2}+{(screen_h - win_h) // 2}")
+
+    def _on_close():
+        # winfo_geometry() returns "WxHX+Y" in exactly the format
+        # geometry() itself accepts -- a direct round-trip, no parsing.
+        settings.save({"window_geometry": root.winfo_geometry()})
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", _on_close)
 
     # Become the server for any LATER invocation. Real thread-safety
     # note (same pattern already established for the TTS synthesis and

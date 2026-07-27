@@ -24,7 +24,7 @@ import fitz
 
 
 class PageLayout:
-    def __init__(self, doc: fitz.Document, zoom: float, gap: int = 8, cols: int = 1):
+    def __init__(self, doc: fitz.Document, zoom: float, gap: int = 2, cols: int = 1):
         self.zoom = zoom
         self.gap = gap
         self.cols = cols

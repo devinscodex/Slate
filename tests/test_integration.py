@@ -156,6 +156,12 @@ def test_render_recolors_the_page_to_match_the_active_theme_not_just_chrome(tmp_
 
     root, app = _make_app(tmp_path)
     try:
+        # colorize_pages now defaults False (2026-07-26, real content
+        # got destroyed twice the same day by the theme-tint flatten) --
+        # this test verifies the recolor MECHANISM itself still works
+        # correctly across every theme when a reader opts in, unaffected
+        # by what the default happens to be.
+        app.colorize_pages = True
         captured = {}
         real_photoimage = slate.ImageTk.PhotoImage
 
@@ -3651,5 +3657,19 @@ def test_configure_event_debounces_the_width_check(tmp_path):
         # after()-based mechanisms, harmless but avoidable here.
         if app._autolayout_after_id is not None:
             root.after_cancel(app._autolayout_after_id)
+        app.doc.close()
+        root.destroy()
+
+
+def test_colorize_pages_defaults_off(tmp_path):
+    """Devin, 2026-07-26: real content got destroyed twice the same day
+    by the theme-tint flatten (a categorical diagram's legend, then a
+    real blue/orange bake-off comparison) -- flipped from opt-out to
+    opt-in so a color-coded document isn't silently wrecked by default."""
+    root, app = _make_app(tmp_path)
+    try:
+        assert app.colorize_pages is False
+        assert app.colorize_pages_var.get() is False
+    finally:
         app.doc.close()
         root.destroy()
