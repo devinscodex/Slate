@@ -1888,6 +1888,7 @@ def test_tts_highlight_estimates_position_from_playback_progress(tmp_path):
     try:
         app._tts_reading_page = app.page
         app._tts_reading_page_num = app.viewer.page_num
+        app._tts_reading_words = app.page.get_text("words")  # real word list, see 2026-07-26 highlight-alignment fix
         app.tts_player.load(b"\x00\x00" * 200, 22050, 1)  # has_audio() True, progress 0.0
 
         app._update_tts_highlight()
@@ -1926,6 +1927,7 @@ def test_tts_highlight_is_one_merged_box_spanning_same_line_words(tmp_path):
     try:
         app._tts_reading_page = app.page
         app._tts_reading_page_num = app.viewer.page_num
+        app._tts_reading_words = app.page.get_text("words")  # real word list, see 2026-07-26 highlight-alignment fix
         app.tts_player.load(b"\x00\x00" * 200, 22050, 1)
         app.tts_player._position = 199  # progress ~1.0 -- anchors on "1", the last word
 
@@ -1961,6 +1963,7 @@ def test_tts_highlight_clears_when_the_read_page_scrolls_out_of_view(tmp_path):
     try:
         app._tts_reading_page = app.page
         app._tts_reading_page_num = app.viewer.page_num
+        app._tts_reading_words = app.page.get_text("words")  # real word list, see 2026-07-26 highlight-alignment fix
         app.tts_player.load(b"\x00\x00" * 200, 22050, 1)
         app._update_tts_highlight()
         assert len(app.canvas.find_withtag("tts_highlight")) > 0

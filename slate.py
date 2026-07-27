@@ -184,6 +184,13 @@ class SlateApp:
         # method and its honest limitation.
         self._tts_reading_page = None
         self._tts_reading_page_num = None
+        # The EXACT word list actually synthesized (Devin, 2026-07-26,
+        # real bug: "read from here" starts at the top of the page, not
+        # the point of my mouse) -- _update_tts_highlight used to always
+        # re-derive the full page's own words from scratch, ignorant of
+        # a "read from here" click trimming the START of what's actually
+        # being read/spoken. See _update_tts_highlight's own docstring.
+        self._tts_reading_words = []
         self._tts_chunk_sample_counts = []  # real per-sentence audio durations from tts.synthesize(), see _update_tts_highlight
         # Devin, 2026-07-25: "TTS: read entire document, not just
         # current page." True between do_read_document() and either
@@ -1614,11 +1621,13 @@ class SlateApp:
         # only thing actually doing the panning; ButtonPress-2/
         # ButtonRelease-2 stay bound because they're also what runs
         # click-to-autoscroll, below).
-        # Right-click = "Read from here" (Devin, 2026-07-26), view mode
-        # only (the handler itself also guards this -- see its own
-        # docstring) so redact/annotate/forms/textedit's own drag
-        # gestures aren't disturbed by an unrelated right-click binding.
-        self.canvas.bind("<Button-3>", self._read_from_word_click)
+        # Right-click = context menu (Devin, 2026-07-26: "a good right-
+        # click menu"), view mode only -- see _show_canvas_context_menu's
+        # own docstring for why and what's in it. "Read from here"
+        # started as this binding's own instant action earlier the same
+        # day; folded into the menu once a real menu existed, same
+        # click, one more step.
+        self.canvas.bind("<Button-3>", self._show_canvas_context_menu)
         self.canvas.bind("<ButtonPress-2>", self._on_pan_press)
         # self.canvas.bind("<B2-Motion>", lambda e: self.canvas.scan_dragto(e.x, e.y, gain=1))
         self.canvas.bind("<ButtonRelease-2>", self._on_pan_release)
@@ -2651,6 +2660,76 @@ class SlateApp:
         self.root.clipboard_clear()
         self.root.clipboard_append(text)
 
+    def _selection_line_rects(self):
+        """Group self._selected_words into one (page_num, fitz.Rect) per
+        line -- same (block_no, line_no) grouping
+        _draw_text_selection_for_page already uses for the highlight
+        overlay, reused here (Devin, 2026-07-26: "a good right-click
+        menu... include things users would expect") so "Highlight
+        Selection"/"Redact Selection" mark exactly what the on-screen
+        highlight visually shows, page by page across a cross-page
+        selection."""
+        groups = {}
+        for page_num, w in self._selected_words:
+            groups.setdefault((page_num, w[5], w[6]), []).append(w)
+        rects = []
+        for (page_num, _block_no, _line_no), words in groups.items():
+            x0 = min(w[0] for w in words)
+            y0 = min(w[1] for w in words)
+            x1 = max(w[2] for w in words)
+            y1 = max(w[3] for w in words)
+            rects.append((page_num, fitz.Rect(x0, y0, x1, y1)))
+        return rects
+
+    def _highlight_selection(self):
+        for page_num, rect in self._selection_line_rects():
+            annotate.add_highlight(self.doc[page_num], rect)
+        self._selected_words = []
+        self.render()
+
+    def _redact_selection(self):
+        for page_num, rect in self._selection_line_rects():
+            self._pending_redactions.append((page_num, rect))
+        self._selected_words = []
+        self.render()
+
+    def _show_canvas_context_menu(self, event):
+        """Right-click on the document canvas, view mode only (redact/
+        annotate/forms/textedit have their own drag gestures -- an
+        unrelated context menu popping mid-gesture there would be
+        surprising, not helpful). Devin, 2026-07-26: "a good right-click
+        menu... include things that should be there and users would
+        expect to see" -- the standard PDF-reader set this app can
+        actually back with a real feature: Copy/Highlight/Redact
+        (enabled only when there's a live selection), Read from here
+        (today's earlier feature, moved from an instant right-click
+        action into this menu), Zoom, and first/last page. Nothing here
+        is a new capability -- every item calls something that already
+        exists elsewhere in the app; this is one discoverable place to
+        reach it without hunting menus."""
+        if self.mode != "view":
+            return
+        has_selection = bool(self._selected_words)
+        sel_state = "normal" if has_selection else "disabled"
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Copy", command=self._copy_selection, state=sel_state)
+        menu.add_command(label="Highlight Selection", command=self._highlight_selection, state=sel_state)
+        menu.add_command(label="Redact Selection", command=self._redact_selection, state=sel_state)
+        menu.add_separator()
+        # Captures THIS click's own event (coordinates), not whichever
+        # point the mouse happens to be at when the menu item is later
+        # chosen -- the menu can stay open a while before a real click.
+        menu.add_command(label="Read from here", command=lambda: self._read_from_word_click(event))
+        menu.add_separator()
+        menu.add_command(label="Zoom In", command=self.zoom_in)
+        menu.add_command(label="Zoom Out", command=self.zoom_out)
+        menu.add_command(label="Fit Width", command=self.fit_width)
+        menu.add_separator()
+        menu.add_command(label="First Page", command=self._kb_first_page)
+        menu.add_command(label="Last Page", command=self._kb_last_page)
+        self._paint_widget(menu, theme.get_palette(self.theme_name.get()))
+        menu.tk_popup(event.x_root, event.y_root)
+
     def next(self):
         """Toolbar/page-box arrows, Right/Down/PageDown/j -- all route
         here. Continuous mode (Slice 2): _go_to_page scrolls to the
@@ -3450,11 +3529,11 @@ class SlateApp:
         the actual playback."""
         if not self._require_doc():
             return
-        text = self.page.get_text().strip()
-        if not text:
+        words = self.page.get_text("words")
+        if not words:
             messagebox.showinfo("Nothing to read", "This page has no extractable text.")
             return
-        self._speak_text(text, self.page, self.viewer.page_num)
+        self._speak_text(words, self.page, self.viewer.page_num)
 
     def _read_from_word_click(self, event):
         """Right-click a word in view mode -> "Read from here" (Devin,
@@ -3481,22 +3560,32 @@ class SlateApp:
             return
         click_pdf = self._canvas_to_pdf_rect(cx, cy, cx, cy, page_num)
         i = self._word_index_near_point(words, click_pdf.x0, click_pdf.y0)
-        text = " ".join(w[4] for w in words[i:])
-        self._speak_text(text, page, page_num)
+        self._speak_text(words[i:], page, page_num)
 
-    def _speak_text(self, text, page, page_num):
+    def _speak_text(self, words, page, page_num):
         """Shared synthesis+playback kickoff for both a whole-page read
         (_read_current_page) and a from-this-point read
-        (_read_from_word_click) -- everything past "what text and which
-        page" is identical between the two."""
+        (_read_from_word_click) -- everything past "what words and which
+        page" is identical between the two. Takes the real word-tuple
+        list actually being spoken (not a page number's worth of
+        already-known-good text) so _update_tts_highlight can track
+        progress against the SAME words that were actually synthesized
+        -- real bug fixed here (Devin, 2026-07-26: "'read from here'
+        starts at the top of the page, not the point of my mouse"): the
+        highlight used to always re-derive the FULL page's words from
+        scratch, oblivious to a "read from here" click trimming the
+        start, so its progress estimate raced through words that were
+        never even sent to the synthesizer."""
         if getattr(self, "_tts_synthesizing", False):
             return  # a previous read is still being synthesized
+        text = " ".join(w[4] for w in words)
 
         # Captured for _update_tts_highlight's position estimate -- the
         # actual page being read stays fixed even if the user scrolls/
         # navigates elsewhere while listening (self.page would drift).
         self._tts_reading_page = page
         self._tts_reading_page_num = page_num
+        self._tts_reading_words = words
 
         voice_id = self.tts_voice.get()
         if not self._ensure_voice_available(voice_id):
@@ -3685,7 +3774,12 @@ class SlateApp:
             return
         if self._layout is not None and page_num not in self._last_window:
             return  # not currently drawn -- nothing to overlay onto
-        words = self._tts_reading_page.get_text("words")
+        # self._tts_reading_words (Devin, 2026-07-26 fix), NOT a fresh
+        # self._tts_reading_page.get_text("words") -- that used to
+        # silently ignore a "read from here" start offset, estimating
+        # progress against every word on the page instead of only the
+        # ones actually sent to the synthesizer.
+        words = self._tts_reading_words
         if not words:
             return
         # Real mechanism behind "TTS indicator is too fast" (Devin,
