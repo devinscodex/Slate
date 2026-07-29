@@ -24,10 +24,25 @@ import fitz
 
 
 class PageLayout:
-    def __init__(self, doc: fitz.Document, zoom: float, gap: int = 2, cols: int = 1):
+    def __init__(self, doc: fitz.Document, zoom: float, gap: int = 2, cols: int = 1,
+                 center_offset_x: float = 0.0):
+        """center_offset_x (Devin, 2026-07-29 -- "current default alignment
+        isn't centered"): a single horizontal shift applied to every rect,
+        computed by the caller (slate.py knows the real Tk canvas viewport
+        width; this class deliberately stays Tk-free, pure math only, per
+        its own module docstring) as max(0, (viewport_width - content_width)
+        / 2). Baking it in HERE, once, means every existing call site that
+        already trusts rect_of()'s coordinates for drawing, click hit-
+        testing (page_at), TTS highlight placement, and text-selection
+        overlays all get centered positions automatically -- no separate
+        offset-plumbing needed at each of those call sites. Zero when
+        content is already >= viewport width (nothing to center, the
+        existing left-pinned behavior IS correct once real horizontal
+        scrolling is needed)."""
         self.zoom = zoom
         self.gap = gap
         self.cols = cols
+        self.center_offset_x = center_offset_x  # public: staleness checks compare against this directly
         self._rects = []  # [(page_num, x0, y0, x1, y1), ...] canvas px
         page_dims = [(doc[i].rect.width * zoom, doc[i].rect.height * zoom) for i in range(doc.page_count)]
         col_w = max((w for w, _h in page_dims), default=0.0)
@@ -35,14 +50,17 @@ class PageLayout:
         for row_start in range(0, len(page_dims), cols):
             row = page_dims[row_start:row_start + cols]
             row_heights.append(max(h for _w, h in row) if row else 0.0)
-        y = 0.0
         for i, (w, h) in enumerate(page_dims):
             row, col = divmod(i, cols)
-            x0 = col * (col_w + gap)
+            x0 = center_offset_x + col * (col_w + gap)
             row_y = sum(row_heights[:row]) + row * gap
             self._rects.append((i, x0, row_y, x0 + w, row_y + h))
         self._total_h = sum(row_heights) + max(0, len(row_heights) - 1) * gap
-        self._total_w = cols * col_w + max(0, cols - 1) * gap
+        # content_width: the real, UN-shifted document width -- callers
+        # (slate.py) need this to compute next render's center_offset_x
+        # without it compounding the previous pass's own offset.
+        self.content_width = cols * col_w + max(0, cols - 1) * gap
+        self._total_w = center_offset_x + self.content_width
 
     def rect_of(self, page_num: int) -> tuple:
         """(x0, y0, x1, y1) canvas-space bounds of one page."""

@@ -2133,6 +2133,7 @@ class SlateApp:
                 open_path = epubfix.fix_epub_encoding_conflicts(path)
             except Exception:
                 open_path = path  # fail soft -- open the original rather than block on this
+            doc = fitz.open(open_path)
         elif path.lower().endswith((".html", ".htm", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff")):
             # fitz/PyMuPDF can't render HTML+CSS+JS at all, and treats
             # a bare image as a 1-page doc without the same page-image
