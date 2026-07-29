@@ -207,9 +207,13 @@ _MOSSCAIRN3_DARK = {
     "highlight_bg": "#699d43",
 }
 _MOSSCAIRN3_LIGHT = {
-    "bg": "#eae5d6", "fg": "#201e17", "button_bg": "#ded7c3",
-    "entry_bg": "#eae5d6", "canvas_bg": "#eae5d6",
-    "select_bg": "#58763a", "muted_fg": "#423d2e", "is_dark": False,
+    # Re-synced 2026-07-29 (Devin: "mosscairn3 has too much tan" / "but
+    # mosscairn2-light needs to be darkened a smidge") -- mosscairn2.css
+    # had drifted since this port was first built; re-derived from its
+    # real current (now further-darkened) light block.
+    "bg": "#d0cbbf", "fg": "#13120f", "button_bg": "#c1bcad",
+    "entry_bg": "#d0cbbf", "canvas_bg": "#d0cbbf",
+    "select_bg": "#58763a", "muted_fg": "#322f28", "is_dark": False,
     "highlight_bg": "#58763a",
 }
 
