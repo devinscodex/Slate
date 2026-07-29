@@ -33,7 +33,7 @@ def test_every_theme_label_maps_to_a_real_theme():
         assert name in theme.THEMES, label
 
 
-def test_roster_is_exactly_nine_themes():
+def test_roster_is_exactly_eight_themes():
     """Devin, 2026-07-25: "make standard light/dark modes the same as
     Flexoki, and get rid of Flexoki as a separate option, also delete
     Gruvbox themes... main will be Dark/Light, Solarized Light/Dark,
@@ -42,23 +42,26 @@ def test_roster_is_exactly_nine_themes():
     color, just leave solarized dark and call it just 'solarized'" --
     Solarized drops to a single variant, roster was 5 total.
 
-    Grown to 9, 2026-07-29 (WebUI/CSS council, real design work): Boneink
-    (light/dark, ported from Runestone's boneink.css) and Mosscairn3
-    (light/dark, ported from Runestone's mosscairn3.css -- Solarized
-    bones + a desaturated moss accent) added as real candidates, not a
-    final pick. Devin's own framing for this batch: "test both
-    concurrently until we got that flavor we're looking for" -- these
-    stay in the roster to be eyeballed live, same as any other theme."""
+    Grown to 9, 2026-07-29 (WebUI/CSS council): Boneink (light/dark) and
+    Mosscairn3 (light/dark -- Solarized bones + a desaturated moss
+    accent) added as real candidates. Settled the same day, later:
+    Mosscairn3 -> Mosscairn (Devin: "these colors are looking GREAT,"
+    dropped the number) and Solarized RETIRED entirely ("Solarized can
+    go away") -- Mosscairn Dark already carries its exact official
+    neutrals with a moss accent instead of blue, made the standalone
+    Solarized entry redundant. Roster settles at 8."""
     assert set(theme.THEMES.keys()) == {
         "light", "dark",
         "inkbone_light", "inkbone_dark",
-        "solarized",
         "boneink_light", "boneink_dark",
-        "mosscairn3_light", "mosscairn3_dark",
+        "mosscairn_light", "mosscairn_dark",
     }
-    for gone in ("flexoki_dark", "flexoki_light", "gruvbox_dark", "gruvbox_light", "solarized_light"):
+    for gone in ("flexoki_dark", "flexoki_light", "gruvbox_dark", "gruvbox_light",
+                 "solarized_light", "solarized", "mosscairn3_light", "mosscairn3_dark"):
         assert gone not in theme.THEMES, gone
-    for gone_label in ("Flexoki Dark", "Flexoki Light", "Gruvbox Dark", "Gruvbox Light", "Solarized Light", "Solarized Dark"):
+    for gone_label in ("Flexoki Dark", "Flexoki Light", "Gruvbox Dark", "Gruvbox Light",
+                        "Solarized Light", "Solarized Dark", "Solarized",
+                        "Mosscairn3 Light", "Mosscairn3 Dark"):
         assert gone_label not in theme.THEME_LABELS, gone_label
 
 
@@ -100,14 +103,15 @@ def test_standard_uses_inkbone_green_not_flexoki_blue():
     """Devin, 2026-07-25, real live feedback: "only request for
     standard is to use inkbone green instead of blue for standard if
     possible." Green is Slate's real house accent now, shared by
-    Standard and Inkbone -- Solarized keeps its own blue identity
-    (official palette, not asked to change)."""
+    Standard and Inkbone. (Solarized's own separate blue identity was
+    retired along with the theme itself, 2026-07-29 -- see
+    test_mosscairn_dark_matches_the_real_official_solarized_bones,
+    which keeps the official-palette-fidelity check alive against
+    Mosscairn Dark instead.)"""
     assert theme.THEMES["dark"]["select_bg"] == "#62a945"
     assert theme.THEMES["dark"]["highlight_bg"] == "#62a945"
     assert theme.THEMES["light"]["select_bg"] == "#4a7637"
     assert theme.THEMES["light"]["highlight_bg"] == "#4a7637"
-    # Solarized's blue is real, official, and untouched
-    assert theme.THEMES["solarized"]["select_bg"] == "#268bd2"
 
 
 def test_inkbone_dark_night_noir_page_matches_the_real_cairn_source():
@@ -141,22 +145,19 @@ def test_inkbone_green_is_minimal_pure_accent_lives_in_selection_roles_only():
 
 
 def test_named_theme_palettes_are_real_and_distinct():
-    """Solarized/Standard(Flexoki) -- confirm each is actually a
-    distinct palette (not accidentally aliased to each other) and that
-    is_dark matches the palette's own name.
+    """Standard(Flexoki)/Inkbone/Boneink/Mosscairn -- confirm each is
+    actually a distinct palette (not accidentally aliased to each
+    other) and that is_dark matches the palette's own name.
 
-    Checks (bg, select_bg) pairs rather than bg alone (loosened
-    2026-07-29): two 2026-07-29 additions deliberately SHARE a bg with
-    an existing theme, on purpose, not by accident -- boneink_dark's
+    Checks (bg, select_bg) pairs rather than bg alone: boneink_dark's
     #0e0c0a is literally Inkbone Dark's bg (same real "night noir"
-    bones, boneink.css was built to share them), and mosscairn3_dark's
-    #002b36 is literally Solarized's own base03 (the whole point of
-    "dark solarized + moss accent" is Solarized's real bones wearing a
-    different accent). A bare bg-uniqueness check would fail on these
-    intentional siblings; checking the (bg, select_bg) pair still
-    catches a genuine copy-paste accident (identical bg AND identical
-    accent = truly indistinguishable theme, which none of these are)."""
-    assert theme.THEMES["solarized"]["is_dark"] is True
+    bones, boneink.css was built to share them) -- a deliberate,
+    on-purpose sibling, not an accident. A bare bg-uniqueness check
+    would fail on that intentional pairing; checking the (bg,
+    select_bg) pair still catches a genuine copy-paste accident
+    (identical bg AND identical accent = truly indistinguishable
+    theme, which no two here are)."""
+    assert theme.THEMES["mosscairn_dark"]["is_dark"] is True
     assert theme.THEMES["dark"]["is_dark"] is True
     assert theme.THEMES["light"]["is_dark"] is False
 
@@ -221,25 +222,24 @@ def test_lerp_toward_fg_computes_a_real_fractional_step():
     assert theme._lerp_toward_fg("#000000", "#ffffff", 0.5) == "#808080"
 
 
-def test_solarized_matches_the_real_official_palette():
-    """Devin, 2026-07-25: "please review the solarized light/dark,
-    those are not exactly the spirit of solarized light/dark. please
-    refer to official repos/color palette for it." Real official
-    values, ethanschoonover.com/solarized, verified live (not memory)
-    same session: dark mode's real relationship is base03:base0 for
-    bg:fg per the design's own stated principle, base02 for the
-    secondary/UI surface. Supersedes an earlier same-night pass that
-    had desaturated dark's bg/button_bg off-spec (a live aesthetic
-    complaint, "the paper is too blue") -- this later, explicit "match
-    the official spec" instruction wins.
+def test_mosscairn_dark_matches_the_real_official_solarized_bones():
+    """Originally test_solarized_matches_the_real_official_palette
+    (Devin, 2026-07-25: "please review the solarized light/dark...
+    refer to official repos/color palette for it" -- real values,
+    ethanschoonover.com/solarized, verified live: base03:base0 for
+    bg:fg, base02 for the secondary/UI surface).
 
-    Light variant dropped later the same day (Devin: "please delete
-    solarized light color, just leave solarized dark and call it just
-    'solarized'") -- one variant now, key "solarized" not
-    "solarized_dark"."""
-    dark = theme.THEMES["solarized"]
-    assert dark["bg"] == "#002b36"  # base03
-    assert dark["button_bg"] == "#073642"  # base02
-    assert dark["fg"] == "#839496"  # base0
-    assert dark["muted_fg"] == "#586e75"  # base01
-    assert dark["select_bg"] == "#268bd2"  # official accent blue
+    Solarized itself was retired 2026-07-29 ("Solarized can go away")
+    once Mosscairn Dark existed, carrying these exact same official
+    neutrals with a moss accent instead of blue -- this test moved
+    with the values rather than being deleted, so official-palette
+    fidelity for bg/button_bg/fg/muted_fg is still checked live. Only
+    select_bg differs on purpose now: Mosscairn's own moss accent
+    (#699d43), not Solarized's official blue -- that substitution IS
+    the whole point of this theme, not a regression."""
+    dark = theme.THEMES["mosscairn_dark"]
+    assert dark["bg"] == "#002b36"  # Solarized base03
+    assert dark["button_bg"] == "#073642"  # Solarized base02
+    assert dark["fg"] == "#839496"  # Solarized base0
+    assert dark["muted_fg"] == "#586e75"  # Solarized base01
+    assert dark["select_bg"] == "#699d43"  # Mosscairn's own moss accent, not Solarized's blue

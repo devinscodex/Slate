@@ -1026,13 +1026,42 @@ class SlateApp:
             self._paint_widget(top, theme.get_palette(self.theme_name.get()))
             accent_bar.configure(bg="#62a945")
 
+        # Theme picker as a Light/Dark grid, one row per family (Devin,
+        # 2026-07-29: "can we stack settings a lil nicer plz" -- the old
+        # one-radio-per-line list made this LabelFrame taller than every
+        # other section combined once the roster grew past 5). Families
+        # are derived from THEME_LABELS itself (split on a trailing
+        # "Light"/"Dark" word) rather than hardcoded, so a future theme
+        # add/remove/rename can't silently drift this layout out of sync
+        # with the real roster -- the exact class of bug the theme
+        # roster itself just went through today (mosscairn2.css drifting
+        # out from under mosscairn3's copied values).
         theme_frame = tk.LabelFrame(top, text="Theme")
         theme_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
+        _families = {}
         for label, name in theme.THEME_LABELS.items():
-            tk.Radiobutton(
-                theme_frame, text=label, variable=self.theme_name, value=name,
-                command=_on_theme_changed_and_repaint, selectcolor=RADIO_SELECT_COLOR,
-            ).pack(anchor="w", padx=10, pady=1)
+            if label.endswith(" Light"):
+                _families.setdefault(label[: -len(" Light")], {})["Light"] = (label, name)
+            elif label.endswith(" Dark"):
+                _families.setdefault(label[: -len(" Dark")], {})["Dark"] = (label, name)
+            elif label in ("Light", "Dark"):
+                _families.setdefault("Standard", {})[label] = (label, name)
+            else:
+                _families.setdefault(label, {})["Light"] = (label, name)
+        for row, (family, modes) in enumerate(_families.items()):
+            tk.Label(theme_frame, text=family, anchor="w").grid(
+                row=row, column=0, sticky="w", padx=(10, 6), pady=1
+            )
+            for col, mode in enumerate(("Light", "Dark"), start=1):
+                if mode not in modes:
+                    continue
+                label, name = modes[mode]
+                tk.Radiobutton(
+                    theme_frame, text=mode, variable=self.theme_name, value=name,
+                    command=_on_theme_changed_and_repaint, selectcolor=RADIO_SELECT_COLOR,
+                ).grid(row=row, column=col, sticky="w", padx=4, pady=1)
+        theme_frame.grid_columnconfigure(1, weight=1)
+        theme_frame.grid_columnconfigure(2, weight=1)
 
         # -- View --
         view_frame = tk.LabelFrame(top, text="View")

@@ -14,8 +14,8 @@ def test_load_preference_defaults_to_the_default_theme_when_nothing_saved():
 def test_save_then_load_preference_round_trips():
     theme.save_preference("light")
     assert theme.load_preference() == "light"
-    theme.save_preference("solarized")
-    assert theme.load_preference() == "solarized"
+    theme.save_preference("mosscairn_dark")
+    assert theme.load_preference() == "mosscairn_dark"
 
 
 def test_load_preference_corrupt_file_defaults_to_default_theme_not_an_error():

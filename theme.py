@@ -142,28 +142,11 @@ _STANDARD_LIGHT = {
     "highlight_bg": "#4a7637",
 }
 
-# Solarized -- real official values, ethanschoonover.com/solarized,
-# verified live 2026-07-25 (not memory): dark mode's real relationship
-# is base03:base0 for bg:fg per the design's own stated principle,
-# base02 for the secondary/UI surface. Restored to the true published
-# hex here -- an EARLIER same-night pass had desaturated bg/button_bg
-# off-spec toward a neutral charcoal (a live aesthetic complaint, "the
-# paper is too blue"), but Devin's follow-up instruction explicitly
-# asks to match "the spirit of solarized... refer to official repos,"
-# which supersedes that earlier ad-hoc call -- Solarized's blue-black
-# identity IS the spec, not a bug to soften. fg/muted_fg were already
-# correct (base0/base01) and are unchanged.
-#
-# Light variant dropped (Devin, 2026-07-25: "please delete solarized
-# light color, just leave solarized dark and call it just
-# 'solarized'") -- one Solarized variant now, not a light/dark pair
-# like Standard/Inkbone.
-_SOLARIZED = {
-    "bg": "#002b36", "fg": "#839496", "button_bg": "#073642",
-    "entry_bg": "#073642", "canvas_bg": "#002b36",
-    "select_bg": "#268bd2", "muted_fg": "#586e75", "is_dark": True,
-    "highlight_bg": "#268bd2",
-}
+# Solarized -- RETIRED 2026-07-29 (Devin: "Solarized can go away") --
+# superseded by Mosscairn's own dark variant below, which already carries
+# these exact official neutrals (bg/button_bg/muted_fg/fg) with a moss
+# accent instead of Solarized's blue. Kept as a one-line historical note,
+# not a dict: the real values live in _MOSSCAIRN_DARK now.
 
 # Boneink -- Cairn's manga/noir family (Runestone's boneink.css, read
 # directly from its real values, 2026-07-29). Shares Inkbone's exact bg/fg
@@ -190,27 +173,27 @@ _BONEINK_LIGHT = {
     "highlight_bg": "#2d765b",
 }
 
-# Mosscairn3 -- Runestone's mosscairn3.css, 2026-07-29 council ask (Fable
-# + Devin): light stone carried forward unchanged from mosscairn2 (already
-# just fixed same day); dark rebuilt on REAL official Solarized neutrals
-# (bg/button_bg/muted_fg/fg all match Slate's own _SOLARIZED values
-# exactly -- same source, ethanschoonover.com/solarized) with the accent
-# replaced: mosscairn2's yellow-green "lamp" (h:70 s:78%) desaturated and
-# re-hued to true moss (h:95 s:40% l:44% -> #699d43), per Fable's steer
-# "pull saturation well under half, walk hue toward true green." This is
-# Solarized's own bones wearing Cairn's own accent, not a new family from
-# scratch.
-_MOSSCAIRN3_DARK = {
+# Mosscairn -- Runestone's mosscairn.css, consolidated 2026-07-29 (was
+# briefly mosscairn/mosscairn2/mosscairn3 -- three iterations landing on
+# one real theme; "these colors are looking GREAT," final name has no
+# number). Light stone carried forward from the file's own iteration;
+# dark built on REAL official Solarized neutrals (bg/button_bg/muted_fg/
+# fg -- ethanschoonover.com/solarized) with the accent replaced: the old
+# yellow-green "lamp" desaturated and re-hued to true moss (h:95 s:40%
+# l:44% -> #699d43), per Fable's steer "pull saturation well under half,
+# walk hue toward true green." Solarized's own bones wearing Cairn's own
+# accent -- and per Devin's same-day ask, this dark variant now also
+# retires the old separate "solarized" theme entirely (redundant once
+# this existed).
+_MOSSCAIRN_DARK = {
     "bg": "#002b36", "fg": "#839496", "button_bg": "#073642",
     "entry_bg": "#073642", "canvas_bg": "#002b36",
     "select_bg": "#699d43", "muted_fg": "#586e75", "is_dark": True,
     "highlight_bg": "#699d43",
 }
-_MOSSCAIRN3_LIGHT = {
-    # Re-synced 2026-07-29 (Devin: "mosscairn3 has too much tan" / "but
-    # mosscairn2-light needs to be darkened a smidge") -- mosscairn2.css
-    # had drifted since this port was first built; re-derived from its
-    # real current (now further-darkened) light block.
+_MOSSCAIRN_LIGHT = {
+    # Darkened a smidge + de-tanned 2026-07-29 per Devin's direct live
+    # feedback -- re-derived from mosscairn.css's real current light block.
     "bg": "#d0cbbf", "fg": "#13120f", "button_bg": "#c1bcad",
     "entry_bg": "#d0cbbf", "canvas_bg": "#d0cbbf",
     "select_bg": "#58763a", "muted_fg": "#322f28", "is_dark": False,
@@ -259,29 +242,29 @@ THEMES = {
     "dark": _with_chrome_cascade(_STANDARD_DARK),
     "inkbone_light": _with_chrome_cascade(_INKBONE_LIGHT),
     "inkbone_dark": _with_chrome_cascade(_INKBONE_DARK),
-    "solarized": _with_chrome_cascade(_SOLARIZED),
     "boneink_light": _with_chrome_cascade(_BONEINK_LIGHT),
     "boneink_dark": _with_chrome_cascade(_BONEINK_DARK),
-    "mosscairn3_light": _with_chrome_cascade(_MOSSCAIRN3_LIGHT),
-    "mosscairn3_dark": _with_chrome_cascade(_MOSSCAIRN3_DARK),
+    "mosscairn_light": _with_chrome_cascade(_MOSSCAIRN_LIGHT),
+    "mosscairn_dark": _with_chrome_cascade(_MOSSCAIRN_DARK),
 }
 
 # Display label -> internal THEMES key, in menu order. Devin's stated
 # work order 2026-07-25 ("in order: Standard, Inkbone, Solarized")
-# applied as the real menu order too; Boneink/Mosscairn3 appended
-# 2026-07-29 (WebUI/CSS council, real design work not yet Devin-ratified
-# as a final pick -- these are candidates to eyeball live, per his own
-# "test both concurrently until we got that flavor" ask, not a done deal).
+# applied as the real menu order too; Boneink/Mosscairn appended
+# 2026-07-29 (WebUI/CSS council). Solarized retired same day ("Solarized
+# can go away") -- Mosscairn Dark already carries its exact neutrals with
+# a moss accent instead of blue, made the standalone entry redundant.
+# Mosscairn was Mosscairn3 during design/comparison; Devin's verdict
+# ("these colors are looking GREAT") dropped the number.
 THEME_LABELS = {
     "Light": "light",
     "Dark": "dark",
     "Inkbone Light": "inkbone_light",
     "Inkbone Dark": "inkbone_dark",
-    "Solarized": "solarized",
     "Boneink Light": "boneink_light",
     "Boneink Dark": "boneink_dark",
-    "Mosscairn3 Light": "mosscairn3_light",
-    "Mosscairn3 Dark": "mosscairn3_dark",
+    "Mosscairn Light": "mosscairn_light",
+    "Mosscairn Dark": "mosscairn_dark",
 }
 
 # Kept as plain names too (not just THEMES["light"]/["dark"]) -- several

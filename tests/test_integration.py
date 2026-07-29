@@ -206,20 +206,29 @@ def test_dark_mode_repaints_toolbar_and_canvas(tmp_path):
 
 
 def test_named_themes_produce_visibly_distinct_colors(tmp_path):
-    """Solarized and Standard(Flexoki) are real, separately-sourced
+    """Mosscairn and Standard(Flexoki) are real, separately-sourced
     palettes, not aliases of light/dark with different names -- confirm they
     actually paint different colors from each other and from the
-    built-in light/dark pair."""
+    built-in light/dark pair.
+
+    Checks (canvas_bg, select_bg) pairs rather than canvas_bg alone
+    (loosened 2026-07-29, same reasoning as test_theme.py's own
+    test_named_theme_palettes_are_real_and_distinct): Boneink Dark
+    deliberately shares Inkbone Dark's exact canvas_bg (#0e0c0a, real
+    "night noir" bones on purpose) -- a bare canvas_bg-uniqueness check
+    fails on that intentional sibling. The (canvas_bg, select_bg) pair
+    still catches a genuine accidental alias."""
     import theme
 
     root, app = _make_app(tmp_path)
     try:
-        seen_bg = set()
+        seen = set()
         for name in theme.THEMES:
             app.theme_name.set(name)
             app._apply_theme()
-            seen_bg.add(app.canvas.cget("bg"))
-        assert len(seen_bg) == len(theme.THEMES)  # every theme's canvas_bg is unique
+            colors = theme.get_palette(name)
+            seen.add((app.canvas.cget("bg"), colors["select_bg"]))
+        assert len(seen) == len(theme.THEMES)  # every theme is genuinely distinguishable
     finally:
         app.doc.close()
         root.destroy()
@@ -2872,11 +2881,12 @@ def test_toc_selected_row_uses_theme_highlight_not_ttks_default_blue(tmp_path):
 def test_about_dialog_has_a_fixed_green_accent_regardless_of_theme(tmp_path, monkeypatch):
     """Devin, 2026-07-25: "please add a permanent, clever hint of
     inkbone green on the about page please" -- must stay green even
-    under Solarized, whose real accent is blue."""
+    under a non-green theme (Mosscairn Dark's real accent is moss,
+    #699d43, not the fixed #62a945 accent bar checked here)."""
     monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
     root, app = _make_app(tmp_path)
     try:
-        app.theme_name.set("solarized")
+        app.theme_name.set("mosscairn_dark")
         app._apply_theme()
         app._show_about()
         about = root.winfo_children()[-1]  # the just-opened Toplevel
@@ -2916,11 +2926,11 @@ def test_command_palette_filters_live_as_you_type(tmp_path):
         entry = [w for w in palette.winfo_children() if isinstance(w, tk.Entry)][0]
         listbox = [w for w in palette.winfo_children() if isinstance(w, tk.Listbox)][0]
 
-        entry.insert(0, "solarized")
+        entry.insert(0, "mosscairn dark")
         root.update()
         entries = listbox.get(0, tk.END)
-        assert len(entries) == 1  # Solarized is a single variant now
-        assert all("Solarized" in e for e in entries)
+        assert len(entries) == 1  # exactly one theme matches this filter
+        assert all("Mosscairn Dark" in e for e in entries)
         palette.destroy()
     finally:
         app.doc.close()
@@ -2934,9 +2944,9 @@ def test_selecting_a_theme_in_command_palette_applies_it_and_closes(tmp_path):
     real code the double-click binds to directly instead."""
     root, app = _make_app(tmp_path)
     try:
-        app._apply_command_palette_theme("solarized")
-        assert app.theme_name.get() == "solarized"
-        assert theme.load_preference() == "solarized"  # real persisted, not just the var
+        app._apply_command_palette_theme("mosscairn_dark")
+        assert app.theme_name.get() == "mosscairn_dark"
+        assert theme.load_preference() == "mosscairn_dark"  # real persisted, not just the var
     finally:
         app.doc.close()
         root.destroy()
