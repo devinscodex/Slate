@@ -40,17 +40,39 @@ _BROWSER_CANDIDATES = [
 ]
 
 
+def _wsl_mount_variant(win_path: str) -> str | None:
+    """`C:\\Program Files\\...` -> `/mnt/c/Program Files/...`, so the
+    same candidate list resolves under WSL's own Python too, not just a
+    native Windows one. Real bug found live 2026-07-28: `os.path.exists`
+    on a raw Windows path is unconditionally False under WSL, so
+    `_find_browser` always fell through to `shutil.which`, which also
+    fails (brave.exe isn't on a WSL shell's PATH) -- silent failure
+    every time this ran from the WSL-side .venv, not just a Devin
+    launch-choice issue. Checking both forms unconditionally is cheap
+    (the "wrong" form for the current OS is just harmlessly False) and
+    means this list stays correct from either venv without branching on
+    platform."""
+    if len(win_path) < 3 or win_path[1] != ":":
+        return None
+    drive = win_path[0].lower()
+    rest = win_path[2:].replace("\\", "/")
+    return f"/mnt/{drive}{rest}"
+
+
 def _find_browser() -> str:
     for path in _BROWSER_CANDIDATES:
         if os.path.exists(path):
             return path
+        wsl_path = _wsl_mount_variant(path)
+        if wsl_path and os.path.exists(wsl_path):
+            return wsl_path
     found = shutil.which("brave.exe") or shutil.which("chrome.exe")
     if found:
         return found
     raise FileNotFoundError(
         "No Chromium-family browser found (checked Brave/Chrome standard "
-        "install paths and PATH) -- html_to_pdf needs one for real "
-        "HTML+CSS+JS rendering."
+        "install paths -- both native and WSL-mounted forms -- and PATH) "
+        "-- html_to_pdf needs one for real HTML+CSS+JS rendering."
     )
 
 

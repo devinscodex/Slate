@@ -605,6 +605,8 @@ class SlateApp:
         filem.add_command(label="Encrypt...", command=self.do_encrypt)
         filem.add_command(label="Sign (self-signed test cert)...", command=self.do_sign)
         filem.add_separator()
+        filem.add_command(label="Settings...", command=self._show_settings, accelerator="F12")
+        filem.add_separator()
         filem.add_command(label="Quit", command=self.root.quit, accelerator="Ctrl+Q")
         menubar.add_cascade(label="File", menu=filem)
 
@@ -692,7 +694,6 @@ class SlateApp:
             command=self._on_colorize_toggle, selectcolor=radio_select_color,
         )
         viewm.add_separator()
-        viewm.add_command(label="Settings...", command=self._show_settings)
         menubar.add_cascade(label="View", menu=viewm)
 
         convertm = tk.Menu(menubar, tearoff=0)
@@ -1695,6 +1696,7 @@ class SlateApp:
         # CUA keybinds)") -- the standard Windows/Mac shortcut set,
         # matching menu accelerators added alongside these.
         self.root.bind("<F2>", self._show_command_palette)
+        self.root.bind("<F12>", lambda e: self._show_settings())
         self.root.bind("<Control-w>", lambda e: self.do_close())
         self.root.bind("<Control-o>", lambda e: self.open_file())
         self.root.bind("<Control-s>", lambda e: self.save())
