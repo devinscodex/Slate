@@ -39,7 +39,7 @@ import theme
 import tts
 import updatecheck
 import version
-from viewer import Viewer
+from viewer import Viewer, detect_content_bbox
 from playback import Player as TTSPlayer
 
 _TAB_CLOSE_GLYPH = "×"  # visual hint only -- middle-click actually closes, see _on_tab_strip_click
@@ -119,6 +119,17 @@ class SlateApp:
         # default True (unchanged existing behavior) so nothing regresses
         # for the common case.
         self.colorize_pages = _saved["colorize_pages"]
+        # Crop to content (Devin, 2026-07-29: "I don't like big page
+        # margins, especially in book view") -- one shared crop rect
+        # (viewer.detect_content_bbox) applied to every page, cached per
+        # DOCUMENT (self._crop_rect, keyed by self._crop_rect_doc) since
+        # sampling several pages' real text/image/drawing bboxes isn't
+        # free and the result doesn't change unless the document itself
+        # changes. Default off -- a display-altering feature, opt-in same
+        # as colorize_pages above, not sprung on an existing workflow.
+        self.crop_to_content = _saved.get("crop_to_content", False)
+        self._crop_rect = None
+        self._crop_rect_doc = None
         self._tk_img = None  # keep a reference or Tkinter garbage-collects it
         self.mode = "view"  # view | redact | annotate:<kind> | forms | textedit
         self._drag_start = None
@@ -336,6 +347,21 @@ class SlateApp:
         settings.save({"colorize_pages": self.colorize_pages})
         if self.doc is not None:
             self._page_cache.invalidate_all()
+            self.render()
+
+    def _on_crop_toggle(self):
+        # Same cache-bust discipline as _on_colorize_toggle -- crop is
+        # baked into the cached PhotoImage's actual pixel size at
+        # fill-time (get_pixmap(clip=...)), not reapplied per-draw.
+        # Also drops self._layout (not just the page cache): the crop
+        # rect changes every rect_of() coordinate too, not just pixel
+        # content, so a stale layout would draw newly-cropped images at
+        # OLD (uncropped) positions.
+        self.crop_to_content = self.crop_to_content_var.get()
+        settings.save({"crop_to_content": self.crop_to_content})
+        if self.doc is not None:
+            self._page_cache.invalidate_all()
+            self._layout = None
             self.render()
 
     def _apply_native_titlebar_theme(self):
@@ -734,6 +760,14 @@ class SlateApp:
             label="Colorize pages to theme", variable=self.colorize_pages_var,
             command=self._on_colorize_toggle, selectcolor=radio_select_color,
         )
+        # Crop to Content (Devin, 2026-07-29): opt-in same as Colorize
+        # above -- a display-altering feature, default off so it doesn't
+        # surprise an existing workflow.
+        self.crop_to_content_var = tk.BooleanVar(value=self.crop_to_content)
+        viewm.add_checkbutton(
+            label="Crop to Content", variable=self.crop_to_content_var,
+            command=self._on_crop_toggle, selectcolor=radio_select_color,
+        )
         viewm.add_separator()
         menubar.add_cascade(label="View", menu=viewm)
 
@@ -1018,6 +1052,10 @@ class SlateApp:
         tk.Checkbutton(
             view_frame, text="Colorize pages to theme", variable=self.colorize_pages_var,
             command=self._on_colorize_toggle, selectcolor=RADIO_SELECT_COLOR,
+        ).pack(anchor="w", padx=10, pady=2)
+        tk.Checkbutton(
+            view_frame, text="Crop to Content", variable=self.crop_to_content_var,
+            command=self._on_crop_toggle, selectcolor=RADIO_SELECT_COLOR,
         ).pack(anchor="w", padx=10, pady=2)
         tk.Checkbutton(
             view_frame, text="Show Table of Contents", variable=self.toc_visible,
@@ -2436,12 +2474,14 @@ class SlateApp:
         click back to PDF space."""
         cols = 2 if self.side_by_side else 1
         zoom = self.viewer.zoom
+        crop_rect = self._get_crop_rect()
         need_new_layout = (
             self._layout is None or self._layout_doc is not self.doc
             or self._layout.zoom != zoom or self._layout.cols != cols
+            or self._layout.crop_rect != crop_rect
         )
         if need_new_layout:
-            self._layout = layout.PageLayout(self.doc, zoom, cols=cols)
+            self._layout = layout.PageLayout(self.doc, zoom, cols=cols, crop_rect=crop_rect)
             self._layout_doc = self.doc
             self._page_cache.invalidate_all()
             self._last_window = set()
@@ -2477,10 +2517,27 @@ class SlateApp:
         # Tk's stale (0.0, 0.0) "not yet computed" sentinel.
         self.canvas.update_idletasks()
 
+    def _get_crop_rect(self):
+        """Cached per-DOCUMENT, not recomputed every render -- sampling
+        several pages' real text/image/drawing bboxes (detect_content_bbox)
+        isn't free, and the result can't change unless the document
+        itself does. Returns None when crop_to_content is off, or when
+        detection found nothing safe to crop to (a real, non-error case
+        -- see detect_content_bbox's own docstring); callers already
+        treat None as "render/layout the full page, unchanged"."""
+        if not self.crop_to_content:
+            return None
+        if self._crop_rect_doc is not self.doc:
+            self._crop_rect = detect_content_bbox(self.doc)
+            self._crop_rect_doc = self.doc
+        return self._crop_rect
+
     def _make_page_image(self, page_num):
         """PageImageCache's fill function -- only called on a real
         cache miss (a page entering the window for the first time)."""
-        img = self._colorize_for_theme(self.viewer.render_page(page_num=page_num))
+        img = self._colorize_for_theme(
+            self.viewer.render_page(page_num=page_num, clip=self._get_crop_rect())
+        )
         return ImageTk.PhotoImage(img)
 
     def _viewport_height(self) -> float:
@@ -2567,16 +2624,20 @@ class SlateApp:
         # dimension math, no rendering) rather than reusing self._layout,
         # so a repeated render at an unchanged viewport never measures its
         # OWN previous offset and compounds it.
+        crop_rect = self._get_crop_rect()
         viewport_w = self.canvas.winfo_width()
-        content_w = layout.PageLayout(self.doc, zoom, cols=cols).content_width
+        content_w = layout.PageLayout(self.doc, zoom, cols=cols, crop_rect=crop_rect).content_width
         center_offset_x = max(0.0, (viewport_w - content_w) / 2) if viewport_w > 1 else 0.0
         need_new_layout = (
             self._layout is None or self._layout_doc is not self.doc
             or self._layout.zoom != zoom or self._layout.cols != cols
             or self._layout.center_offset_x != center_offset_x
+            or self._layout.crop_rect != crop_rect
         )
         if need_new_layout:
-            self._layout = layout.PageLayout(self.doc, zoom, cols=cols, center_offset_x=center_offset_x)
+            self._layout = layout.PageLayout(
+                self.doc, zoom, cols=cols, center_offset_x=center_offset_x, crop_rect=crop_rect
+            )
             self._layout_doc = self.doc
             self._page_cache.invalidate_all()
             self._last_window = set()

@@ -25,7 +25,7 @@ import fitz
 
 class PageLayout:
     def __init__(self, doc: fitz.Document, zoom: float, gap: int = 2, cols: int = 1,
-                 center_offset_x: float = 0.0):
+                 center_offset_x: float = 0.0, crop_rect: "fitz.Rect | None" = None):
         """center_offset_x (Devin, 2026-07-29 -- "current default alignment
         isn't centered"): a single horizontal shift applied to every rect,
         computed by the caller (slate.py knows the real Tk canvas viewport
@@ -38,13 +38,31 @@ class PageLayout:
         offset-plumbing needed at each of those call sites. Zero when
         content is already >= viewport width (nothing to center, the
         existing left-pinned behavior IS correct once real horizontal
-        scrolling is needed)."""
+        scrolling is needed).
+
+        crop_rect (Devin, 2026-07-29 -- "build the crop feature... don't
+        like big page margins"): ONE shared crop rectangle (in page-space,
+        pre-zoom), from viewer.detect_content_bbox(), applied uniformly to
+        EVERY page rather than a per-page-varying crop. Deliberately
+        uniform: real PDFs almost always share the same margins page to
+        page, and a single shared rect means col_w/row_heights below stay
+        exactly the "widest page in the doc" math already established --
+        no per-page-varying-dimensions complexity rippling through the
+        side-by-side/continuous layout geometry for what's fundamentally a
+        cosmetic feature. The caller (slate.py) is responsible for
+        actually rendering each page's pixmap clipped to this same rect
+        (get_pixmap(clip=crop_rect)) so the drawn image size matches what
+        this class computes here -- this class only does the geometry."""
         self.zoom = zoom
         self.gap = gap
         self.cols = cols
         self.center_offset_x = center_offset_x  # public: staleness checks compare against this directly
+        self.crop_rect = crop_rect  # public: staleness checks compare against this directly
         self._rects = []  # [(page_num, x0, y0, x1, y1), ...] canvas px
-        page_dims = [(doc[i].rect.width * zoom, doc[i].rect.height * zoom) for i in range(doc.page_count)]
+        if crop_rect is not None:
+            page_dims = [(crop_rect.width * zoom, crop_rect.height * zoom) for _ in range(doc.page_count)]
+        else:
+            page_dims = [(doc[i].rect.width * zoom, doc[i].rect.height * zoom) for i in range(doc.page_count)]
         col_w = max((w for w, _h in page_dims), default=0.0)
         row_heights = []
         for row_start in range(0, len(page_dims), cols):

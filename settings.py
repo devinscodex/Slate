@@ -27,6 +27,7 @@ DEFAULTS = {
     "continuous_scroll": True,
     "side_by_side": False,
     "colorize_pages": False,
+    "crop_to_content": False,
     "toc_visible": True,
     "tts_voice": "northern_english_male",
     "tts_speed": 1.0,

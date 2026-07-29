@@ -3571,6 +3571,46 @@ def test_side_by_side_deep_page_still_resolves_clicks_at_row_origin(tmp_path):
         root.destroy()
 
 
+def test_crop_to_content_shrinks_the_rendered_page_and_layout_geometry(tmp_path):
+    """Devin, 2026-07-29: "build the crop feature... don't like big page
+    margins." Toggling it on must shrink BOTH the actual rendered pixmap
+    AND the layout geometry that positions/click-hit-tests it -- a
+    mismatch between the two (e.g. a cropped image drawn at an uncropped
+    rect_of() position) would be a real, silent bug, not just cosmetic."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.crop_to_content_var.set(False)
+        app._on_crop_toggle()
+        uncropped_w, uncropped_h = app._layout.total_size
+        uncropped_img = app._page_cache.get(0)
+        uncropped_img_w = uncropped_img.width()
+
+        app.crop_to_content_var.set(True)
+        app._on_crop_toggle()
+        cropped_w, cropped_h = app._layout.total_size
+        cropped_img = app._page_cache.get(0)
+        cropped_img_w = cropped_img.width()
+
+        # The fixture (basic3page.pdf) has real margins -- both the
+        # layout's own geometry and the actual rendered image must shrink,
+        # not just one of the two.
+        assert cropped_w < uncropped_w
+        assert cropped_img_w < uncropped_img_w
+        # rect_of() must reflect the SAME cropped size the image actually
+        # is -- this is the real mismatch risk named in this test's docstring.
+        page_rect_w = app._layout.rect_of(0)[2] - app._layout.rect_of(0)[0]
+        assert abs(page_rect_w - cropped_img_w) < 2  # sub-pixel rounding only
+
+        # Toggling back off restores the original (uncropped) geometry.
+        app.crop_to_content_var.set(False)
+        app._on_crop_toggle()
+        restored_w, _restored_h = app._layout.total_size
+        assert restored_w == uncropped_w
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_book_view_toggle_sets_both_axes_and_stays_in_sync(tmp_path):
     """Devin, 2026-07-29: "roll that up into Book View" -- F8/the
     checkbutton is a derived preset over the two real axes, not a third
