@@ -44,6 +44,21 @@ from playback import Player as TTSPlayer
 
 _TAB_CLOSE_GLYPH = "×"  # visual hint only -- middle-click actually closes, see _on_tab_strip_click
 
+# Tk's radiobutton/checkbutton checked-indicator (selectcolor) defaults
+# to a mid-gray that can vanish against a dark theme's background --
+# real bug, Devin screenshot 2026-07-25 ("if this is inkbone dark, i
+# cannot see the menu checkboxes"), fixed for the app's Menu-based
+# checkboxes at the time but never promoted to a shared constant, so
+# the Settings dialog's own standalone Radiobutton/Checkbutton widgets
+# (a separate code path, built later) never got it and shipped with
+# the same invisible-indicator bug in Dark/Inkbone Dark -- real
+# screenshot, 2026-07-28. Bright green reads against light OR dark
+# backgrounds, so one fixed value here (not re-themed live) is more
+# robust than tracking every radio/checkbutton through every theme
+# switch -- same reasoning _build_menu already used, now shared so it
+# can't drift between the two call sites again.
+RADIO_SELECT_COLOR = "#4a9e3a"
+
 # Menu labels that only make sense for a real PDF (mutation/signing/
 # forms/etc) -- disabled whenever the active tab's document isn't one.
 # PyMuPDF/MuPDF (confirmed live + via its own docs feature matrix) also
@@ -575,16 +590,14 @@ class SlateApp:
 
     def _build_menu(self):
         # Devin, 2026-07-25, real screenshot: "if this is inkbone dark,
-        # i cannot see the menu checkboxes" -- Tk's radiobutton/
-        # checkbutton indicator (selectcolor) defaults to a mid-gray
-        # that can vanish against a dark native menu background.
-        # Fixed value, not re-themed live on theme switch (the native
-        # Win32 menu popup itself is already a documented can't-fully-
-        # control surface, see theme.py's own docstring) -- bright
-        # green reads against light OR dark menu backgrounds, so a
-        # static pick here is more robust than trying to track/re-
-        # theme every radiobutton entry through every theme switch.
-        radio_select_color = "#4a9e3a"
+        # i cannot see the menu checkboxes" -- see RADIO_SELECT_COLOR's
+        # own module-level comment for the full story (now shared with
+        # the Settings dialog's standalone radios/checkboxes too, which
+        # had the same bug independently). Fixed value, not re-themed
+        # live on theme switch (the native Win32 menu popup itself is
+        # already a documented can't-fully-control surface, see
+        # theme.py's own docstring).
+        radio_select_color = RADIO_SELECT_COLOR
         menubar = self.menubar = tk.Menu(self.root)
 
         filem = self.filem = tk.Menu(menubar, tearoff=0)
@@ -956,7 +969,7 @@ class SlateApp:
         for label, name in theme.THEME_LABELS.items():
             tk.Radiobutton(
                 theme_frame, text=label, variable=self.theme_name, value=name,
-                command=_on_theme_changed_and_repaint,
+                command=_on_theme_changed_and_repaint, selectcolor=RADIO_SELECT_COLOR,
             ).pack(anchor="w", padx=10, pady=1)
 
         # -- View --
@@ -964,19 +977,19 @@ class SlateApp:
         view_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
         tk.Checkbutton(
             view_frame, text="Continuous Scroll", variable=self.continuous_scroll_var,
-            command=self._set_view_mode,
+            command=self._set_view_mode, selectcolor=RADIO_SELECT_COLOR,
         ).pack(anchor="w", padx=10, pady=(6, 2))
         tk.Checkbutton(
             view_frame, text="Side by Side", variable=self.side_by_side_var,
-            command=self._set_view_mode,
+            command=self._set_view_mode, selectcolor=RADIO_SELECT_COLOR,
         ).pack(anchor="w", padx=10, pady=2)
         tk.Checkbutton(
             view_frame, text="Colorize pages to theme", variable=self.colorize_pages_var,
-            command=self._on_colorize_toggle,
+            command=self._on_colorize_toggle, selectcolor=RADIO_SELECT_COLOR,
         ).pack(anchor="w", padx=10, pady=2)
         tk.Checkbutton(
             view_frame, text="Show Table of Contents", variable=self.toc_visible,
-            command=self._toggle_toc_panel,
+            command=self._toggle_toc_panel, selectcolor=RADIO_SELECT_COLOR,
         ).pack(anchor="w", padx=10, pady=(2, 6))
 
         # -- Zoom -- read-only display + the existing commands, not a
@@ -1024,7 +1037,7 @@ class SlateApp:
         for voice_id, info in tts.VOICES.items():
             tk.Radiobutton(
                 voice_row, text=info["label"], variable=self.tts_voice, value=voice_id,
-                command=self._on_tts_voice_changed,
+                command=self._on_tts_voice_changed, selectcolor=RADIO_SELECT_COLOR,
             ).pack(anchor="w")
         tk.Label(tts_frame, text="Speed:").pack(anchor="w", padx=10, pady=(6, 0))
         speed_row = tk.Frame(tts_frame)
@@ -1032,7 +1045,7 @@ class SlateApp:
         for speed in (0.75, 1.0, 1.25, 1.5, 2.0):
             tk.Radiobutton(
                 speed_row, text=f"{speed}x", variable=self.tts_speed, value=speed,
-                command=self._on_tts_speed_changed,
+                command=self._on_tts_speed_changed, selectcolor=RADIO_SELECT_COLOR,
             ).pack(side=tk.LEFT, padx=(0, 8))
 
         tk.Button(top, text="Close", command=top.destroy).pack(pady=(0, 16))
