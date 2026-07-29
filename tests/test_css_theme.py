@@ -167,3 +167,22 @@ def test_shipped_theme_dicts_match_the_real_current_css_file(filename, dark_key,
             f"{light_key}.{key}: CSS file says {parsed['light'][key]!r}, "
             f"theme.py says {shipped_light[key]!r} -- drifted"
         )
+
+
+@pytest.mark.skipif(
+    not os.path.isdir(_RUNESTONE_SNIPPETS),
+    reason="Runestone vault not present on this machine -- dev-only consistency check",
+)
+def test_inkrain_dark_matches_the_real_current_css_file():
+    """Same consistency guard as test_shipped_theme_dicts_match_the_real_
+    current_css_file, but Inkrain is dark-only (no light half exists in
+    its source material), so it can't share that test's parametrized
+    dark+light shape -- separate test, same real point."""
+    path = os.path.join(_RUNESTONE_SNIPPETS, "inkrain.css")
+    parsed = css_theme.parse_obsidian_css(path)
+    assert "light" not in parsed
+    shipped = theme.THEMES["inkrain_dark"]
+    for key, value in parsed["dark"].items():
+        assert value == shipped[key], (
+            f"inkrain_dark.{key}: CSS file says {value!r}, theme.py says {shipped[key]!r} -- drifted"
+        )

@@ -207,6 +207,25 @@ _MOSSCAIRN_LIGHT = {
     "highlight_bg": "#58763a",
 }
 
+# Inkrain -- Runestone's inkrain.css, 2026-07-29 (Devin's ask, after the new
+# branding/big/ Revelation-imagery batch). True black gutters, sumi-ink
+# linework, one pale sage-mint glow -- named for the one motif every source
+# image shares (rain streaking through near-total dark), not "Japanese
+# newspaper" (Devin's first guess, ruled out: no halftone/dot-grid in the
+# source material at all). Real sampled values (numpy over 5 actual
+# branding/big/ images, not picked by eye) -- ported via css_theme.py's own
+# parser rather than hand-copied, first real dogfood use of that tool.
+# DARK ONLY -- no light-mode reference exists in the source material, so
+# none is fabricated; THEME_LABELS carries no "Inkrain Light" entry, and
+# the Settings dialog grid leaves that cell blank for this row (handles an
+# odd-one-out family fine, built generically for exactly this case).
+_INKRAIN_DARK = {
+    "bg": "#030302", "fg": "#e4fadf", "button_bg": "#0a0d09",
+    "entry_bg": "#030302", "canvas_bg": "#030302",
+    "select_bg": "#b5deb4", "muted_fg": "#8a9884", "is_dark": True,
+    "highlight_bg": "#b5deb4",
+}
+
 THEMES = {
     "light": _with_chrome_cascade(_STANDARD_LIGHT),
     "dark": _with_chrome_cascade(_STANDARD_DARK),
@@ -214,6 +233,7 @@ THEMES = {
     "boneink_dark": _with_chrome_cascade(_BONEINK_DARK),
     "mosscairn_light": _with_chrome_cascade(_MOSSCAIRN_LIGHT),
     "mosscairn_dark": _with_chrome_cascade(_MOSSCAIRN_DARK),
+    "inkrain_dark": _with_chrome_cascade(_INKRAIN_DARK),
 }
 
 # Display label -> internal THEMES key, in menu order. Devin's stated
@@ -226,7 +246,9 @@ THEMES = {
 # ("these colors are looking GREAT") dropped the number. Inkbone retired
 # same day too ("let's get rid of inkbone") -- Boneink already shares its
 # exact bg/fg bones, nothing lost. Final roster: Standard, Boneink,
-# Mosscairn, light/dark each.
+# Mosscairn, light/dark each. Inkrain appended same day (Devin's ask,
+# real branding-imagery batch) -- dark-only, no light half exists in the
+# source material, so no "Inkrain Light" entry.
 THEME_LABELS = {
     "Light": "light",
     "Dark": "dark",
@@ -234,6 +256,7 @@ THEME_LABELS = {
     "Boneink Dark": "boneink_dark",
     "Mosscairn Light": "mosscairn_light",
     "Mosscairn Dark": "mosscairn_dark",
+    "Inkrain Dark": "inkrain_dark",
 }
 
 # Kept as plain names too (not just THEMES["light"]/["dark"]) -- several
