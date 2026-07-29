@@ -1048,7 +1048,10 @@ class SlateApp:
                 command=self._on_tts_speed_changed, selectcolor=RADIO_SELECT_COLOR,
             ).pack(side=tk.LEFT, padx=(0, 8))
 
-        tk.Button(top, text="Close", command=top.destroy).pack(pady=(0, 16))
+        btn_row = tk.Frame(top)
+        btn_row.pack(pady=(0, 16))
+        tk.Button(btn_row, text="About Slate...", command=self._show_about).pack(side=tk.LEFT, padx=(0, 8))
+        tk.Button(btn_row, text="Close", command=top.destroy).pack(side=tk.LEFT)
 
         self._paint_widget(top, colors)
         accent_bar.configure(bg="#62a945")  # same re-assert-after-paint fix as _show_about
