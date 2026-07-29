@@ -165,6 +165,54 @@ _SOLARIZED = {
     "highlight_bg": "#268bd2",
 }
 
+# Boneink -- Cairn's manga/noir family (Runestone's boneink.css, read
+# directly from its real values, 2026-07-29). Shares Inkbone's exact bg/fg
+# bones on both light (#c9b08a vs Inkbone's #c9b896 -- same tan-parchment
+# family, near-identical) and dark (#0e0c0a bg / #ede6d6 fg, literally
+# identical to Inkbone Dark) -- real, already-existing kinship, not
+# invented for this port. Accent corrected same day: the CSS's original
+# "jade" values were numerically identical to Inkbone's own green
+# (#62a945, same ~103deg grass-green hue) -- caught by this file's own
+# test_named_theme_palettes_are_real_and_distinct when the port produced
+# an exact (bg, select_bg) collision with inkbone_dark. Re-derived as a
+# true teal-leaning jade (~158deg) in boneink.css itself and carried
+# here, so this is a genuinely distinct theme, not Inkbone under a rename.
+_BONEINK_DARK = {
+    "bg": "#0e0c0a", "fg": "#ede6d6", "button_bg": "#1d1c1a",
+    "entry_bg": "#0e0c0a", "canvas_bg": "#0e0c0a",
+    "select_bg": "#39c692", "muted_fg": "#98948d", "is_dark": True,
+    "highlight_bg": "#39c692",
+}
+_BONEINK_LIGHT = {
+    "bg": "#c9b08a", "fg": "#201811", "button_bg": "#bea179",
+    "entry_bg": "#c9b08a", "canvas_bg": "#c9b08a",
+    "select_bg": "#2d765b", "muted_fg": "#503f2d", "is_dark": False,
+    "highlight_bg": "#2d765b",
+}
+
+# Mosscairn3 -- Runestone's mosscairn3.css, 2026-07-29 council ask (Fable
+# + Devin): light stone carried forward unchanged from mosscairn2 (already
+# just fixed same day); dark rebuilt on REAL official Solarized neutrals
+# (bg/button_bg/muted_fg/fg all match Slate's own _SOLARIZED values
+# exactly -- same source, ethanschoonover.com/solarized) with the accent
+# replaced: mosscairn2's yellow-green "lamp" (h:70 s:78%) desaturated and
+# re-hued to true moss (h:95 s:40% l:44% -> #699d43), per Fable's steer
+# "pull saturation well under half, walk hue toward true green." This is
+# Solarized's own bones wearing Cairn's own accent, not a new family from
+# scratch.
+_MOSSCAIRN3_DARK = {
+    "bg": "#002b36", "fg": "#839496", "button_bg": "#073642",
+    "entry_bg": "#073642", "canvas_bg": "#002b36",
+    "select_bg": "#699d43", "muted_fg": "#586e75", "is_dark": True,
+    "highlight_bg": "#699d43",
+}
+_MOSSCAIRN3_LIGHT = {
+    "bg": "#eae5d6", "fg": "#201e17", "button_bg": "#ded7c3",
+    "entry_bg": "#eae5d6", "canvas_bg": "#eae5d6",
+    "select_bg": "#58763a", "muted_fg": "#423d2e", "is_dark": False,
+    "highlight_bg": "#58763a",
+}
+
 # Inkbone -- Cairn's own presentation palette, read directly from
 # cairn/presentation/eisenhower-board-2026-07-24-inkbone.html's real
 # CSS rather than guessed: dark is "night-noir" (#0e0c0a page, #ede6d6
@@ -208,17 +256,28 @@ THEMES = {
     "inkbone_light": _with_chrome_cascade(_INKBONE_LIGHT),
     "inkbone_dark": _with_chrome_cascade(_INKBONE_DARK),
     "solarized": _with_chrome_cascade(_SOLARIZED),
+    "boneink_light": _with_chrome_cascade(_BONEINK_LIGHT),
+    "boneink_dark": _with_chrome_cascade(_BONEINK_DARK),
+    "mosscairn3_light": _with_chrome_cascade(_MOSSCAIRN3_LIGHT),
+    "mosscairn3_dark": _with_chrome_cascade(_MOSSCAIRN3_DARK),
 }
 
 # Display label -> internal THEMES key, in menu order. Devin's stated
 # work order 2026-07-25 ("in order: Standard, Inkbone, Solarized")
-# applied as the real menu order too.
+# applied as the real menu order too; Boneink/Mosscairn3 appended
+# 2026-07-29 (WebUI/CSS council, real design work not yet Devin-ratified
+# as a final pick -- these are candidates to eyeball live, per his own
+# "test both concurrently until we got that flavor" ask, not a done deal).
 THEME_LABELS = {
     "Light": "light",
     "Dark": "dark",
     "Inkbone Light": "inkbone_light",
     "Inkbone Dark": "inkbone_dark",
     "Solarized": "solarized",
+    "Boneink Light": "boneink_light",
+    "Boneink Dark": "boneink_dark",
+    "Mosscairn3 Light": "mosscairn3_light",
+    "Mosscairn3 Dark": "mosscairn3_dark",
 }
 
 # Kept as plain names too (not just THEMES["light"]/["dark"]) -- several

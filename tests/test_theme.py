@@ -33,18 +33,28 @@ def test_every_theme_label_maps_to_a_real_theme():
         assert name in theme.THEMES, label
 
 
-def test_roster_is_exactly_five_themes():
+def test_roster_is_exactly_nine_themes():
     """Devin, 2026-07-25: "make standard light/dark modes the same as
     Flexoki, and get rid of Flexoki as a separate option, also delete
     Gruvbox themes... main will be Dark/Light, Solarized Light/Dark,
     Inkbone Light/Dark." Down from 5 families (10 variants) to 3
     families (6). Same day, later: "please delete solarized light
     color, just leave solarized dark and call it just 'solarized'" --
-    Solarized drops to a single variant, roster is 5 total now."""
+    Solarized drops to a single variant, roster was 5 total.
+
+    Grown to 9, 2026-07-29 (WebUI/CSS council, real design work): Boneink
+    (light/dark, ported from Runestone's boneink.css) and Mosscairn3
+    (light/dark, ported from Runestone's mosscairn3.css -- Solarized
+    bones + a desaturated moss accent) added as real candidates, not a
+    final pick. Devin's own framing for this batch: "test both
+    concurrently until we got that flavor we're looking for" -- these
+    stay in the roster to be eyeballed live, same as any other theme."""
     assert set(theme.THEMES.keys()) == {
         "light", "dark",
         "inkbone_light", "inkbone_dark",
         "solarized",
+        "boneink_light", "boneink_dark",
+        "mosscairn3_light", "mosscairn3_dark",
     }
     for gone in ("flexoki_dark", "flexoki_light", "gruvbox_dark", "gruvbox_light", "solarized_light"):
         assert gone not in theme.THEMES, gone
@@ -133,13 +143,25 @@ def test_inkbone_green_is_minimal_pure_accent_lives_in_selection_roles_only():
 def test_named_theme_palettes_are_real_and_distinct():
     """Solarized/Standard(Flexoki) -- confirm each is actually a
     distinct palette (not accidentally aliased to each other) and that
-    is_dark matches the palette's own name."""
+    is_dark matches the palette's own name.
+
+    Checks (bg, select_bg) pairs rather than bg alone (loosened
+    2026-07-29): two 2026-07-29 additions deliberately SHARE a bg with
+    an existing theme, on purpose, not by accident -- boneink_dark's
+    #0e0c0a is literally Inkbone Dark's bg (same real "night noir"
+    bones, boneink.css was built to share them), and mosscairn3_dark's
+    #002b36 is literally Solarized's own base03 (the whole point of
+    "dark solarized + moss accent" is Solarized's real bones wearing a
+    different accent). A bare bg-uniqueness check would fail on these
+    intentional siblings; checking the (bg, select_bg) pair still
+    catches a genuine copy-paste accident (identical bg AND identical
+    accent = truly indistinguishable theme, which none of these are)."""
     assert theme.THEMES["solarized"]["is_dark"] is True
     assert theme.THEMES["dark"]["is_dark"] is True
     assert theme.THEMES["light"]["is_dark"] is False
 
-    all_bgs = [p["bg"] for p in theme.THEMES.values()]
-    assert len(all_bgs) == len(set(all_bgs))  # every theme has a unique background
+    all_pairs = [(p["bg"], p["select_bg"]) for p in theme.THEMES.values()]
+    assert len(all_pairs) == len(set(all_pairs))  # every theme is genuinely distinguishable
 
 
 def test_inkbone_dark_has_no_brown_tones():
