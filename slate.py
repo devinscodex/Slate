@@ -59,6 +59,18 @@ _TAB_CLOSE_GLYPH = "×"  # visual hint only -- middle-click actually closes, see
 # can't drift between the two call sites again.
 RADIO_SELECT_COLOR = "#4a9e3a"
 
+# Extensions fitz/PyMuPDF would otherwise refuse outright ("Failed to open
+# file '...' as type ps1" -- confirmed live 2026-07-29) because it only
+# infers document type from the extension and doesn't recognize these as
+# text, even though the content is byte-identical to a .txt file it opens
+# fine. Passing filetype="txt" explicitly for these makes them open as
+# plain monospace text (no crash, no syntax color yet -- that's a separate,
+# bigger feature: a real tokenizer + per-theme color mapping, not built).
+CODE_TEXT_EXTENSIONS = (
+    ".ps1", ".py", ".sh", ".js", ".ts", ".json", ".yaml", ".yml",
+    ".c", ".h", ".cpp", ".cs", ".go", ".rs", ".css", ".sql", ".ini", ".cfg",
+)
+
 # Menu labels that only make sense for a real PDF (mutation/signing/
 # forms/etc) -- disabled whenever the active tab's document isn't one.
 # PyMuPDF/MuPDF (confirmed live + via its own docs feature matrix) also
@@ -2130,7 +2142,11 @@ class SlateApp:
             # working conversion has no sane fallback the way epub's
             # original-file-with-a-decoding-quirk does.
             open_path = convert.path_to_pdf(path)
-        doc = fitz.open(open_path)
+            doc = fitz.open(open_path)
+        elif path.lower().endswith(CODE_TEXT_EXTENSIONS):
+            doc = fitz.open(open_path, filetype="txt")
+        else:
+            doc = fitz.open(open_path)
         # Tab keeps the ORIGINAL path (tab label/title/recent-files all
         # show the real filename) even when doc was actually opened
         # from a corrected temp copy.
@@ -2536,12 +2552,30 @@ class SlateApp:
         avoids even this full rebuild for ordinary scrolling)."""
         cols = 2 if self.side_by_side else 1
         zoom = self.viewer.zoom
+        # Centering (Devin, 2026-07-29 -- "current default alignment isn't
+        # centered"): continuous mode deliberately does NOT resize the
+        # canvas WIDGET to content (see the scrollregion comment below),
+        # so on any window wider than the document, content was pinned to
+        # the left edge with a dead gap on the right. update_idletasks() +
+        # winfo_width() > 1 guard is the same established pattern
+        # _apply_width_based_side_by_side/fit_width already use for a
+        # reliable width read. Zero when content is already >= viewport
+        # (nothing to center -- that's the real horizontal-scroll case,
+        # left-pinned is correct there, unchanged from before this fix).
+        # content_width comes from a cheap throwaway PageLayout (pure page-
+        # dimension math, no rendering) rather than reusing self._layout,
+        # so a repeated render at an unchanged viewport never measures its
+        # OWN previous offset and compounds it.
+        viewport_w = self.canvas.winfo_width()
+        content_w = layout.PageLayout(self.doc, zoom, cols=cols).content_width
+        center_offset_x = max(0.0, (viewport_w - content_w) / 2) if viewport_w > 1 else 0.0
         need_new_layout = (
             self._layout is None or self._layout_doc is not self.doc
             or self._layout.zoom != zoom or self._layout.cols != cols
+            or self._layout.center_offset_x != center_offset_x
         )
         if need_new_layout:
-            self._layout = layout.PageLayout(self.doc, zoom, cols=cols)
+            self._layout = layout.PageLayout(self.doc, zoom, cols=cols, center_offset_x=center_offset_x)
             self._layout_doc = self.doc
             self._page_cache.invalidate_all()
             self._last_window = set()
@@ -2582,7 +2616,14 @@ class SlateApp:
             if is_last_in_row and idx < len(rects) - 1:
                 row_w, _total_h = self._layout.total_size
                 line_y = y1 + self._layout.gap / 2
-                self.canvas.create_line(0, line_y, row_w, line_y, fill=colors["muted_fg"], width=1)
+                # Starts at center_offset_x, not 0 -- with centering active
+                # (Devin, 2026-07-29), x=0 is empty left margin, not the
+                # real page edge; the line would otherwise bleed through
+                # that dead space instead of tracking the actual content.
+                self.canvas.create_line(
+                    self._layout.center_offset_x, line_y, row_w, line_y,
+                    fill=colors["muted_fg"], width=1,
+                )
         total_w, total_h = self._layout.total_size
         # Deliberately NOT canvas.config(width=, height=) here (unlike
         # _render_single, where the canvas SHOULD size to exactly one
@@ -3281,11 +3322,14 @@ class SlateApp:
     # file operations
     # ------------------------------------------------------------------
     def open_file(self):
+        code_pattern = " ".join(f"*{ext}" for ext in CODE_TEXT_EXTENSIONS)
         path = filedialog.askopenfilename(filetypes=[
-            ("PDF, ebook, HTML and image files",
-             "*.pdf *.epub *.mobi *.fb2 *.cbz *.txt *.md *.html *.htm *.png *.jpg *.jpeg *.gif *.bmp *.tiff"),
+            ("PDF, ebook, HTML, image and code/text files",
+             "*.pdf *.epub *.mobi *.fb2 *.cbz *.txt *.md *.html *.htm *.png *.jpg *.jpeg *.gif *.bmp *.tiff "
+             + code_pattern),
             ("PDF files", "*.pdf"),
             ("Ebook files", "*.epub *.mobi *.fb2 *.cbz *.txt *.md"),
+            ("Code/text files", code_pattern),
             ("All files", "*.*"),
         ])
         if not path:
