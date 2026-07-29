@@ -236,10 +236,16 @@ def test_mosscairn_dark_matches_the_real_official_solarized_bones():
     fidelity for bg/button_bg/fg/muted_fg is still checked live. Only
     select_bg differs on purpose now: Mosscairn's own moss accent
     (#699d43), not Solarized's official blue -- that substitution IS
-    the whole point of this theme, not a regression."""
+    the whole point of this theme, not a regression.
+
+    muted_fg corrected 2026-07-29 (#586e75 -> #657b83): css_theme.py's
+    parser, reading the real mosscairn.css, caught that Slate's muted_fg
+    had been hand-copied from --text-faint (base01) instead of the
+    property it's actually meant to mirror, --text-muted (base00) --
+    see theme.py's own _MOSSCAIRN_DARK comment for the full story."""
     dark = theme.THEMES["mosscairn_dark"]
     assert dark["bg"] == "#002b36"  # Solarized base03
     assert dark["button_bg"] == "#073642"  # Solarized base02
     assert dark["fg"] == "#839496"  # Solarized base0
-    assert dark["muted_fg"] == "#586e75"  # Solarized base01
+    assert dark["muted_fg"] == "#657b83"  # Solarized base00 (--text-muted, not --text-faint)
     assert dark["select_bg"] == "#699d43"  # Mosscairn's own moss accent, not Solarized's blue

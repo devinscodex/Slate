@@ -186,9 +186,15 @@ _BONEINK_LIGHT = {
 # retires the old separate "solarized" theme entirely (redundant once
 # this existed).
 _MOSSCAIRN_DARK = {
+    # muted_fg corrected 2026-07-29: was #586e75 (Solarized base01, the
+    # CSS file's own --text-faint) -- a real hand-transcription slip
+    # caught by css_theme.py's parser reading the actual file, which
+    # resolves Slate's muted_fg from the CSS's own --text-muted property
+    # (base00, #657b83). test_css_theme.py's live-file check (skipped if
+    # Runestone isn't present) guards against this recurring silently.
     "bg": "#002b36", "fg": "#839496", "button_bg": "#073642",
     "entry_bg": "#073642", "canvas_bg": "#002b36",
-    "select_bg": "#699d43", "muted_fg": "#586e75", "is_dark": True,
+    "select_bg": "#699d43", "muted_fg": "#657b83", "is_dark": True,
     "highlight_bg": "#699d43",
 }
 _MOSSCAIRN_LIGHT = {
