@@ -16,17 +16,15 @@ own light/dark OS theme, not this picker. Everything else (toolbar,
 canvas, home screen, dialogs, tabs, TOC) is drawn by Tk itself and
 themes correctly on every platform.
 
-Roster consolidation (Devin, 2026-07-25): "make standard light/dark
+Roster history (Devin, 2026-07-25): "make standard light/dark
 modes the same as Flexoki, and get rid of Flexoki as a separate
 option, also delete Gruvbox themes... main will be Dark/Light,
 Solarized Light/Dark, Inkbone Light/Dark." Down from 5 families (10
-variants) to 3 families (6 variants) -- "light"/"dark" now carry
-Flexoki's real published values directly (stephango.com/flexoki,
-verified live before the original entries were written); Solarized
-unchanged (ethanschoonover.com/solarized); Inkbone unchanged (Cairn's
-own presentation palette, cairn/presentation/eisenhower-board-2026-07
--24-inkbone.html's real CSS) -- both already documented in full at
-their own dated entries below.
+variants) to 3 families (6 variants) at the time -- "light"/"dark" now
+carry Flexoki's real published values directly (stephango.com/flexoki,
+verified live). Both Solarized and Inkbone later retired (2026-07-29,
+see THEME_LABELS' own comment) once Mosscairn/Boneink existed and
+covered the same ground -- current roster is Standard/Boneink/Mosscairn.
 
 Chrome cascade (Devin, 2026-07-25, same request): "make menu bar
 cascade down in color from window bar down to tabs, to toolbar making
@@ -47,11 +45,14 @@ from pathlib import Path
 CONFIG_DIR = Path.home() / ".slate"
 PREF_FILE = CONFIG_DIR / "theme.json"
 
-# inkbone_dark, not plain "dark" -- Devin, 2026-07-25: "inkbone-dark
-# will be our default (dark slate, heavy black pure night noir ink)
-# theme." Supersedes the earlier 2026-07-17 "Dark, explicit request"
-# ruling this same DEFAULT_THEME line documented before.
-DEFAULT_THEME = "inkbone_dark"
+# Inkbone retired 2026-07-29 ("let's get rid of inkbone") -- Boneink
+# already shared its exact bg/fg bones (same "heavy black night noir"
+# look inkbone_dark was originally picked as default for), so nothing
+# in that visual identity is actually lost. New default: mosscairn_dark,
+# Devin's stated favorite this session ("these colors are looking
+# GREAT"). Flagged, not silently assumed -- boneink_dark is the closer
+# visual match to the retired default if that steer was wrong.
+DEFAULT_THEME = "mosscairn_dark"
 
 
 def _hex_to_rgb(hexval: str):
@@ -206,48 +207,9 @@ _MOSSCAIRN_LIGHT = {
     "highlight_bg": "#58763a",
 }
 
-# Inkbone -- Cairn's own presentation palette, read directly from
-# cairn/presentation/eisenhower-board-2026-07-24-inkbone.html's real
-# CSS rather than guessed: dark is "night-noir" (#0e0c0a page, #ede6d6
-# text), light is "bone-paper" (source values #ece3d1/#e4dac5 -- see
-# below, since diverged). card/callout surface maps to button_bg;
-# header/muted text maps to muted_fg; the kicker/primary accent green
-# maps to highlight_bg (and select_bg, its original non-tab role).
-#
-# Manga-essence pass (2026-07-25): green is a MINIMAL, pure accent --
-# lives only in select_bg/highlight_bg, never tabs or chrome. Tabs no
-# longer touch a filled color block at all: inactive = button_bg/
-# muted_fg (recedes), active = bg/fg (blends straight into the content
-# area below it, distinguished by bright text alone) -- see slate.py's
-# TNotebook.Tab style.
-#
-# "No brown tones at all with dark slate... save those for our light
-# mode" (2026-07-25, real correction after a first chrome attempt used
-# a warm tan) -- inkbone_dark's muted_fg also moved off a technically-
-# brownish sourced value (#a89786) to a true neutral gray (#8f8f8f);
-# brown/sepia now lives ONLY in inkbone_light, which was independently
-# darkened the same day ("darker white/light elements," said multiple
-# times) off the pale sourced tone toward a real, deeper, more
-# saturated sepia-tan -- Devin's own design call ("or whatever you
-# believe will fit"), not sourced like the rest of this family.
-_INKBONE_DARK = {
-    "bg": "#0e0c0a", "fg": "#ede6d6", "button_bg": "#1c1815",
-    "entry_bg": "#0e0c0a", "canvas_bg": "#0e0c0a",
-    "select_bg": "#62a945", "muted_fg": "#8f8f8f", "is_dark": True,
-    "highlight_bg": "#62a945",
-}
-_INKBONE_LIGHT = {
-    "bg": "#c9b896", "fg": "#211c17", "button_bg": "#b8a67e",
-    "entry_bg": "#c9b896", "canvas_bg": "#c9b896",
-    "select_bg": "#4a7637", "muted_fg": "#5c4f3a", "is_dark": False,
-    "highlight_bg": "#4a7637",
-}
-
 THEMES = {
     "light": _with_chrome_cascade(_STANDARD_LIGHT),
     "dark": _with_chrome_cascade(_STANDARD_DARK),
-    "inkbone_light": _with_chrome_cascade(_INKBONE_LIGHT),
-    "inkbone_dark": _with_chrome_cascade(_INKBONE_DARK),
     "boneink_light": _with_chrome_cascade(_BONEINK_LIGHT),
     "boneink_dark": _with_chrome_cascade(_BONEINK_DARK),
     "mosscairn_light": _with_chrome_cascade(_MOSSCAIRN_LIGHT),
@@ -256,17 +218,18 @@ THEMES = {
 
 # Display label -> internal THEMES key, in menu order. Devin's stated
 # work order 2026-07-25 ("in order: Standard, Inkbone, Solarized")
-# applied as the real menu order too; Boneink/Mosscairn appended
+# applied as the real menu order at the time; Boneink/Mosscairn appended
 # 2026-07-29 (WebUI/CSS council). Solarized retired same day ("Solarized
 # can go away") -- Mosscairn Dark already carries its exact neutrals with
 # a moss accent instead of blue, made the standalone entry redundant.
 # Mosscairn was Mosscairn3 during design/comparison; Devin's verdict
-# ("these colors are looking GREAT") dropped the number.
+# ("these colors are looking GREAT") dropped the number. Inkbone retired
+# same day too ("let's get rid of inkbone") -- Boneink already shares its
+# exact bg/fg bones, nothing lost. Final roster: Standard, Boneink,
+# Mosscairn, light/dark each.
 THEME_LABELS = {
     "Light": "light",
     "Dark": "dark",
-    "Inkbone Light": "inkbone_light",
-    "Inkbone Dark": "inkbone_dark",
     "Boneink Light": "boneink_light",
     "Boneink Dark": "boneink_dark",
     "Mosscairn Light": "mosscairn_light",
