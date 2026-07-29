@@ -3571,6 +3571,56 @@ def test_side_by_side_deep_page_still_resolves_clicks_at_row_origin(tmp_path):
         root.destroy()
 
 
+def test_book_view_toggle_sets_both_axes_and_stays_in_sync(tmp_path):
+    """Devin, 2026-07-29: "roll that up into Book View" -- F8/the
+    checkbutton is a derived preset over the two real axes, not a third
+    independent one. Toggling it on sets both; toggling either underlying
+    checkbox by hand afterward must keep book_view_var honest too (only
+    checked when both really agree), never a stale display."""
+    root, app = _make_app(tmp_path)
+    try:
+        # Force a known starting state -- don't assume the fixture's own
+        # defaults (continuous_scroll defaults True per Devin's standing
+        # preference), this test cares about the toggle logic, not what
+        # a fresh app happens to boot with.
+        app.continuous_scroll_var.set(False)
+        app.side_by_side_var.set(False)
+        app._set_view_mode()
+        assert app.book_view_var.get() is False
+
+        app.book_view_var.set(True)
+        app._toggle_book_view()
+        assert app.continuous_scroll is True
+        assert app.side_by_side is True
+
+        # Turn Book View back off -> both underlying axes follow.
+        app.book_view_var.set(False)
+        app._toggle_book_view()
+        assert app.continuous_scroll is False
+        assert app.side_by_side is False
+
+        # Toggling just ONE underlying box (not via Book View) must NOT
+        # leave book_view_var showing checked -- they don't both agree.
+        app.side_by_side_var.set(True)
+        app._set_view_mode()
+        assert app.book_view_var.get() is False
+
+        # Now the other axis catches up -> book_view_var reflects it.
+        app.continuous_scroll_var.set(True)
+        app._set_view_mode()
+        assert app.book_view_var.get() is True
+
+        # F8 key path flips from whatever book_view_var currently is,
+        # same as clicking the checkbutton would.
+        app._kb_toggle_book_view()
+        assert app.book_view_var.get() is False
+        assert app.continuous_scroll is False
+        assert app.side_by_side is False
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_continuous_and_side_by_side_combine_into_a_scrolling_two_column_layout(tmp_path):
     """Both checkboxes on at once (Devin: "both can be turned on") --
     real scroll through page PAIRS, windowing still applies."""

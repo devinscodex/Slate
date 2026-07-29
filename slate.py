@@ -675,6 +675,18 @@ class SlateApp:
         # Continuously" combination.
         self.continuous_scroll_var = tk.BooleanVar(value=self.continuous_scroll)
         self.side_by_side_var = tk.BooleanVar(value=self.side_by_side)
+        # Book View (Devin, 2026-07-29): Sumatra-style single toggle that
+        # rolls up Continuous Scroll + Side by Side + Fit Width into one
+        # F8 press, instead of setting both checkboxes by hand every time.
+        # Derived state, not a third independent axis -- stays in sync
+        # with the two underlying checkboxes in both directions (toggling
+        # either individual box updates this one's displayed check too,
+        # see _set_view_mode). Real gap named, not faked: a "centered"
+        # page alignment was asked for as part of "book view" too, but
+        # that's one of the 3 Slate notes still queued (not built yet) --
+        # this toggle only does what's actually real today (scroll +
+        # side-by-side + fit-width), not a centered layout.
+        self.book_view_var = tk.BooleanVar(value=self.continuous_scroll and self.side_by_side)
         layoutmenu = tk.Menu(viewm, tearoff=0)
         layoutmenu.add_checkbutton(
             label="Continuous Scroll", variable=self.continuous_scroll_var,
@@ -685,6 +697,10 @@ class SlateApp:
             command=self._set_view_mode, selectcolor=radio_select_color,
         )
         viewm.add_cascade(label="Page Layout", menu=layoutmenu)
+        viewm.add_checkbutton(
+            label="Book View (F8)", variable=self.book_view_var,
+            command=self._toggle_book_view, selectcolor=radio_select_color,
+        )
         viewm.add_separator()
         thememenu = tk.Menu(viewm, tearoff=0)
         for label, name in theme.THEME_LABELS.items():
@@ -982,6 +998,10 @@ class SlateApp:
         tk.Checkbutton(
             view_frame, text="Side by Side", variable=self.side_by_side_var,
             command=self._set_view_mode, selectcolor=RADIO_SELECT_COLOR,
+        ).pack(anchor="w", padx=10, pady=2)
+        tk.Checkbutton(
+            view_frame, text="Book View (F8)", variable=self.book_view_var,
+            command=self._toggle_book_view, selectcolor=RADIO_SELECT_COLOR,
         ).pack(anchor="w", padx=10, pady=2)
         tk.Checkbutton(
             view_frame, text="Colorize pages to theme", variable=self.colorize_pages_var,
@@ -1707,6 +1727,7 @@ class SlateApp:
         self.root.bind("<Key-N>", self._kb_find_prev)
         self.root.bind("<Key-slash>", self._kb_open_find)
         self.root.bind("<Control-c>", self._copy_selection)
+        self.root.bind("<F8>", self._kb_toggle_book_view)
 
         # CUA keybinds (Devin, 2026-07-25: "ctrl+w close tab (and other
         # CUA keybinds)") -- the standard Windows/Mac shortcut set,
@@ -1850,6 +1871,11 @@ class SlateApp:
         self.continuous_scroll = self.continuous_scroll_var.get()
         self.side_by_side = self.side_by_side_var.get()
         settings.save({"continuous_scroll": self.continuous_scroll, "side_by_side": self.side_by_side})
+        # Keep Book View's own checkbox honest even when the user toggles
+        # the two underlying boxes individually rather than via F8/the
+        # Book View item -- it should only show checked when BOTH
+        # underlying axes actually agree, never a stale/independent guess.
+        self.book_view_var.set(self.continuous_scroll and self.side_by_side)
         if self.viewer is None:
             return
         self._selected_words = []
@@ -1858,6 +1884,32 @@ class SlateApp:
             self._scroll_to_page(self.viewer.page_num)
         else:
             self._reset_scroll()
+
+    def _toggle_book_view(self):
+        """Devin, 2026-07-29: "roll that up into Book View" -- one
+        combined preset (Sumatra-naming) instead of setting Continuous
+        Scroll + Side by Side by hand every time. Reads book_view_var's
+        OWN new value (already flipped by Tk before this command fires,
+        same as any checkbutton) and pushes that value onto both real
+        axes, then reuses _set_view_mode's existing save/render/scroll
+        path -- no duplicated logic. Fit Width included (Devin: "zoom to
+        fit"); a centered alignment was also asked for but isn't real
+        yet (queued Slate note, not this toggle's job to fake it)."""
+        want = self.book_view_var.get()
+        self.continuous_scroll_var.set(want)
+        self.side_by_side_var.set(want)
+        self._set_view_mode()
+        if want:
+            self.fit_width()
+
+    def _kb_toggle_book_view(self, event=None):
+        """F8 -- same effect as clicking the Book View checkbutton, but a
+        raw key press doesn't flip book_view_var itself first (Tk only
+        does that for an actual Checkbutton widget click), so flip it
+        here before reusing _toggle_book_view's real logic."""
+        self.book_view_var.set(not self.book_view_var.get())
+        self._toggle_book_view()
+        return "break"
 
     def _on_canvas_frame_configure(self, event=None):
         """Devin, 2026-07-25: "if the horizontal size reaches 'side by

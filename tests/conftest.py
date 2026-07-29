@@ -15,6 +15,13 @@ voices cache all share the same ~/.slate/ directory and the same risk
 (a stray test download/preference/passphrase would otherwise land in
 real local config), so all are isolated here too, pre-emptively.
 
+settings.py's settings.json shared this exact same risk and was missed
+here originally -- caught live 2026-07-29 the same way recent.json was
+caught the first time (a real test run left a dead pytest tmp-path in
+the actual ~/.slate/settings.json's open_tabs, and left continuous_scroll/
+side_by_side however the last test happened to set them). Same fixture,
+same fix, no new pattern needed.
+
 Real bug caught on an actual Windows smoke test, a different flavor of
 the same class of problem: tts._voice_cache (a module-level dict
 caching loaded PiperVoice objects across calls, added as a real perf
@@ -30,6 +37,7 @@ import pytest
 
 import gate
 import recent
+import settings
 import theme
 import tts
 
@@ -43,5 +51,7 @@ def isolate_recent_files_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(gate, "UNLOCK_FILE", cfg / "unlock.json")
     monkeypatch.setattr(theme, "CONFIG_DIR", cfg)
     monkeypatch.setattr(theme, "PREF_FILE", cfg / "theme.json")
+    monkeypatch.setattr(settings, "CONFIG_DIR", cfg)
+    monkeypatch.setattr(settings, "SETTINGS_FILE", cfg / "settings.json")
     monkeypatch.setattr(tts, "DOWNLOADED_VOICES_DIR", cfg / "tts-voices")
     tts._voice_cache.clear()
