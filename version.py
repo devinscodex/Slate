@@ -22,7 +22,7 @@ AUTHOR = "devinscodex"
 # "why not MIT?" question doesn't have to be re-derived from scratch.
 LICENSE = "AGPL-3.0-or-later"
 
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 # 1.0.0 -- v1 core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (all 4 slices: fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (3 core families: Flexoki/Bonepaper/
@@ -130,6 +130,22 @@ VERSION = "1.5.0"
 #          anymore as the theme name is now directly kepano") -- values
 #          are still literally Flexoki's real published palette,
 #          unchanged, only the label points straight at the person now.
+# 1.5.0 -- Real regressions fixed: middle-click-drag pan (accidentally
+#          commented out in an unrelated 2026-07-27 commit), About's
+#          grab_set() blocking Settings underneath it when opened from
+#          Settings' own button. Settings toggle-button contrast bump.
+#          Theme grid's dark-on-dark unchecked-swatch bug fixed.
+#          Bonepaper Light re-hued (kill a teal cast). "Kepano" label
+#          reverted back to "Flexoki". New MEG theme family (light/
+#          dark), real verified Martin Energy Group brand colors.
+# 1.5.1 -- Same-session follow-up, real live feedback: Slate Light
+#          re-hued to match Bonepaper's new olive green (Devin: "i like
+#          that olive green more than the teal on slate light"). MEG
+#          given real two-tone personality (bright primary for checked-
+#          toggle fill, real secondary dark green for text-selection/
+#          highlight) instead of one flat accent everywhere -- Devin:
+#          "MEG is kinda pointless... add more spark/personality/
+#          energy... green... more MEG."
 
 SUMMARY = (
     "Slate is the document reader and editor you've always wanted: view, "
