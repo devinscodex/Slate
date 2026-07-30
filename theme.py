@@ -216,10 +216,59 @@ _BONEPAPER_DARK = {
     "highlight_bg": "#b5deb4",
 }
 _BONEPAPER_LIGHT = {
+    # select_bg/highlight_bg re-hued 2026-07-30 -- Devin, live feedback:
+    # "too teal, less green like in the branding." Old #2d765b (h:158,
+    # jade) had B(0x5b=91) higher than R(0x2d=45), a real cyan/teal cast;
+    # re-hued toward the app's own confirmed house green (#62a945, the
+    # "permanent Slate accent" used on the About page, h:~103) by
+    # roughly swapping the R/B channels -- same G brightness (0x76=118,
+    # unchanged) so the accent reads at the same weight, B dropped
+    # 91->45 and R raised 45->51 to kill the teal cast outright rather
+    # than a partial nudge. Core color, carries through selection
+    # highlight/checked-toggle-fill/TOC-highlight everywhere this theme
+    # is active, not a one-off.
     "bg": "#c9b08a", "fg": "#201811", "button_bg": "#bea179",
     "entry_bg": "#c9b08a", "canvas_bg": "#c9b08a",
-    "select_bg": "#2d765b", "muted_fg": "#503f2d", "is_dark": False,
-    "highlight_bg": "#2d765b",
+    "select_bg": "#33762d", "muted_fg": "#503f2d", "is_dark": False,
+    "highlight_bg": "#33762d",
+}
+
+# MEG -- new 2026-07-30 (Devin: "whatever you wanna name our Martin
+# Energy Group one"). Named "MEG", not "Martin" -- Devin, same session,
+# live: "Martin Construction can suck it, i hate Martin's Blue Team,
+# we're green team all the way!!" -- "Martin" alone collides with an
+# unrelated company Devin has real beef with; MEG is the company's own
+# actual internal shorthand and sidesteps the collision outright. Every
+# value below is a REAL, verified MEG brand color, not picked by eye:
+#   - select_bg/highlight_bg #62A945 and the dark-mode bg/button_bg/fg
+#     stack (#1B2224/#24272a/#cfcfcb) come straight from
+#     presentation/meg-theme.css, itself pulled 2026-07-22 via curl from
+#     martinenergygroup.com's live Elementor global palette -- real
+#     screen-native RGB, not a print approximation.
+#   - muted_fg (light) #535353 is that same file's real body-text gray.
+#   - Deliberately did NOT derive from the official brand PDF's Pantone
+#     364/369 CMYK values (branding/MartinEnergyBrandStandards_26.pdf,
+#     read live this session) -- naive CMYK->RGB on saturated greens
+#     reliably oversaturates (checked: Pantone 369's CMYK converts to a
+#     neon #50f205, nothing like the real site's #62A945), a known trap,
+#     not a shortcut worth taking when a verified screen value already
+#     exists for the same brand.
+#   - Light mode's bg/entry/canvas (#FFFFFF) and button_bg (#F9F9F9) are
+#     that file's real light-surface pair; fg (#1B2224) reuses the same
+#     near-black "accent" the dark mode uses for bg, MEG's own solid
+#     charcoal rather than the lighter #535353 body-gray (right for
+#     prose on a slide, too low-contrast as this app's primary text).
+_MEG_LIGHT = {
+    "bg": "#ffffff", "fg": "#1b2224", "button_bg": "#f9f9f9",
+    "entry_bg": "#ffffff", "canvas_bg": "#ffffff",
+    "select_bg": "#62a945", "muted_fg": "#535353", "is_dark": False,
+    "highlight_bg": "#62a945",
+}
+_MEG_DARK = {
+    "bg": "#1b2224", "fg": "#cfcfcb", "button_bg": "#24272a",
+    "entry_bg": "#1b2224", "canvas_bg": "#1b2224",
+    "select_bg": "#62a945", "muted_fg": "#7e8180", "is_dark": True,
+    "highlight_bg": "#62a945",
 }
 
 THEMES = {
@@ -229,6 +278,8 @@ THEMES = {
     "slate_dark": _with_chrome_cascade(_SLATE_DARK),
     "bonepaper_light": _with_chrome_cascade(_BONEPAPER_LIGHT),
     "bonepaper_dark": _with_chrome_cascade(_BONEPAPER_DARK),
+    "meg_light": _with_chrome_cascade(_MEG_LIGHT),
+    "meg_dark": _with_chrome_cascade(_MEG_DARK),
 }
 
 # Display label -> internal THEMES key, in menu order. Devin's stated
@@ -252,14 +303,18 @@ THEME_LABELS = {
     "Slate Dark": "slate_dark",
     "Bonepaper Light": "bonepaper_light",
     "Bonepaper Dark": "bonepaper_dark",
-    # Renamed from "Flexoki" (2026-07-29, Devin: "no need to mention
-    # Kepano anymore as the theme name is now directly kepano... no
-    # dancing around the bush, suckless") -- values are still literally
-    # Flexoki, Steph Ango's (Kepano) real published palette, unchanged;
-    # only the display label points straight at the person now instead
-    # of the palette's own project name.
-    "Kepano Light": "light",
-    "Kepano Dark": "dark",
+    # Renamed BACK to "Flexoki" 2026-07-30 (Devin, live screenshot:
+    # "Kepano needs to be 'Flexoki'") -- reverses the 2026-07-29 rename
+    # above. Values untouched either way, always were and still are
+    # Steph Ango's real published Flexoki palette (stephango.com/flexoki)
+    # -- only the display label changed, back to the palette's own
+    # project name instead of the person's.
+    "Flexoki Light": "light",
+    "Flexoki Dark": "dark",
+    # New 2026-07-30 -- real Martin Energy Group brand colors, see
+    # _MEG_LIGHT/_MEG_DARK's own comment for full sourcing.
+    "MEG Light": "meg_light",
+    "MEG Dark": "meg_dark",
 }
 
 # Kept as plain names too (not just THEMES["light"]/["dark"]) -- several

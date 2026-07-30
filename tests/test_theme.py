@@ -36,7 +36,7 @@ def test_every_theme_label_maps_to_a_real_theme():
         assert name in theme.THEMES, label
 
 
-def test_roster_is_exactly_six_themes():
+def test_roster_is_exactly_eight_themes():
     """Devin, 2026-07-25: "make standard light/dark modes the same as
     Flexoki, and get rid of Flexoki as a separate option, also delete
     Gruvbox themes... main will be Dark/Light, Solarized Light/Dark,
@@ -66,11 +66,21 @@ def test_roster_is_exactly_six_themes():
     label now says what it is). Devin's final display order: Slate,
     Bonepaper, Flexoki. Final roster: Flexoki/Bonepaper/Slate, light/
     dark each, 6 total -- 3 core families, same count Devin asked for
-    after the very first roster consolidation."""
+    after the very first roster consolidation.
+
+    Grown to 8, 2026-07-30: MEG (light/dark) added, real verified Martin
+    Energy Group brand colors (see theme.py's own _MEG_LIGHT/_MEG_DARK
+    comment for full sourcing) -- named "MEG" specifically, not "Martin"
+    (Devin, same day: "Martin Construction can suck it... we're green
+    team all the way!!" -- the bare name collides with an unrelated
+    company he has real beef with). Same day, Standard's own display
+    label reverted "Kepano" (a brief 2026-07-29 rename) back to
+    "Flexoki", its original real source name."""
     assert set(theme.THEMES.keys()) == {
         "light", "dark",
         "slate_light", "slate_dark",
         "bonepaper_light", "bonepaper_dark",
+        "meg_light", "meg_dark",
     }
     for gone in ("flexoki_dark", "flexoki_light", "gruvbox_dark", "gruvbox_light",
                  "solarized_light", "solarized", "mosscairn3_light", "mosscairn3_dark",
@@ -83,8 +93,11 @@ def test_roster_is_exactly_six_themes():
                         "Inkbone Light", "Inkbone Dark",
                         "Boneink Light", "Boneink Dark",
                         "Mosscairn Light", "Mosscairn Dark",
-                        "Inkrain Light", "Inkrain Dark"):
+                        "Inkrain Light", "Inkrain Dark",
+                        "Kepano Light", "Kepano Dark"):
         assert gone_label not in theme.THEME_LABELS, gone_label
+    assert theme.THEME_LABELS["MEG Light"] == "meg_light"
+    assert theme.THEME_LABELS["MEG Dark"] == "meg_dark"
     # The bare "Light"/"Dark" labels were themselves retired the same day
     # Standard's display name became "Flexoki" -- those two strings now
     # only exist as internal THEMES keys, never as a THEME_LABELS key.

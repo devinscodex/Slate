@@ -22,7 +22,7 @@ AUTHOR = "devinscodex"
 # "why not MIT?" question doesn't have to be re-derived from scratch.
 LICENSE = "AGPL-3.0-or-later"
 
-VERSION = "1.4.1"
+VERSION = "1.5.0"
 # 1.0.0 -- v1 core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (all 4 slices: fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (3 core families: Flexoki/Bonepaper/
@@ -139,7 +139,7 @@ SUMMARY = (
     "FB2/CBZ), plain text, Markdown, HTML, images, and code. Built from "
     "proven libraries (PyMuPDF, pikepdf, pyHanko), not a reimplemented "
     "engine.\n\n"
-    "Kepano's light/dark modes are Steph Ango's open palette "
+    "Flexoki's light/dark modes are Steph Ango's open palette "
     "(stephango.com/flexoki) -- a nod to \"File Over App\" "
     "(stephango.com/file-over-app): data should outlive the software. "
     "Same reason Slate works on real files, not a project-specific "

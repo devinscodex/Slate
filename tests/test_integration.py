@@ -1715,7 +1715,20 @@ def test_settings_and_about_are_modal_transient_and_topmost(tmp_path):
     an independent top-level app window); grab_set() is real modality
     (grab_status() reports "local" while held, "none" once released);
     -topmost is queried back through Tk's own attributes() call, not
-    just assumed to have taken because we set it."""
+    just assumed to have taken because we set it.
+
+    Updated 2026-07-30 -- real bug found live (Devin's hunch, confirmed
+    via grab_current() before this test was touched): Tk's grab_set()
+    is local to the whole APPLICATION, not to one Toplevel, so About
+    unconditionally grabbing blocked every Settings control (theme,
+    font size, everything) the moment About was opened FROM INSIDE
+    Settings (its own "About Slate..." button) -- the original "modal
+    against the main window" ask never meant "and also freeze the
+    dialog you opened me from." Fix: About only takes the grab when
+    Settings isn't open. This test now covers both real paths: About
+    opened standalone (Help menu, no Settings open) still grabs exactly
+    as before; About opened from within Settings does NOT, so Settings
+    stays live underneath -- topmost/transient hold either way."""
     root, app = _make_app(tmp_path)
     try:
         app._show_settings()
@@ -1725,6 +1738,25 @@ def test_settings_and_about_are_modal_transient_and_topmost(tmp_path):
         assert bool(settings_win.attributes("-topmost")) is True
         assert settings_win.master == root
 
+        # Opened FROM Settings (the common real path, its own "About
+        # Slate..." button) -- must NOT grab, or Settings underneath
+        # goes dead on click.
+        app._show_about()
+        about_win = app._about_window
+        root.update()
+        assert about_win.grab_status() is None
+        assert bool(about_win.attributes("-topmost")) is True
+        assert about_win.master == root
+        assert settings_win.grab_status() == "local"  # untouched, still holds its own grab
+
+        about_win.destroy()
+        settings_win.destroy()
+        app._settings_window = None
+        app._about_window = None
+
+        # Opened standalone (Help menu path, no Settings open) -- the
+        # original "modal against the main window" behavior must still
+        # hold exactly as before.
         app._show_about()
         about_win = app._about_window
         root.update()
@@ -4145,7 +4177,7 @@ def test_settings_toggle_buttons_use_each_themes_own_accent_not_one_fixed_color(
             return results
 
         dark_buttons = find_all("Dark")
-        assert len(dark_buttons) == 3  # Slate, Bonepaper, Flexoki
+        assert len(dark_buttons) == 4  # Slate, Bonepaper, Flexoki, MEG (added 2026-07-30)
         selectcolors = {btn.cget("selectcolor") for btn in dark_buttons}
         # Each family's swatch must carry ITS OWN accent, not one shared
         # value -- the real point of this test.
@@ -4153,6 +4185,7 @@ def test_settings_toggle_buttons_use_each_themes_own_accent_not_one_fixed_color(
             theme.THEMES["slate_dark"]["select_bg"],
             theme.THEMES["bonepaper_dark"]["select_bg"],
             theme.THEMES["dark"]["select_bg"],
+            theme.THEMES["meg_dark"]["select_bg"],
         }
     finally:
         app.doc.close()

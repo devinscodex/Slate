@@ -1233,7 +1233,27 @@ class SlateApp:
         # it above every other window, not just Slate's own.
         top.transient(self.root)
         top.attributes("-topmost", True)
-        top.grab_set()
+        # Real bug, Devin 2026-07-30 hunch confirmed live (grab_current()
+        # actually checked headless, not assumed from reading the code):
+        # Tk's grab_set() is a LOCAL grab, but "local" means local to the
+        # whole APPLICATION, not to this one Toplevel -- it blocks input
+        # to every other window in the same Tk process, including a
+        # sibling Toplevel like Settings, not just the main root window
+        # the original "modal against the main window" ask was about.
+        # About is reachable FROM INSIDE Settings (its own "About
+        # Slate..." button), so unconditionally grabbing here made every
+        # Settings control (theme, font size, everything) dead on click
+        # the moment About was opened that way -- confirmed via
+        # grab_current() actually returning the About window while
+        # Settings still existed underneath. Fix: only take the grab when
+        # Settings ISN'T open (the plain Help-menu path, where "modal
+        # against the main window" is still exactly what was asked for);
+        # opened from within Settings, stay topmost+transient (still
+        # visually pinned above everything, still grouped within Slate)
+        # but skip the grab so Settings underneath stays live.
+        settings_open = getattr(self, "_settings_window", None)
+        if settings_open is None or not settings_open.winfo_exists():
+            top.grab_set()
         # Titlebar theme handled generically by _paint_widget's own
         # Toplevel branch (see its comment) via the self._paint_widget(
         # top, colors) call below -- no separate call needed here.
