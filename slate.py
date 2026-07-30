@@ -11,7 +11,7 @@ import sys
 import threading
 import tkinter as tk
 import webbrowser
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import filedialog, font as tkfont, messagebox, simpledialog, ttk
 
 import fitz  # PyMuPDF
 from PIL import Image, ImageOps, ImageTk
@@ -58,6 +58,23 @@ _TAB_CLOSE_GLYPH = "×"  # visual hint only -- middle-click actually closes, see
 # switch -- same reasoning _build_menu already used, now shared so it
 # can't drift between the two call sites again.
 RADIO_SELECT_COLOR = "#4a9e3a"
+
+# UI font scale (Devin, 2026-07-29: "the font needs to be adjustable for
+# the UI, not just the page... pretty small rn"). These are Tk's own
+# built-in NAMED fonts -- virtually every stock Tk/ttk widget (Label,
+# Button, Menu, Entry, Listbox, Notebook tabs, Treeview) defaults to one
+# of these unless a widget explicitly overrides its own font, so
+# reconfiguring just these few font OBJECTS (not walking every widget by
+# hand) is the real "universal, suckless, won't break" mechanism Devin
+# asked for -- one shared, well-documented Tk feature instead of a
+# custom font-propagation system. TkFixedFont included too (code-view/
+# monospace text benefits from the same scale). Deliberately does NOT
+# include TkCaptionFont/TkSmallCaptionFont/TkIconFont/TkTooltipFont --
+# Slate never uses window-manager captions or system tooltips, so
+# touching those would be dead code, not caution.
+_UI_SCALABLE_FONTS = (
+    "TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont", "TkFixedFont",
+)
 
 # Extensions fitz/PyMuPDF would otherwise refuse outright ("Failed to open
 # file '...' as type ps1" -- confirmed live 2026-07-29) because it only
@@ -106,6 +123,23 @@ class SlateApp:
         _saved = settings.load()
         self._saved_zoom = _saved["zoom"]
         self._saved_open_tabs = _saved["open_tabs"]
+        # UI font scale (Devin, 2026-07-29): capture each named font's
+        # REAL platform-native size ONCE, before touching anything --
+        # this is Tk's own already-DPI/OS-aware default, not a guessed
+        # constant, so the same integer delta reads as a proportionally
+        # similar bump on Windows or Linux, whatever native size each
+        # picked on its own. Applied immediately, before _build_menu()
+        # or any widget exists, so the very first paint already uses the
+        # saved size (same "no visible flash to a different size a
+        # moment later" reasoning as the theme bg line just above).
+        self.ui_font_scale = _saved["ui_font_scale"]
+        self._ui_font_base_sizes = {}
+        for _name in _UI_SCALABLE_FONTS:
+            try:
+                self._ui_font_base_sizes[_name] = tkfont.nametofont(_name).cget("size")
+            except tk.TclError:
+                continue  # a platform build missing one of these named fonts -- skip, don't crash
+        self._apply_ui_font_scale()
         self.path = None
         self.doc = None
         self.viewer = None
@@ -345,6 +379,44 @@ class SlateApp:
             # (Fable design review, 2026-07-25, Slice 3 perf consult).
             self._page_cache.invalidate_all()
             self.render()  # re-invert the currently-visible page immediately, not on next nav
+
+    def _apply_ui_font_scale(self):
+        """Reconfigures Tk's own shared named fonts (_UI_SCALABLE_FONTS)
+        by self.ui_font_scale points -- every stock widget referencing
+        one of them (almost everything: menus, buttons, labels, tabs,
+        the TOC treeview, dialogs) picks up the new size immediately,
+        with no per-widget font-walking needed. Preserves each font's
+        own SIGN: Tk font sizes are negative when the platform expressed
+        them in pixels rather than points (common on Windows) -- adding
+        a positive delta to a negative number would shrink it, the
+        opposite of what a '+' click should do, so this scales the
+        magnitude and re-applies the original sign. Floored at 6 (points
+        or pixels) so an aggressive negative scale can never shrink text
+        to nothing."""
+        for name, base_size in self._ui_font_base_sizes.items():
+            sign = -1 if base_size < 0 else 1
+            magnitude = max(6, abs(base_size) + self.ui_font_scale)
+            tkfont.nametofont(name).configure(size=sign * magnitude)
+
+    def _ui_header_font(self, extra=0, weight="bold"):
+        """A header/title font sized relative to the CURRENT (possibly
+        user-scaled) TkDefaultFont, not a hardcoded absolute point size
+        -- so About/Settings/home-screen headers scale along with the
+        rest of the UI instead of staying fixed while everything else
+        around them grows or shrinks (the real gap a flat
+        `font=("TkDefaultFont", 14, "bold")` tuple had)."""
+        base = abs(tkfont.nametofont("TkDefaultFont").cget("size"))
+        return ("TkDefaultFont", base + extra, weight)
+
+    def _on_ui_font_scale_change(self, delta):
+        base_default = abs(self._ui_font_base_sizes.get("TkDefaultFont", 10))
+        # Symmetric floor/ceiling around 0: never shrink the base font
+        # below 6pt/px, never grow past +20 -- generous either direction
+        # without letting a runaway click sequence produce something
+        # absurd or degenerate.
+        self.ui_font_scale = max(6 - base_default, min(20, self.ui_font_scale + delta))
+        settings.save({"ui_font_scale": self.ui_font_scale})
+        self._apply_ui_font_scale()
 
     def _on_colorize_toggle(self):
         # Same cache-bust discipline as _on_theme_changed -- colorize is
@@ -974,7 +1046,7 @@ class SlateApp:
             self._about_logo_img = logo  # keep a reference, same gotcha as _tk_img/_home_logo_img
             tk.Label(header, image=logo).pack(side=tk.LEFT, padx=(0, 12))
         tk.Label(
-            header, text=f"Slate {version.VERSION}", font=("TkDefaultFont", 14, "bold")
+            header, text=f"Slate {version.VERSION}", font=self._ui_header_font(extra=5)
         ).pack(side=tk.LEFT)
 
         # Permanent green accent (Devin, 2026-07-25: "could we add a
@@ -1059,7 +1131,7 @@ class SlateApp:
         header = tk.Frame(top)
         header.pack(padx=24, pady=(18, 6), anchor="w")
         tk.Label(
-            header, text="Settings", font=("TkDefaultFont", 14, "bold")
+            header, text="Settings", font=self._ui_header_font(extra=5)
         ).pack(side=tk.LEFT)
         accent_bar = tk.Frame(top, bg="#62a945", height=2)
         accent_bar.pack(fill=tk.X, padx=24, pady=(0, 10))
@@ -1111,37 +1183,52 @@ class SlateApp:
                 tk.Radiobutton(
                     theme_frame, text=mode, variable=self.theme_name, value=name,
                     command=_on_theme_changed_and_repaint, selectcolor=RADIO_SELECT_COLOR,
-                ).grid(row=row, column=col, sticky="w", padx=4, pady=1)
+                    indicatoron=False, relief=tk.RAISED, padx=8, pady=2,
+                ).grid(row=row, column=col, sticky="we", padx=4, pady=1)
         theme_frame.grid_columnconfigure(1, weight=1)
         theme_frame.grid_columnconfigure(2, weight=1)
 
         # -- View --
         view_frame = tk.LabelFrame(top, text="View")
         view_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
+        # indicatoron=False (Devin, 2026-07-29, live screenshot of Slate
+        # Dark: "the selection... hard to see") -- classic Tk's tiny
+        # checkbox/radio indicator dot relies on a native ring-vs-fill
+        # contrast that doesn't hold up against a dark theme's own dark
+        # bg. Rendering these as real toggle buttons instead (selectcolor
+        # fills the WHOLE button when checked, not a 6px dot) is the
+        # standard suckless-Tk fix -- unmistakable in any theme, and it
+        # scales with UI font size instead of staying a fixed-size glyph.
         tk.Checkbutton(
             view_frame, text="Continuous Scroll", variable=self.continuous_scroll_var,
             command=self._set_view_mode, selectcolor=RADIO_SELECT_COLOR,
-        ).pack(anchor="w", padx=10, pady=(6, 2))
+            indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
+        ).pack(fill=tk.X, padx=10, pady=(6, 2))
         tk.Checkbutton(
             view_frame, text="Side by Side", variable=self.side_by_side_var,
             command=self._set_view_mode, selectcolor=RADIO_SELECT_COLOR,
-        ).pack(anchor="w", padx=10, pady=2)
+            indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
+        ).pack(fill=tk.X, padx=10, pady=2)
         tk.Checkbutton(
             view_frame, text="Book View (F8)", variable=self.book_view_var,
             command=self._toggle_book_view, selectcolor=RADIO_SELECT_COLOR,
-        ).pack(anchor="w", padx=10, pady=2)
+            indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
+        ).pack(fill=tk.X, padx=10, pady=2)
         tk.Checkbutton(
             view_frame, text="Colorize pages to theme", variable=self.colorize_pages_var,
             command=self._on_colorize_toggle, selectcolor=RADIO_SELECT_COLOR,
-        ).pack(anchor="w", padx=10, pady=2)
+            indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
+        ).pack(fill=tk.X, padx=10, pady=2)
         tk.Checkbutton(
             view_frame, text="Crop to Content", variable=self.crop_to_content_var,
             command=self._on_crop_toggle, selectcolor=RADIO_SELECT_COLOR,
-        ).pack(anchor="w", padx=10, pady=2)
+            indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
+        ).pack(fill=tk.X, padx=10, pady=2)
         tk.Checkbutton(
             view_frame, text="Show Table of Contents", variable=self.toc_visible,
             command=self._toggle_toc_panel, selectcolor=RADIO_SELECT_COLOR,
-        ).pack(anchor="w", padx=10, pady=(2, 6))
+            indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
+        ).pack(fill=tk.X, padx=10, pady=(2, 6))
 
         # -- Zoom -- read-only display + the existing commands, not a
         # parallel editable field (avoids a second place zoom state could
@@ -1179,6 +1266,52 @@ class SlateApp:
         tk.Button(zoom_btns, text="+", width=2, command=_zoom_in_and_refresh, state=zoom_state).pack(side=tk.LEFT, padx=4)
         tk.Button(zoom_btns, text="Fit Width", command=_fit_width_and_refresh, state=zoom_state).pack(side=tk.LEFT)
 
+        # -- UI Font Size -- separate from Zoom above (Devin, 2026-07-29:
+        # "the font needs to be adjustable for the UI, not just the
+        # page... pretty small rn"): Zoom only affects the rendered PAGE;
+        # this affects the app's own chrome -- menus, buttons, labels,
+        # tabs, dialogs, TOC. See _apply_ui_font_scale's own docstring
+        # for the mechanism (Tk's shared named fonts, not per-widget
+        # walking). Shown as a PERCENTAGE of whatever Tk's own native
+        # default happened to be on this platform, not a raw point
+        # count -- "120%" means the same relative bump whether the
+        # native baseline was small (common on Linux/X11) or already
+        # larger (Windows/HiDPI often picks a bigger native default on
+        # its own), which is the real "scales well with windows and
+        # linux" ask.
+        font_frame = tk.LabelFrame(top, text="UI Font Size")
+        font_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
+        font_row = tk.Frame(font_frame)
+        font_row.pack(fill=tk.X, padx=10, pady=6)
+        base_default_size = abs(self._ui_font_base_sizes.get("TkDefaultFont", 10))
+
+        def _ui_font_pct():
+            return round((base_default_size + self.ui_font_scale) / base_default_size * 100)
+
+        font_label = tk.Label(font_row, text=f"Current: {_ui_font_pct()}%")
+        font_label.pack(side=tk.LEFT)
+
+        def _ui_font_change_and_refresh(delta):
+            self._on_ui_font_scale_change(delta)
+            font_label.config(text=f"Current: {_ui_font_pct()}%")
+            # Every widget referencing one of the shared named fonts
+            # redraws itself automatically the instant the font object's
+            # size changes -- that's the whole point of using named
+            # fonts instead of per-widget literals. Only this dialog's
+            # own OUTER window geometry needs a nudge (Tk never auto-
+            # resizes a Toplevel after its initial pack), so newly-bigger
+            # text doesn't clip against the old fixed window size.
+            top.update_idletasks()
+            top.geometry("")
+
+        font_btns = tk.Frame(font_row)
+        font_btns.pack(side=tk.RIGHT)
+        tk.Button(font_btns, text="-", width=2, command=lambda: _ui_font_change_and_refresh(-1)).pack(side=tk.LEFT)
+        tk.Button(font_btns, text="+", width=2, command=lambda: _ui_font_change_and_refresh(1)).pack(side=tk.LEFT, padx=4)
+        tk.Button(
+            font_btns, text="Reset", command=lambda: _ui_font_change_and_refresh(-self.ui_font_scale)
+        ).pack(side=tk.LEFT, padx=(4, 0))
+
         # -- Read Aloud --
         tts_frame = tk.LabelFrame(top, text="Read Aloud")
         tts_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
@@ -1189,7 +1322,8 @@ class SlateApp:
             tk.Radiobutton(
                 voice_row, text=info["label"], variable=self.tts_voice, value=voice_id,
                 command=self._on_tts_voice_changed, selectcolor=RADIO_SELECT_COLOR,
-            ).pack(anchor="w")
+                indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
+            ).pack(fill=tk.X, pady=1)
         tk.Label(tts_frame, text="Speed:").pack(anchor="w", padx=10, pady=(6, 0))
         speed_row = tk.Frame(tts_frame)
         speed_row.pack(fill=tk.X, padx=10, pady=(0, 6))
@@ -1197,7 +1331,8 @@ class SlateApp:
             tk.Radiobutton(
                 speed_row, text=f"{speed}x", variable=self.tts_speed, value=speed,
                 command=self._on_tts_speed_changed, selectcolor=RADIO_SELECT_COLOR,
-            ).pack(side=tk.LEFT, padx=(0, 8))
+                indicatoron=False, relief=tk.RAISED, padx=6, pady=2,
+            ).pack(side=tk.LEFT, padx=(0, 4))
 
         btn_row = tk.Frame(top)
         btn_row.pack(pady=(0, 16))
@@ -1501,7 +1636,7 @@ class SlateApp:
         title_box = tk.Frame(header)
         title_box.pack(side=tk.LEFT, anchor="w")
         tk.Label(
-            title_box, text=f"Slate {version.VERSION}", font=("TkDefaultFont", 20, "bold")
+            title_box, text=f"Slate {version.VERSION}", font=self._ui_header_font(extra=11)
         ).pack(anchor="w")
         tagline = tk.Label(
             title_box, text=version.SUMMARY, wraplength=460, justify="left", fg="gray30"
@@ -1513,7 +1648,7 @@ class SlateApp:
             anchor="w", pady=(16, 16)
         )
 
-        tk.Label(self.home_frame, text="Recently viewed", font=("TkDefaultFont", 12, "bold")).pack(
+        tk.Label(self.home_frame, text="Recently viewed", font=self._ui_header_font(extra=3)).pack(
             anchor="w"
         )
         entries = recent.get_recent()

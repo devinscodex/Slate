@@ -29,6 +29,18 @@ DEFAULTS = {
     "colorize_pages": False,
     "crop_to_content": False,
     "toc_visible": True,
+    # UI font scale (Devin, 2026-07-29: "the font needs to be adjustable
+    # for the UI, not just the page... pretty small rn"). An integer
+    # POINT delta from whatever size Tk itself picked as the platform's
+    # own native default at first launch (theme.py._UI_FONT_BASE_SIZES,
+    # captured once, never hardcoded) -- not an absolute point size and
+    # not a raw pixel count, so the SAME delta reads as a proportionally
+    # similar bump whether Tk's native baseline happens to be small
+    # (common Linux X11 default) or already larger (Windows/HiDPI often
+    # picks a bigger native default on its own). Default 0 = exactly
+    # whatever Tk/the OS would have shown anyway, unchanged from every
+    # earlier release.
+    "ui_font_scale": 0,
     "tts_voice": "northern_english_male",
     "tts_speed": 1.0,
     # Session restore (Devin, 2026-07-26: "keep documents open across

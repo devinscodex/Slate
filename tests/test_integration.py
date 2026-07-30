@@ -2893,6 +2893,67 @@ def test_f12_opens_settings_from_the_home_screen(tmp_path, monkeypatch):
         root.destroy()
 
 
+def test_ui_font_scale_grows_the_shared_named_fonts_and_persists(tmp_path, monkeypatch):
+    """Devin, 2026-07-29: "the font needs to be adjustable for the UI,
+    not just the page... pretty small rn." Real mechanism: Slate
+    reconfigures Tk's own shared named fonts (TkDefaultFont etc.), not a
+    per-widget walk -- this confirms the delta actually reaches the real
+    font objects, that the ORIGINAL platform-native size is preserved as
+    a floor (not a hardcoded magic number), and that the choice
+    persists across a relaunch the same way zoom/theme do."""
+    import tkinter.font as tkfont
+    import settings as settings_module
+
+    monkeypatch.setattr(settings_module, "CONFIG_DIR", tmp_path / ".slate")
+    monkeypatch.setattr(settings_module, "SETTINGS_FILE", tmp_path / ".slate" / "settings.json")
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, None)
+    try:
+        base_size = app._ui_font_base_sizes["TkDefaultFont"]
+        assert tkfont.nametofont("TkDefaultFont").cget("size") == base_size  # unchanged at scale 0
+
+        app._on_ui_font_scale_change(4)
+        assert app.ui_font_scale == 4
+        assert tkfont.nametofont("TkDefaultFont").cget("size") == base_size + 4
+        # Every scalable named font moves together, not just the default.
+        assert tkfont.nametofont("TkMenuFont").cget("size") == app._ui_font_base_sizes["TkMenuFont"] + 4
+        assert settings_module.load()["ui_font_scale"] == 4  # persisted immediately, like zoom/theme
+
+        app._on_ui_font_scale_change(-100)  # absurd negative delta
+        assert tkfont.nametofont("TkDefaultFont").cget("size") >= 6  # floored, never degenerate
+    finally:
+        if app.doc is not None:
+            app.doc.close()
+        root.destroy()
+
+
+def test_ui_font_scale_survives_relaunch(tmp_path, monkeypatch):
+    """The real persistence half of the feature: a relaunch must start
+    already at the saved scale, not flash back to native size first
+    (same "no visible jarring flash" standard zoom/theme already meet)."""
+    import tkinter.font as tkfont
+    import settings as settings_module
+
+    monkeypatch.setattr(settings_module, "CONFIG_DIR", tmp_path / ".slate")
+    monkeypatch.setattr(settings_module, "SETTINGS_FILE", tmp_path / ".slate" / "settings.json")
+
+    root1 = tk.Tk()
+    app1 = slate.SlateApp(root1, None)
+    app1._on_ui_font_scale_change(6)
+    root1.destroy()
+
+    root2 = tk.Tk()
+    app2 = slate.SlateApp(root2, None)
+    try:
+        assert app2.ui_font_scale == 6
+        assert tkfont.nametofont("TkDefaultFont").cget("size") == app2._ui_font_base_sizes["TkDefaultFont"] + 6
+    finally:
+        if app2.doc is not None:
+            app2.doc.close()
+        root2.destroy()
+
+
 def test_toc_selected_row_uses_theme_highlight_not_ttks_default_blue(tmp_path):
     """Real bug caught live (Devin, 2026-07-25: "the highlight in TOC
     is blue, i want that to be inkbone green") -- Treeview's selected-

@@ -6,7 +6,7 @@ exist on a deployed end-user machine without fossil/git installed.
 
 AUTHOR = "devinscodex"
 
-VERSION = "1.2.1"
+VERSION = "1.3.0"
 # 1.0.0 -- v1 core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (all 4 slices: fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (3 core families: Flexoki/Bonepaper/
@@ -27,6 +27,15 @@ VERSION = "1.2.1"
 #          directly instead of a separately hardcoded string in
 #          slate.iss (that drift is exactly what caused 1.2.0's
 #          installer to briefly still say 1.1.0).
+# 1.3.0 -- adjustable UI font size (Settings > UI Font Size, separate
+#          from page Zoom) -- scales Tk's shared named fonts so nearly
+#          every widget (menus, buttons, labels, tabs, dialogs, TOC)
+#          grows/shrinks together, persisted like zoom/theme. Settings
+#          dialog's checkboxes/radio buttons switched to indicatoron=
+#          False (real toggle buttons, selectcolor fills the whole
+#          button when checked) after Devin's live Slate Dark
+#          screenshot showed the classic tiny indicator dot was hard to
+#          tell selected from not.
 
 SUMMARY = (
     "Slate is the document reader and editor you've always wanted: view, "
