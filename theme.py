@@ -50,6 +50,32 @@ from pathlib import Path
 CONFIG_DIR = Path.home() / ".slate"
 PREF_FILE = CONFIG_DIR / "theme.json"
 
+# theme_data/*.json are pulled copies of themes-custom/palettes/*.json (the
+# central source of truth, /mnt/c/bin/projects/themes-custom/README.md) --
+# run pull_themes.sh to refresh. Copy, not symlink, on purpose: Slate is
+# free to tweak its own copy independently without touching the shared repo.
+_THEME_DATA_DIR = Path(__file__).parent / "theme_data"
+
+
+_BASE_KEYS = (
+    "bg", "fg", "button_bg", "entry_bg", "canvas_bg",
+    "select_bg", "muted_fg", "highlight_bg",
+)
+
+
+def _load_base(family: str, mode: str) -> dict:
+    """Loads one family's base 8-key palette (_BASE_KEYS) for the given
+    mode ("light" or "dark") from theme_data/<family>.json, plus is_dark
+    (not stored in the JSON itself, derived from which mode was asked
+    for). Whitelisted to _BASE_KEYS on purpose: themes-custom is a
+    shared repo across apps and can carry extra per-consumer keys (e.g.
+    bonepaper.json's external_link, Runestone-only) that aren't part of
+    Slate's own palette shape -- test_theme.py's own
+    test_all_themes_have_the_same_keys caught this leaking through on
+    the first pass."""
+    data = json.loads((_THEME_DATA_DIR / f"{family}.json").read_text())[mode]
+    return {k: data[k] for k in _BASE_KEYS} | {"is_dark": mode == "dark"}
+
 # Inkbone retired 2026-07-29 ("let's get rid of inkbone") -- Boneink
 # already shared its exact bg/fg bones (same "heavy black night noir"
 # look inkbone_dark was originally picked as default for), so nothing
@@ -135,44 +161,38 @@ def _with_chrome_cascade(palette: dict) -> dict:
 # stays untouched -- this is about the general page/chrome tone Devin
 # was actually looking at, not that separate, intentional design
 # choice.
-_STANDARD_DARK = {
-    # bg/button_bg reverted to real spec 2026-07-30 -- Devin, live:
-    # "if flexoki dark could represent Kepano's flexoki dark at home a
-    # lil better." Was #3a3937/#484744, a 2026-07-25 deliberate
-    # lightening off spec ("make standard dark lighter in contrast to
-    # inkbone dark") that's no longer wanted now that Inkbone is retired
-    # and there's nothing left to contrast against. Real values verified
-    # live via stephango.com/flexoki: base-950 #1C1B1A (bg), base-900
-    # #282726 (button_bg) -- entry_bg (#100f0f, real "black" tier)
-    # already matched spec and stays untouched.
-    #
-    # select_bg/highlight_bg also reverted, same ask: real Flexoki
-    # blue-400 #4385BE, not the shared green every other family (Slate/
-    # Bonepaper/MEG) uses -- the 2026-07-25 green swap is undone here
-    # specifically so Flexoki reads as actually Flexoki again, not a
-    # 4th green reskin.
-    "bg": "#1c1b1a", "fg": "#e6e4d9", "button_bg": "#282726",
-    "entry_bg": "#100f0f", "canvas_bg": "#1c1b1a",
-    "select_bg": "#4385be", "muted_fg": "#6f6e69", "is_dark": True,
-    "highlight_bg": "#4385be",
-}
-_STANDARD_LIGHT = {
-    # bg/fg/button_bg/muted_fg were already exact real Flexoki spec
-    # (paper/black/base-50/base-300, verified live via stephango.com/
-    # flexoki) -- never drifted, only Dark's neutrals did.
-    #
-    # select_bg/highlight_bg reverted 2026-07-30, same "represent
-    # Flexoki... at home" ask as Dark above: real Flexoki blue-600
-    # #205EA6, not the shared green. This is the same real value the
-    # green swap replaced back on 2026-07-25 ("only request for
-    # standard is to use inkbone green instead of blue") -- undone now
-    # that green is Slate/Bonepaper/MEG's shared identity and Flexoki
-    # needs its own.
-    "bg": "#fffcf0", "fg": "#100f0f", "button_bg": "#f2f0e5",
-    "entry_bg": "#fffcf0", "canvas_bg": "#fffcf0",
-    "select_bg": "#205ea6", "muted_fg": "#b7b5ac", "is_dark": False,
-    "highlight_bg": "#205ea6",
-}
+# Real values now loaded from theme_data/flexoki.json (pulled from
+# themes-custom) rather than hand-transcribed here -- see _load_base
+# above. History of how these values were reached, kept for provenance:
+#
+# bg/button_bg reverted to real spec 2026-07-30 -- Devin, live:
+# "if flexoki dark could represent Kepano's flexoki dark at home a
+# lil better." Was #3a3937/#484744, a 2026-07-25 deliberate
+# lightening off spec ("make standard dark lighter in contrast to
+# inkbone dark") that's no longer wanted now that Inkbone is retired
+# and there's nothing left to contrast against. Real values verified
+# live via stephango.com/flexoki: base-950 #1C1B1A (bg), base-900
+# #282726 (button_bg) -- entry_bg (#100f0f, real "black" tier)
+# already matched spec and stays untouched.
+#
+# select_bg/highlight_bg also reverted, same ask: real Flexoki
+# blue-400 #4385BE, not the shared green every other family (Slate/
+# Bonepaper/MEG) uses -- the 2026-07-25 green swap is undone here
+# specifically so Flexoki reads as actually Flexoki again, not a
+# 4th green reskin.
+_STANDARD_DARK = _load_base("flexoki", "dark")
+# bg/fg/button_bg/muted_fg were already exact real Flexoki spec
+# (paper/black/base-50/base-300, verified live via stephango.com/
+# flexoki) -- never drifted, only Dark's neutrals did.
+#
+# select_bg/highlight_bg reverted 2026-07-30, same "represent
+# Flexoki... at home" ask as Dark above: real Flexoki blue-600
+# #205EA6, not the shared green. This is the same real value the
+# green swap replaced back on 2026-07-25 ("only request for
+# standard is to use inkbone green instead of blue") -- undone now
+# that green is Slate/Bonepaper/MEG's shared identity and Flexoki
+# needs its own.
+_STANDARD_LIGHT = _load_base("flexoki", "light")
 
 # Solarized -- RETIRED 2026-07-29 (Devin: "Solarized can go away") --
 # superseded by Slate's own dark variant below, which already carries
@@ -194,32 +214,26 @@ _STANDARD_LIGHT = {
 # accent ("Slate dark = solarized dark basically (desaturaized)") -- and
 # per Devin's same-day ask, this dark variant also retires the old
 # separate "solarized" theme entirely (redundant once this existed).
-_SLATE_DARK = {
-    # muted_fg corrected 2026-07-29: was #586e75 (Solarized base01, the
-    # CSS file's own --text-faint) -- a real hand-transcription slip
-    # caught by css_theme.py's parser reading the actual file, which
-    # resolves Slate's muted_fg from the CSS's own --text-muted property
-    # (base00, #657b83). test_css_theme.py's live-file check (skipped if
-    # Runestone isn't present) guards against this recurring silently.
-    "bg": "#002b36", "fg": "#839496", "button_bg": "#073642",
-    "entry_bg": "#073642", "canvas_bg": "#002b36",
-    "select_bg": "#699d43", "muted_fg": "#657b83", "is_dark": True,
-    "highlight_bg": "#699d43",
-}
-_SLATE_LIGHT = {
-    # Darkened a smidge + de-tanned 2026-07-29 per Devin's direct live
-    # feedback -- re-derived from slate.css's real current light block.
-    #
-    # select_bg/highlight_bg re-hued 2026-07-30 -- Devin, live, right
-    # after the Bonepaper Light re-hue: "i like that olive green more
-    # than the teal on slate light." Reused the exact same #33762d
-    # (not just a similar shift) -- direct preference for that specific
-    # tone, not a generic de-tealing pass.
-    "bg": "#d0cbbf", "fg": "#13120f", "button_bg": "#c1bcad",
-    "entry_bg": "#d0cbbf", "canvas_bg": "#d0cbbf",
-    "select_bg": "#33762d", "muted_fg": "#322f28", "is_dark": False,
-    "highlight_bg": "#33762d",
-}
+# Real values now loaded from theme_data/slate.json (pulled from
+# themes-custom) rather than hand-transcribed here -- see _load_base
+# above. History kept for provenance:
+#
+# muted_fg corrected 2026-07-29: was #586e75 (Solarized base01, the
+# CSS file's own --text-faint) -- a real hand-transcription slip
+# caught by css_theme.py's parser reading the actual file, which
+# resolves Slate's muted_fg from the CSS's own --text-muted property
+# (base00, #657b83). test_css_theme.py's live-file check (skipped if
+# Runestone isn't present) guards against this recurring silently.
+_SLATE_DARK = _load_base("slate", "dark")
+# Darkened a smidge + de-tanned 2026-07-29 per Devin's direct live
+# feedback -- re-derived from slate.css's real current light block.
+#
+# select_bg/highlight_bg re-hued 2026-07-30 -- Devin, live, right
+# after the Bonepaper Light re-hue: "i like that olive green more
+# than the teal on slate light." Reused the exact same #33762d
+# (not just a similar shift) -- direct preference for that specific
+# tone, not a generic de-tealing pass.
+_SLATE_LIGHT = _load_base("slate", "light")
 
 # Bonepaper -- merged 2026-07-29 (Devin: "make inkrain the dark mode for
 # Boneink... just 3 core themes still... update boneink to 'inkrain'"),
@@ -241,40 +255,33 @@ _SLATE_LIGHT = {
 # companion, not sampled, built minutes before this merge) is retired
 # along with it -- Boneink's real light wins the slot instead. Roster is
 # 3 core families: Standard, Bonepaper, Slate.
-_BONEPAPER_DARK = {
-    "bg": "#030302", "fg": "#e4fadf", "button_bg": "#0a0d09",
-    "entry_bg": "#030302", "canvas_bg": "#030302",
-    "select_bg": "#b5deb4", "muted_fg": "#8a9884", "is_dark": True,
-    "highlight_bg": "#b5deb4",
-}
-_BONEPAPER_LIGHT = {
-    # select_bg/highlight_bg re-hued 2026-07-30 -- Devin, live feedback:
-    # "too teal, less green like in the branding." Old #2d765b (h:158,
-    # jade) had B(0x5b=91) higher than R(0x2d=45), a real cyan/teal cast;
-    # re-hued toward the app's own confirmed house green (#62a945, the
-    # "permanent Slate accent" used on the About page, h:~103) by
-    # roughly swapping the R/B channels -- same G brightness (0x76=118,
-    # unchanged) so the accent reads at the same weight, B dropped
-    # 91->45 and R raised 45->51 to kill the teal cast outright rather
-    # than a partial nudge. Core color, carries through selection
-    # highlight/checked-toggle-fill/TOC-highlight everywhere this theme
-    # is active, not a one-off.
-    # bg/fg/button_bg/muted_fg re-derived 2026-07-30 -- Devin, live:
-    # "bonepaper light, if you can make a smidge more grundgier and
-    # 'bonier' and sepia, look to artwork for samples." Real numpy
-    # sampling (same methodology Bonepaper Dark was originally built
-    # with) over 5 images from the actual boneink/ reference folder
-    # (bone-cathedral, bone-circuit, broken-ribcage, beneath-the-skull,
-    # before-the-broke-bone-gate) -- warm mid-brightness pixels sampled
-    # as the "paper" candidate (#a69d7f, a real grungy olive-sepia, not
-    # picked by eye), near-black pixels as the "ink" candidate (#020202).
-    # Blended 50% from the PREVIOUS values toward these real samples --
-    # "a smidge," not a wholesale swap -- landing here:
-    "bg": "#b8a785", "fg": "#19130d", "button_bg": "#aa9776",
-    "entry_bg": "#b8a785", "canvas_bg": "#b8a785",
-    "select_bg": "#33762d", "muted_fg": "#4e4434", "is_dark": False,
-    "highlight_bg": "#33762d",
-}
+# Real values now loaded from theme_data/bonepaper.json (pulled from
+# themes-custom) rather than hand-transcribed here -- see _load_base
+# above. History kept for provenance:
+_BONEPAPER_DARK = _load_base("bonepaper", "dark")
+# select_bg/highlight_bg re-hued 2026-07-30 -- Devin, live feedback:
+# "too teal, less green like in the branding." Old #2d765b (h:158,
+# jade) had B(0x5b=91) higher than R(0x2d=45), a real cyan/teal cast;
+# re-hued toward the app's own confirmed house green (#62a945, the
+# "permanent Slate accent" used on the About page, h:~103) by
+# roughly swapping the R/B channels -- same G brightness (0x76=118,
+# unchanged) so the accent reads at the same weight, B dropped
+# 91->45 and R raised 45->51 to kill the teal cast outright rather
+# than a partial nudge. Core color, carries through selection
+# highlight/checked-toggle-fill/TOC-highlight everywhere this theme
+# is active, not a one-off.
+# bg/fg/button_bg/muted_fg re-derived 2026-07-30 -- Devin, live:
+# "bonepaper light, if you can make a smidge more grundgier and
+# 'bonier' and sepia, look to artwork for samples." Real numpy
+# sampling (same methodology Bonepaper Dark was originally built
+# with) over 5 images from the actual boneink/ reference folder
+# (bone-cathedral, bone-circuit, broken-ribcage, beneath-the-skull,
+# before-the-broke-bone-gate) -- warm mid-brightness pixels sampled
+# as the "paper" candidate (#a69d7f, a real grungy olive-sepia, not
+# picked by eye), near-black pixels as the "ink" candidate (#020202).
+# Blended 50% from the PREVIOUS values toward these real samples --
+# "a smidge," not a wholesale swap -- landing here:
+_BONEPAPER_LIGHT = _load_base("bonepaper", "light")
 
 # MEG -- new 2026-07-30 (Devin: "whatever you wanna name our Martin
 # Energy Group one"). Named "MEG", not "Martin" -- Devin, same session,
@@ -318,18 +325,14 @@ _BONEPAPER_LIGHT = {
 #     Both colors are straight off presentation/meg-theme.css's real
 #     --meg-primary/--meg-secondary, same source as everything else in
 #     this family -- still exactly "green," per Devin's own answer.
-_MEG_LIGHT = {
-    "bg": "#ffffff", "fg": "#1b2224", "button_bg": "#f9f9f9",
-    "entry_bg": "#ffffff", "canvas_bg": "#ffffff",
-    "select_bg": "#62a945", "muted_fg": "#535353", "is_dark": False,
-    "highlight_bg": "#4a7637",
-}
-_MEG_DARK = {
-    "bg": "#1b2224", "fg": "#cfcfcb", "button_bg": "#24272a",
-    "entry_bg": "#1b2224", "canvas_bg": "#1b2224",
-    "select_bg": "#62a945", "muted_fg": "#7e8180", "is_dark": True,
-    "highlight_bg": "#4a7637",
-}
+# Real values now loaded from theme_data/anthracite.json (pulled from
+# themes-custom) rather than hand-transcribed here -- see _load_base
+# above. Filed under "anthracite" in the shared repo (company-neutral,
+# since themes-custom spans multiple apps now) -- the values themselves
+# are still real MEG brand colors, and Slate's own menu keeps calling
+# this family "MEG" (THEME_LABELS below), unchanged.
+_MEG_LIGHT = _load_base("anthracite", "light")
+_MEG_DARK = _load_base("anthracite", "dark")
 
 THEMES = {
     "light": _with_chrome_cascade(_STANDARD_LIGHT),
