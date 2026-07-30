@@ -25,7 +25,11 @@ carry Flexoki's real published values directly (stephango.com/flexoki,
 verified live). Both Solarized and Inkbone later retired (2026-07-29,
 see THEME_LABELS' own comment) once Mosscairn/Boneink existed and
 covered the same ground. Boneink itself was then folded into Inkrain
-(see THEME_LABELS again) -- current roster is Standard/Mosscairn/Inkrain.
+(see THEME_LABELS again). Same day, both surviving custom families were
+renamed once more per Devin's direct ask: Mosscairn -> Slate ("or just
+Slate" -- this is the app's own Solarized-derived house theme, "Slate
+dark = solarized dark basically (desaturaized)"), Inkrain -> Bonepaper
+("i prefer bonepaper..."). Current roster is Standard/Bonepaper/Slate.
 
 Chrome cascade (Devin, 2026-07-25, same request): "make menu bar
 cascade down in color from window bar down to tabs, to toolbar making
@@ -49,12 +53,11 @@ PREF_FILE = CONFIG_DIR / "theme.json"
 # Inkbone retired 2026-07-29 ("let's get rid of inkbone") -- Boneink
 # already shared its exact bg/fg bones (same "heavy black night noir"
 # look inkbone_dark was originally picked as default for), so nothing
-# in that visual identity is actually lost. New default: mosscairn_dark,
-# Devin's stated favorite this session ("these colors are looking
-# GREAT"). Flagged, not silently assumed -- inkrain_dark (Boneink's own
-# successor, now merged with Inkrain) is the closer visual match to the
-# retired default if that steer was wrong.
-DEFAULT_THEME = "mosscairn_dark"
+# in that visual identity is actually lost. Default went through
+# slate_dark (named "mosscairn_dark" at the time, "these colors are
+# looking GREAT") before Devin's final call, same day: slate_light --
+# "starting/defaulting to Slate light, that stone look."
+DEFAULT_THEME = "slate_light"
 
 
 def _hex_to_rgb(hexval: str):
@@ -146,24 +149,26 @@ _STANDARD_LIGHT = {
 }
 
 # Solarized -- RETIRED 2026-07-29 (Devin: "Solarized can go away") --
-# superseded by Mosscairn's own dark variant below, which already carries
+# superseded by Slate's own dark variant below, which already carries
 # these exact official neutrals (bg/button_bg/muted_fg/fg) with a moss
 # accent instead of Solarized's blue. Kept as a one-line historical note,
-# not a dict: the real values live in _MOSSCAIRN_DARK now.
+# not a dict: the real values live in _SLATE_DARK now.
 
-# Mosscairn -- Runestone's mosscairn.css, consolidated 2026-07-29 (was
-# briefly mosscairn/mosscairn2/mosscairn3 -- three iterations landing on
-# one real theme; "these colors are looking GREAT," final name has no
-# number). Light stone carried forward from the file's own iteration;
+# Slate -- Runestone's slate.css (named "Mosscairn" through 2026-07-29,
+# consolidated that same day from mosscairn/mosscairn2/mosscairn3 --
+# three iterations landing on one real theme, "these colors are looking
+# GREAT" -- then renamed once more, same day, per Devin's direct ask:
+# "or just Slate," "super perfect themes, i'm so proud of these 3 custom
+# themes"). Light stone carried forward from the file's own iteration;
 # dark built on REAL official Solarized neutrals (bg/button_bg/muted_fg/
 # fg -- ethanschoonover.com/solarized) with the accent replaced: the old
 # yellow-green "lamp" desaturated and re-hued to true moss (h:95 s:40%
 # l:44% -> #699d43), per Fable's steer "pull saturation well under half,
 # walk hue toward true green." Solarized's own bones wearing Cairn's own
-# accent -- and per Devin's same-day ask, this dark variant now also
-# retires the old separate "solarized" theme entirely (redundant once
-# this existed).
-_MOSSCAIRN_DARK = {
+# accent ("Slate dark = solarized dark basically (desaturaized)") -- and
+# per Devin's same-day ask, this dark variant also retires the old
+# separate "solarized" theme entirely (redundant once this existed).
+_SLATE_DARK = {
     # muted_fg corrected 2026-07-29: was #586e75 (Solarized base01, the
     # CSS file's own --text-faint) -- a real hand-transcription slip
     # caught by css_theme.py's parser reading the actual file, which
@@ -175,19 +180,21 @@ _MOSSCAIRN_DARK = {
     "select_bg": "#699d43", "muted_fg": "#657b83", "is_dark": True,
     "highlight_bg": "#699d43",
 }
-_MOSSCAIRN_LIGHT = {
+_SLATE_LIGHT = {
     # Darkened a smidge + de-tanned 2026-07-29 per Devin's direct live
-    # feedback -- re-derived from mosscairn.css's real current light block.
+    # feedback -- re-derived from slate.css's real current light block.
     "bg": "#d0cbbf", "fg": "#13120f", "button_bg": "#c1bcad",
     "entry_bg": "#d0cbbf", "canvas_bg": "#d0cbbf",
     "select_bg": "#58763a", "muted_fg": "#322f28", "is_dark": False,
     "highlight_bg": "#58763a",
 }
 
-# Inkrain -- merged 2026-07-29 (Devin: "make inkrain the dark mode for
-# Boneink... just 3 core themes still... update boneink to 'inkrain'").
-# Was briefly two separate families (Boneink and Inkrain existed side by
-# side for about twenty minutes) before Devin folded them into one.
+# Bonepaper -- merged 2026-07-29 (Devin: "make inkrain the dark mode for
+# Boneink... just 3 core themes still... update boneink to 'inkrain'"),
+# then renamed from "Inkrain" to "Bonepaper" that same day per Devin's
+# stated preference ("i prefer bonepaper..."). Was briefly two separate
+# families (Boneink and Inkrain existed side by side for about twenty
+# minutes) before Devin folded them into one.
 #
 # Light = Boneink's real light half, UNCHANGED (bone-paper, real fixed
 # teal-jade accent ~158deg -- originally read directly from boneink.css;
@@ -200,15 +207,15 @@ _MOSSCAIRN_LIGHT = {
 #
 # Inkrain's own short-lived standalone light half (a designed newsprint
 # companion, not sampled, built minutes before this merge) is retired
-# along with it -- Boneink's real light wins the slot instead. Roster
-# back to 3 core families: Standard, Mosscairn, Inkrain.
-_INKRAIN_DARK = {
+# along with it -- Boneink's real light wins the slot instead. Roster is
+# 3 core families: Standard, Bonepaper, Slate.
+_BONEPAPER_DARK = {
     "bg": "#030302", "fg": "#e4fadf", "button_bg": "#0a0d09",
     "entry_bg": "#030302", "canvas_bg": "#030302",
     "select_bg": "#b5deb4", "muted_fg": "#8a9884", "is_dark": True,
     "highlight_bg": "#b5deb4",
 }
-_INKRAIN_LIGHT = {
+_BONEPAPER_LIGHT = {
     "bg": "#c9b08a", "fg": "#201811", "button_bg": "#bea179",
     "entry_bg": "#c9b08a", "canvas_bg": "#c9b08a",
     "select_bg": "#2d765b", "muted_fg": "#503f2d", "is_dark": False,
@@ -218,33 +225,35 @@ _INKRAIN_LIGHT = {
 THEMES = {
     "light": _with_chrome_cascade(_STANDARD_LIGHT),
     "dark": _with_chrome_cascade(_STANDARD_DARK),
-    "mosscairn_light": _with_chrome_cascade(_MOSSCAIRN_LIGHT),
-    "mosscairn_dark": _with_chrome_cascade(_MOSSCAIRN_DARK),
-    "inkrain_light": _with_chrome_cascade(_INKRAIN_LIGHT),
-    "inkrain_dark": _with_chrome_cascade(_INKRAIN_DARK),
+    "slate_light": _with_chrome_cascade(_SLATE_LIGHT),
+    "slate_dark": _with_chrome_cascade(_SLATE_DARK),
+    "bonepaper_light": _with_chrome_cascade(_BONEPAPER_LIGHT),
+    "bonepaper_dark": _with_chrome_cascade(_BONEPAPER_DARK),
 }
 
 # Display label -> internal THEMES key, in menu order. Devin's stated
 # work order 2026-07-25 ("in order: Standard, Inkbone, Solarized")
 # applied as the real menu order at the time. Since then, same-session
-# roster history: Solarized retired ("Solarized can go away" -- Mosscairn
+# roster history: Solarized retired ("Solarized can go away" -- Slate
 # Dark already covers its ground); Inkbone retired ("let's get rid of
 # inkbone" -- shared Boneink's exact bg/fg bones); Mosscairn3 -> Mosscairn
-# (dropped the number, "these colors are looking GREAT"); Boneink and
-# Inkrain existed as two separate families for about twenty minutes, then
-# merged into one under the Inkrain name ("make inkrain the dark mode for
-# Boneink... update boneink to 'inkrain'") -- Boneink's real light half
-# survives inside it, Inkrain's real sampled dark half replaces Boneink's
-# own jade-dark outright. Final roster: Standard, Mosscairn, Inkrain,
+# -> Slate (dropped the number, then dropped the name too: "these colors
+# are looking GREAT" / "or just Slate"); Boneink and Inkrain existed as
+# two separate families for about twenty minutes, then merged into one
+# under the Inkrain name ("make inkrain the dark mode for Boneink...
+# update boneink to 'inkrain'") -- Boneink's real light half survives
+# inside it, Inkrain's real sampled dark half replaces Boneink's own
+# jade-dark outright -- then renamed Inkrain -> Bonepaper same day
+# ("i prefer bonepaper..."). Final roster: Standard, Bonepaper, Slate,
 # light/dark each -- 3 core families, back down from the brief 4-family
 # peak.
 THEME_LABELS = {
-    "Light": "light",
-    "Dark": "dark",
-    "Mosscairn Light": "mosscairn_light",
-    "Mosscairn Dark": "mosscairn_dark",
-    "Inkrain Light": "inkrain_light",
-    "Inkrain Dark": "inkrain_dark",
+    "Slate Light": "slate_light",
+    "Slate Dark": "slate_dark",
+    "Bonepaper Light": "bonepaper_light",
+    "Bonepaper Dark": "bonepaper_dark",
+    "Flexoki Light": "light",
+    "Flexoki Dark": "dark",
 }
 
 # Kept as plain names too (not just THEMES["light"]/["dark"]) -- several

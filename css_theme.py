@@ -15,7 +15,8 @@ removes the second copy entirely.
 
 Scope, deliberately narrow: this handles exactly the property/value
 patterns Runestone's own theme snippets actually use (confirmed by
-reading mosscairn.css, boneink.css, inkbone.css) -- hex literals,
+reading slate.css, boneink.css, inkbone.css -- slate.css was named
+mosscairn.css through 2026-07-29) -- hex literals,
 rgb(var(--name)) referencing a :root-declared R,G,B triple, and plain
 var(--other-property) indirection one level through the same block. It
 does NOT attempt to be a general CSS parser (no cascade, no specificity,

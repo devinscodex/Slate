@@ -144,7 +144,7 @@ def test_render_recolors_the_page_to_match_the_active_theme_not_just_chrome(tmp_
     widgets dark still left the rendered PDF page a blinding white
     rectangle, and (2) a first-attempt fix (a flat RGB invert) only
     looked right for the plain built-in "dark" theme -- every OTHER
-    light-toned named theme (Inkrain Light)
+    light-toned named theme (Bonepaper Light)
     still rendered a plain white page that didn't match its own tinted
     chrome at all ("want document to match", "same as text editors
     when using themes"). Fixed with ImageOps.colorize: the page's own
@@ -206,8 +206,8 @@ def test_dark_mode_repaints_toolbar_and_canvas(tmp_path):
 
 
 def test_named_themes_produce_visibly_distinct_colors(tmp_path):
-    """Mosscairn and Standard(Flexoki) are real, separately-sourced
-    palettes, not aliases of light/dark with different names -- confirm they
+    """Slate and Flexoki are real, separately-sourced palettes, not
+    aliases of light/dark with different names -- confirm they
     actually paint different colors from each other and from the
     built-in light/dark pair.
 
@@ -216,10 +216,11 @@ def test_named_themes_produce_visibly_distinct_colors(tmp_path):
     test_named_theme_palettes_are_real_and_distinct): this originally
     guarded Boneink Dark deliberately sharing Inkbone Dark's exact
     canvas_bg (#0e0c0a, real "night noir" bones on purpose). Both Inkbone
-    and (after the later Boneink+Inkrain merge) that exact canvas_bg
-    value are gone now, but the pair-check stays since it's a strict
-    superset of a bare canvas_bg-uniqueness check and remains correct
-    if a future theme ever deliberately shares bones again."""
+    and (after the later Boneink+Inkrain merge, then the Inkrain->
+    Bonepaper rename) that exact canvas_bg value are gone now, but the
+    pair-check stays since it's a strict superset of a bare
+    canvas_bg-uniqueness check and remains correct if a future theme
+    ever deliberately shares bones again."""
     import theme
 
     root, app = _make_app(tmp_path)
@@ -2756,9 +2757,9 @@ def test_chrome_cascade_colors_menubar_tabstrip_toolbar_as_three_real_steps(tmp_
     covers that part)."""
     root, app = _make_app(tmp_path)
     try:
-        app.theme_name.set("inkrain_dark")
+        app.theme_name.set("bonepaper_dark")
         app._apply_theme()
-        colors = theme.get_palette("inkrain_dark")
+        colors = theme.get_palette("bonepaper_dark")
 
         assert str(app.menubar.cget("bg")) == colors["menubar_bg"]
         assert ttk.Style().lookup("TNotebook", "background") == colors["tabstrip_bg"]
@@ -2780,9 +2781,9 @@ def test_tabs_never_use_select_bg_active_or_inactive(tmp_path):
     area instead of a filled color block)."""
     root, app = _make_app(tmp_path)
     try:
-        app.theme_name.set("inkrain_dark")
+        app.theme_name.set("bonepaper_dark")
         app._apply_theme()
-        colors = theme.get_palette("inkrain_dark")
+        colors = theme.get_palette("bonepaper_dark")
 
         style = ttk.Style()
         base_bg = style.lookup("TNotebook.Tab", "background")
@@ -2844,9 +2845,9 @@ def test_home_screen_matches_the_active_theme(tmp_path, monkeypatch):
     root = tk.Tk()
     app = slate.SlateApp(root, None)  # no path -- launches straight to home screen
     try:
-        app.theme_name.set("inkrain_dark")
+        app.theme_name.set("bonepaper_dark")
         app._on_theme_changed()
-        colors = theme.get_palette("inkrain_dark")
+        colors = theme.get_palette("bonepaper_dark")
         assert str(app.home_frame.cget("bg")) == colors["bg"]
 
         # second call site: open a doc, close its only tab, back to home
@@ -2899,9 +2900,9 @@ def test_toc_selected_row_uses_theme_highlight_not_ttks_default_blue(tmp_path):
     'clam' theme built-in default regardless of Slate's actual palette."""
     root, app = _make_app(tmp_path)
     try:
-        app.theme_name.set("inkrain_dark")
+        app.theme_name.set("bonepaper_dark")
         app._apply_theme()
-        colors = theme.get_palette("inkrain_dark")
+        colors = theme.get_palette("bonepaper_dark")
         style = ttk.Style()
         assert style.lookup("Treeview", "background", ("selected",)) == colors["highlight_bg"]
         assert style.lookup("Treeview", "foreground", ("selected",)) == colors["bg"]
@@ -2913,12 +2914,12 @@ def test_toc_selected_row_uses_theme_highlight_not_ttks_default_blue(tmp_path):
 def test_about_dialog_has_a_fixed_green_accent_regardless_of_theme(tmp_path, monkeypatch):
     """Devin, 2026-07-25: "please add a permanent, clever hint of
     inkbone green on the about page please" -- must stay green even
-    under a non-green theme (Mosscairn Dark's real accent is moss,
+    under a non-green theme (Slate Dark's real accent is moss,
     #699d43, not the fixed #62a945 accent bar checked here)."""
     monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
     root, app = _make_app(tmp_path)
     try:
-        app.theme_name.set("mosscairn_dark")
+        app.theme_name.set("slate_dark")
         app._apply_theme()
         app._show_about()
         about = root.winfo_children()[-1]  # the just-opened Toplevel
@@ -2943,7 +2944,7 @@ def test_f2_opens_command_palette_listing_all_themes(tmp_path):
         listbox = [w for w in palette.winfo_children() if isinstance(w, tk.Listbox)][0]
         entries = listbox.get(0, tk.END)
         assert len(entries) == len(theme.THEME_LABELS)
-        assert any("Inkrain Dark" in e for e in entries)
+        assert any("Bonepaper Dark" in e for e in entries)
         palette.destroy()
     finally:
         app.doc.close()
@@ -2958,11 +2959,11 @@ def test_command_palette_filters_live_as_you_type(tmp_path):
         entry = [w for w in palette.winfo_children() if isinstance(w, tk.Entry)][0]
         listbox = [w for w in palette.winfo_children() if isinstance(w, tk.Listbox)][0]
 
-        entry.insert(0, "mosscairn dark")
+        entry.insert(0, "slate dark")
         root.update()
         entries = listbox.get(0, tk.END)
         assert len(entries) == 1  # exactly one theme matches this filter
-        assert all("Mosscairn Dark" in e for e in entries)
+        assert all("Slate Dark" in e for e in entries)
         palette.destroy()
     finally:
         app.doc.close()
@@ -2976,9 +2977,9 @@ def test_selecting_a_theme_in_command_palette_applies_it_and_closes(tmp_path):
     real code the double-click binds to directly instead."""
     root, app = _make_app(tmp_path)
     try:
-        app._apply_command_palette_theme("mosscairn_dark")
-        assert app.theme_name.get() == "mosscairn_dark"
-        assert theme.load_preference() == "mosscairn_dark"  # real persisted, not just the var
+        app._apply_command_palette_theme("slate_dark")
+        assert app.theme_name.get() == "slate_dark"
+        assert theme.load_preference() == "slate_dark"  # real persisted, not just the var
     finally:
         app.doc.close()
         root.destroy()

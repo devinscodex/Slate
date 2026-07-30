@@ -4,8 +4,8 @@ on disk, so these always run everywhere Slate's own suite runs); the
 live-file consistency check at the bottom is skipped when Runestone
 isn't present -- it exists to catch a hand-tuned theme.py dict drifting
 from its real CSS source, the exact bug this whole module exists to
-prevent (see theme.py's own _MOSSCAIRN_DARK comment for the real
-instance this caught, 2026-07-29).
+prevent (see theme.py's own _SLATE_DARK comment for the real instance
+this caught, 2026-07-29).
 """
 import os
 import tempfile
@@ -130,8 +130,8 @@ def test_comments_are_stripped_before_parsing(tmp_path):
     reason="Runestone vault not present on this machine -- dev-only consistency check",
 )
 @pytest.mark.parametrize("filename,dark_key,light_key", [
-    ("mosscairn.css", "mosscairn_dark", "mosscairn_light"),
-    ("inkrain.css", "inkrain_dark", "inkrain_light"),
+    ("slate.css", "slate_dark", "slate_light"),
+    ("bonepaper.css", "bonepaper_dark", "bonepaper_light"),
 ])
 def test_shipped_theme_dicts_match_the_real_current_css_file(filename, dark_key, light_key):
     """The real point of this whole module: theme.py's hand-tuned dicts
@@ -146,7 +146,7 @@ def test_shipped_theme_dicts_match_the_real_current_css_file(filename, dark_key,
     shipped_light = theme.THEMES[light_key]
     # entry_bg has no real CSS property to read (Slate invented that
     # distinction for its own Entry widgets) -- css_theme.py defaults it
-    # to bg, but Solarized-derived families (Mosscairn Dark included)
+    # to bg, but Solarized-derived families (Slate Dark included)
     # deliberately give it button_bg's tone instead, a real pre-existing
     # per-family choice, not drift. Excluded from this check on purpose,
     # not silently -- everything else the CSS file CAN define still
