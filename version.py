@@ -6,6 +6,22 @@ exist on a deployed end-user machine without fossil/git installed.
 
 AUTHOR = "devinscodex"
 
+# AGPL-3.0-or-later (2026-07-29, Fable + Gilfoyle reviewed). Forced by
+# PyMuPDF specifically, NOT Piper -- PyMuPDF is Slate's core rendering
+# engine (used everywhere, not an optional feature) and its free tier is
+# dual-licensed "GNU AFFERO GPL 3.0 or Artifex Commercial License"
+# (confirmed live via `pip show pymupdf`, not assumed). Piper (TTS) is
+# plain GPL-3.0-or-later, also bundled in-process -- GPLv3 SS13 and
+# AGPLv3 SS13 have reciprocal FSF compatibility clauses letting a GPL-3.0
+# component combine into an AGPL-3.0 work (not the reverse), so AGPL-3.0
+# is the one license that cleanly covers the whole frozen Slate.exe
+# rather than running a split-license codebase. Costs Devin nothing he
+# wasn't already giving up (not reselling, no closed fork planned,
+# already going public on GitHub) -- see LICENSE (full text) and the
+# 2026-07-29 fossil commit message for the fuller reasoning, so a future
+# "why not MIT?" question doesn't have to be re-derived from scratch.
+LICENSE = "AGPL-3.0-or-later"
+
 VERSION = "1.3.1"
 # 1.0.0 -- v1 core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (all 4 slices: fontmatch, textedit, gate, UI)
@@ -63,5 +79,6 @@ SUMMARY = (
     "(stephango.com/file-over-app): data should outlive the software. "
     "Same reason Slate works on real files, not a project-specific "
     "format.\n\n"
-    "Free and open-source. Coming to GitHub soon."
+    "Free and open-source under the GNU AGPL-3.0-or-later (see LICENSE). "
+    "Coming to GitHub soon."
 )
