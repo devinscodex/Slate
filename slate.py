@@ -924,10 +924,22 @@ class SlateApp:
         self._on_theme_changed()
 
     def _show_about(self):
+        # Single-instance (Devin, 2026-07-29: "only have 1 instance of
+        # settings, not multiple" -- same real gap existed here too,
+        # fixed alongside it): re-focus the already-open dialog instead
+        # of stacking a second one on repeated menu/button clicks.
+        existing = getattr(self, "_about_window", None)
+        if existing is not None and existing.winfo_exists():
+            existing.deiconify()
+            existing.lift()
+            existing.focus_force()
+            return
         colors = theme.get_palette(self.theme_name.get())
         top = tk.Toplevel(self.root)
+        self._about_window = top
         top.title("About Slate")
         top.resizable(False, False)
+        top.bind("<Escape>", lambda e: top.destroy())
         # Visible border (Devin, 2026-07-29: "blends in with the rest of
         # the app too much, can't tell where that window is except for
         # the title bar"). Was fixed green at first, then "change the
@@ -1014,10 +1026,21 @@ class SlateApp:
         drift out of sync with each other. This dialog is a second
         place to reach settings that already persist via those handlers,
         not a second mechanism that persists them independently."""
+        # Single-instance (Devin, 2026-07-29: "only have 1 instance of
+        # settings, not multiple") -- re-focus the already-open dialog
+        # instead of stacking a second one on repeated opens.
+        existing = getattr(self, "_settings_window", None)
+        if existing is not None and existing.winfo_exists():
+            existing.deiconify()
+            existing.lift()
+            existing.focus_force()
+            return
         colors = theme.get_palette(self.theme_name.get())
         top = tk.Toplevel(self.root)
+        self._settings_window = top
         top.title("Settings")
         top.resizable(False, False)
+        top.bind("<Escape>", lambda e: top.destroy())
         # Visible border, same ask + same mid-gray fix as _show_about's
         # identical border (2026-07-29) -- see that dialog's comment for
         # why it's mid-gray and not the plain dark that was first asked
