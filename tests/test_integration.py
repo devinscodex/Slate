@@ -3477,6 +3477,45 @@ def test_theme_change_invalidates_the_whole_page_cache(tmp_path):
 # on, checkbox in menu)").
 # ------------------------------------------------------------------
 
+def test_fit_width_divides_viewport_across_columns_in_side_by_side(tmp_path):
+    """Real bug (Devin, 2026-07-29: "'fit width' should center bookview,
+    not the left half of bookview"): fit_width() always fit ONE page's
+    width to the FULL viewport, ignoring side_by_side -- in Book View
+    (2 columns) that zoomed the spread to twice the width that actually
+    fits, so only the left page's left portion showed without
+    horizontal scroll. Fixed to divide the viewport across cols (minus
+    the one real gap between them, matching layout.PageLayout's own
+    gap=2 default) before fitting -- confirmed here against a manual
+    per-page fit_width() call on the viewer directly, the real source
+    of truth this now has to match."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.side_by_side_var.set(True)
+        app.continuous_scroll_var.set(False)
+        root.geometry("2000x1400")
+        root.update()
+        app._set_view_mode()
+        root.update()
+
+        app.fit_width()
+        two_col_zoom = app.viewer.zoom
+
+        app.canvas.update_idletasks()
+        viewport_w = app.canvas.winfo_width()
+        expected_zoom = app.viewer.fit_width((viewport_w - 2) / 2)  # gap=2, cols=2
+
+        assert two_col_zoom == expected_zoom
+        # Real regression guard, not just "some number computed": half
+        # the viewport must produce meaningfully LESS zoom than fitting
+        # the full viewport would have (the actual bug) -- not just a
+        # coincidentally-equal value.
+        full_viewport_zoom = app.viewer.fit_width(viewport_w)
+        assert two_col_zoom < full_viewport_zoom
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_side_by_side_static_shows_two_pages_with_no_scroll_needed(tmp_path):
     """Devin's own framing: "a spread fits the viewport by definition
     at normal zoom" -- side-by-side alone (continuous_scroll off) is a

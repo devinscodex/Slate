@@ -3137,10 +3137,23 @@ class SlateApp:
         # wheel-scroll page-fit math). Same update_idletasks() timing
         # fix still applies here (Tk's next idle-loop pass otherwise
         # reports a stale canvas width).
+        #
+        # Real bug fixed 2026-07-29 (Devin: "'fit width' should center
+        # bookview, not the left half of bookview"): this always fit ONE
+        # page's width to the FULL viewport, ignoring side_by_side --
+        # in Book View (2 columns) that zoomed the page spread to twice
+        # the width that actually fits, so only the left page's left
+        # portion ever showed without horizontal scrolling. Divide the
+        # viewport across however many columns are actually showing
+        # (matching layout.PageLayout's own cols/gap math exactly, not a
+        # separate guess at it) before fitting.
         self.canvas.update_idletasks()
         viewport_w = self.canvas.winfo_width()
         if viewport_w > 1:
-            self.viewer.fit_width(viewport_w)
+            cols = 2 if self.side_by_side else 1
+            gap = 2  # matches layout.PageLayout's own default gap= exactly
+            per_page_w = (viewport_w - gap * (cols - 1)) / cols
+            self.viewer.fit_width(per_page_w)
             self.render()
             settings.save({"zoom": self.viewer.zoom})
 
