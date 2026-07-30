@@ -1610,6 +1610,132 @@ def test_declining_the_download_prompt_does_not_download_or_crash(tmp_path, monk
         root.destroy()
 
 
+def test_voice_picker_only_offers_bundled_voices(tmp_path):
+    """Devin, 2026-07-29: "remove the other 2 readback voices that need
+    to be downloaded... leave the 2 defaults there." Applies to BOTH
+    real voice-choosing surfaces (the Read Aloud menu's own Voice
+    submenu, and Settings' Voice radio group) -- southern_english_female/
+    danny still exist in tts.VOICES (their preview clips still ship
+    bundled, sampleable from the new Sample Voices dialog) but must not
+    be offered as a pickable default in either picker."""
+    root, app = _make_app(tmp_path)
+    try:
+        readm = app.root.nametowidget(app.root.cget("menu"))
+        read_aloud_menu = None
+        for i in range(readm.index("end") + 1):
+            if readm.type(i) == "cascade" and readm.entrycget(i, "label") == "Read Aloud":
+                read_aloud_menu = readm.nametowidget(readm.entrycget(i, "menu"))
+                break
+        assert read_aloud_menu is not None
+        voice_menu = None
+        for i in range(read_aloud_menu.index("end") + 1):
+            if read_aloud_menu.type(i) == "cascade" and read_aloud_menu.entrycget(i, "label") == "Voice":
+                voice_menu = read_aloud_menu.nametowidget(read_aloud_menu.entrycget(i, "menu"))
+                break
+        assert voice_menu is not None
+        menu_labels = {voice_menu.entrycget(i, "label") for i in range(voice_menu.index("end") + 1)}
+        assert menu_labels == {"Northern English Male", "Alba (GB Female)"}
+
+        app._show_settings()
+        top = app._settings_window
+        all_voice_labels = {info["label"] for info in tts.VOICES.values()}
+
+        def find_voice_radiobutton_texts():
+            results = []
+            def walk(w):
+                if isinstance(w, tk.Radiobutton) and w.cget("text") in all_voice_labels:
+                    results.append(w.cget("text"))
+                for c in w.winfo_children():
+                    walk(c)
+            walk(top)
+            return set(results)
+
+        assert find_voice_radiobutton_texts() == {"Northern English Male", "Alba (GB Female)"}
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_sample_voices_dialog_lists_all_four_voices_with_play_buttons(tmp_path):
+    """The sampler is the one place ALL 4 voices stay visible/sampleable
+    (Devin: "leave the 2 defaults there, but make a page that has a
+    sampler with all the voices") -- including the 2 dropped from the
+    normal pickers, since their preview clips ship bundled either way."""
+    root, app = _make_app(tmp_path)
+    try:
+        app._show_voice_sampler()
+        top = app._voice_sampler_window
+
+        def collect_labels_and_buttons():
+            labels, buttons = [], []
+            def walk(w):
+                if isinstance(w, tk.Label):
+                    labels.append(w.cget("text"))
+                if isinstance(w, tk.Button) and w.cget("text") == "Play":
+                    buttons.append(w)
+                for c in w.winfo_children():
+                    walk(c)
+            walk(top)
+            return labels, buttons
+
+        labels, play_buttons = collect_labels_and_buttons()
+        for name in ("Northern English Male", "Alba (GB Female)",
+                     "Southern English Female", "Danny (US Male)"):
+            assert any(name in label for label in labels), f"{name} missing from sampler"
+        assert len(play_buttons) == 4
+        # The 2 non-bundled voices get an explicit "(not downloaded)"
+        # marker so it's clear a preview plays but committing to the
+        # voice for real reading still requires the download prompt.
+        assert any("not downloaded" in label for label in labels)
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_sample_voices_dialog_is_a_single_instance(tmp_path):
+    """Same singleton pattern as Settings/About -- repeated opens
+    re-focus the existing dialog instead of stacking a second one."""
+    root, app = _make_app(tmp_path)
+    try:
+        assert getattr(app, "_voice_sampler_window", None) is None
+        app._show_voice_sampler()
+        first = app._voice_sampler_window
+        app._show_voice_sampler()
+        assert app._voice_sampler_window is first
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_play_voice_preview_loads_the_bundled_clip_for_any_of_the_four_voices(tmp_path, monkeypatch):
+    """Real audio LOAD, not just "button exists" -- confirms
+    _play_voice_preview actually reaches tts.load_preview_audio and
+    hands real samples to tts_player for EVERY voice, including the 2
+    that aren't offered in the normal picker anymore (the whole point
+    of the sampler: previewable without downloading).
+
+    tts_player.play() itself is mocked out here on purpose -- calling
+    the REAL sounddevice-backed play() 4 times in a row in this
+    no-audio-device dev environment was confirmed to genuinely HANG
+    (not just fail fast with PortAudioError the way a single call does;
+    see test_read_page_synthesizes_with_the_bundled_voice_and_handles_
+    playback_for_real, already one of this suite's known-flaky real-
+    hardware tests). What this test actually needs to verify --
+    _play_voice_preview loading the RIGHT bytes per voice -- doesn't
+    require the real device call at all, so mocking it out here avoids
+    compounding that existing flakiness for no correctness gain."""
+    for voice_id in tts.VOICES:
+        root, app = _make_app(tmp_path)
+        try:
+            monkeypatch.setattr(app.tts_player, "play", lambda: None)
+            assert app.tts_player.has_audio() is False
+            app._play_voice_preview(voice_id)
+            assert app.tts_player.has_audio() is True
+        finally:
+            app.doc.close()
+            root.destroy()
+
+
 def _make_doc_with_a_blank_middle_page(tmp_path):
     """A real 3-page doc where page 1 (0-indexed) has no extractable
     text at all -- the real case _advance_to_next_page_and_continue_

@@ -73,6 +73,19 @@ def preview_path(voice_id: str) -> str:
     return str(PREVIEWS_DIR / f"{voice_id}.wav")
 
 
+def load_preview_audio(voice_id: str):
+    """Returns (audio_int16_bytes, sample_rate, channels) for this
+    voice's bundled preview clip -- Devin, 2026-07-29: "make a page that
+    has a sampler with all the voices." All 4 preview WAVs ship bundled
+    regardless of whether a voice's full ~60MB model is installed
+    (see this module's own docstring), so every voice can be sampled
+    without downloading anything. Uses stdlib wave, not a raw-bytes
+    assumption -- real WAV header, not guaranteed headerless PCM."""
+    import wave
+    with wave.open(preview_path(voice_id), "rb") as w:
+        return w.readframes(w.getnframes()), w.getframerate(), w.getnchannels()
+
+
 def is_available(voice_id: str) -> bool:
     """True if this voice's real model is already usable -- bundled
     with Slate, or already downloaded in a previous session."""

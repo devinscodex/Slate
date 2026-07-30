@@ -992,7 +992,16 @@ class SlateApp:
 
         readm = tk.Menu(menubar, tearoff=0)
         voicem = tk.Menu(readm, tearoff=0)
+        # Bundled voices only (Devin, 2026-07-29: "remove the other 2
+        # readback voices that need to be downloaded... leave the 2
+        # defaults there") -- southern_english_female/danny still exist
+        # in tts.VOICES (their preview clips ship bundled either way,
+        # see load_preview_audio) and can still be sampled from the new
+        # Sample Voices dialog below, they're just no longer offered as
+        # a pickable default here or in Settings.
         for voice_id, info in tts.VOICES.items():
+            if not info.get("bundled"):
+                continue
             voicem.add_radiobutton(
                 label=info["label"], variable=self.tts_voice, value=voice_id,
                 command=self._on_tts_voice_changed, selectcolor=radio_select_color,
@@ -1005,6 +1014,8 @@ class SlateApp:
                 command=self._on_tts_speed_changed, selectcolor=radio_select_color,
             )
         readm.add_cascade(label="Speed", menu=speedm)
+        readm.add_separator()
+        readm.add_command(label="Sample Voices...", command=self._show_voice_sampler)
         readm.add_separator()
         readm.add_command(label="Read this page", command=self.do_read_page)
         readm.add_command(label="Read entire document", command=self.do_read_document)
@@ -1224,6 +1235,89 @@ class SlateApp:
         x = root_x + (root_w - dlg_w) // 2
         y = root_y + (root_h - dlg_h) // 2
         top.geometry(f"+{x}+{y}")
+
+    def _show_voice_sampler(self):
+        """Read Aloud > Sample Voices... (Devin, 2026-07-29: "leave the
+        2 defaults there, but make a page that has a sampler with all
+        the voices"). Lists ALL 4 voices (not just the 2 bundled
+        defaults the Voice picker itself now offers -- see
+        _build_menu's own comment on why those 2 were dropped from the
+        picker) with a Play button each, playing that voice's bundled
+        preview clip (tts.load_preview_audio) -- every voice can be
+        sampled without downloading anything, since preview WAVs ship
+        bundled regardless of whether the full ~60MB model is
+        installed. Modeled on _show_about's own Toplevel/single-
+        instance/border/centering pattern."""
+        existing = getattr(self, "_voice_sampler_window", None)
+        if existing is not None and existing.winfo_exists():
+            existing.deiconify()
+            existing.lift()
+            existing.focus_force()
+            return
+        colors = theme.get_palette(self.theme_name.get())
+        top = tk.Toplevel(self.root)
+        self._voice_sampler_window = top
+        top.title("Sample Voices")
+        top.resizable(False, False)
+        top.bind("<Escape>", lambda e: top.destroy())
+        top.configure(highlightthickness=2, highlightbackground="#6b6b6b", highlightcolor="#6b6b6b")
+
+        header = tk.Frame(top)
+        header.pack(padx=24, pady=(18, 6), anchor="w")
+        tk.Label(
+            header, text="Sample Voices", font=self._ui_header_font(extra=5)
+        ).pack(side=tk.LEFT)
+        accent_bar = tk.Frame(top, bg="#62a945", height=2)
+        accent_bar.pack(fill=tk.X, padx=24, pady=(0, 10))
+
+        for voice_id, info in tts.VOICES.items():
+            row = tk.Frame(top)
+            row.pack(fill=tk.X, padx=24, pady=4)
+            tk.Label(row, text=info["label"], anchor="w").pack(side=tk.LEFT)
+            if not info.get("bundled"):
+                # Preview clip still ships bundled -- only the FULL
+                # model needs a download, and this dialog's whole point
+                # is sampling without committing to that yet.
+                tk.Label(row, text="(not downloaded)", fg="gray40").pack(side=tk.LEFT, padx=(6, 0))
+            tk.Button(
+                row, text="Play", width=6,
+                command=lambda vid=voice_id: self._play_voice_preview(vid),
+            ).pack(side=tk.RIGHT)
+
+        btn_row = tk.Frame(top)
+        btn_row.pack(pady=(6, 14))
+        tk.Button(btn_row, text="Close", command=top.destroy).pack()
+
+        self._paint_widget(top, colors)
+        accent_bar.configure(bg="#62a945")
+
+        top.update_idletasks()
+        root_x, root_y = self.root.winfo_rootx(), self.root.winfo_rooty()
+        root_w, root_h = self.root.winfo_width(), self.root.winfo_height()
+        dlg_w, dlg_h = top.winfo_width(), top.winfo_height()
+        x = root_x + (root_w - dlg_w) // 2
+        y = root_y + (root_h - dlg_h) // 2
+        top.geometry(f"+{x}+{y}")
+
+    def _play_voice_preview(self, voice_id):
+        """Plays voice_id's bundled preview clip through the same
+        tts_player used for real reads -- load() already stops whatever
+        was previously playing first, so sampling a second voice mid-
+        preview just cuts to the new one, no separate audio path to
+        keep in sync.
+
+        Same try/except-then-"Playback failed" convention as the real
+        read path (_read_current_page's own poll()) -- sounddevice's
+        play() raises a real PortAudioError when no output device
+        exists (confirmed live: this dev environment has none at all),
+        and a Settings-adjacent preview button should fail soft with a
+        message, not an uncaught exception freezing the dialog."""
+        audio, sample_rate, channels = tts.load_preview_audio(voice_id)
+        self.tts_player.load(audio, sample_rate, channels)
+        try:
+            self.tts_player.play()
+        except Exception as e:
+            messagebox.showinfo("Playback failed", str(e))
 
     def _show_settings(self):
         """Settings dialog (Devin, 2026-07-26 handoff): a single place to
@@ -1459,7 +1553,11 @@ class SlateApp:
         tk.Label(tts_frame, text="Voice:").pack(anchor="w", padx=10, pady=(6, 0))
         voice_row = tk.Frame(tts_frame)
         voice_row.pack(fill=tk.X, padx=10)
+        # Bundled voices only here too, same reasoning as the Read Aloud
+        # menu's own Voice submenu -- see _build_menu's comment.
         for voice_id, info in tts.VOICES.items():
+            if not info.get("bundled"):
+                continue
             btn = tk.Radiobutton(
                 voice_row, text=info["label"], variable=self.tts_voice, value=voice_id,
                 command=self._on_tts_voice_changed, selectcolor=colors["select_bg"],

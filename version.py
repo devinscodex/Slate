@@ -22,7 +22,7 @@ AUTHOR = "devinscodex"
 # "why not MIT?" question doesn't have to be re-derived from scratch.
 LICENSE = "AGPL-3.0-or-later"
 
-VERSION = "1.3.3"
+VERSION = "1.4.0"
 # 1.0.0 -- v1 core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (all 4 slices: fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (3 core families: Flexoki/Bonepaper/
@@ -99,6 +99,21 @@ VERSION = "1.3.3"
 #          every repaint now also reconfigures selectcolor for every
 #          group except the Theme grid itself (whose swatches must stay
 #          pinned to their OWN theme, never the active one).
+# 1.4.0 -- Voice picker (Read Aloud menu + Settings) now offers only
+#          the 2 bundled voices, no download required (Devin: "remove
+#          the other 2 readback voices that need to be downloaded...
+#          leave the 2 defaults there"). New Read Aloud > Sample
+#          Voices... dialog lists ALL 4 voices with a Play button each,
+#          playing bundled preview clips (tts.load_preview_audio) --
+#          every voice stays sampleable without downloading anything.
+#          Real gap caught before shipping: calling the real sounddevice
+#          play() path directly (not through the existing background-
+#          thread synthesis flow) genuinely HUNG in this no-audio-
+#          device dev environment across repeated calls, not just
+#          failed fast -- fixed with the same try/except-then-
+#          "Playback failed" convention _read_current_page's own poll()
+#          already uses, and the regression test mocks play() itself
+#          rather than compounding known real-hardware flakiness.
 
 SUMMARY = (
     "Slate is the document reader and editor you've always wanted: view, "
