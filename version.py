@@ -22,7 +22,7 @@ AUTHOR = "devinscodex"
 # "why not MIT?" question doesn't have to be re-derived from scratch.
 LICENSE = "AGPL-3.0-or-later"
 
-VERSION = "1.3.1"
+VERSION = "1.3.2"
 # 1.0.0 -- v1 core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (all 4 slices: fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (3 core families: Flexoki/Bonepaper/
@@ -65,6 +65,25 @@ VERSION = "1.3.1"
 #          (_kb_toggle_book_view) had lost its call to
 #          _toggle_book_view() during this same edit, caught by the
 #          existing regression test before it shipped.
+# 1.3.2 -- License stamped: AGPL-3.0-or-later, real LICENSE file, About
+#          page names it. Full 6-theme color audit (Devin: "check all
+#          themes and color selections... make sure there's no
+#          collisions") -- real WCAG contrast ratios computed, not
+#          eyeballed: Bonepaper Light's checked-toggle text was 2.61:1
+#          against its own accent (below the 3:1 UI floor) because the
+#          TOC-selected-row convention this was modeled on (always use
+#          colors["bg"] as checked-text) assumed bg beats fg for
+#          contrast against the accent, true for 4 of 6 themes but false
+#          for Slate Light and Bonepaper Light. Fixed generally --
+#          _wire_toggle_button_contrast now picks whichever of bg/fg
+#          wins real contrast per theme (_wcag_contrast_ratio), with a
+#          regression test covering all 6 themes, not just the 2 that
+#          broke. Also surfaced, not yet acted on: Flexoki's accent
+#          (#4a7637/#62a945) sits close to Slate's own (#58763a/
+#          #699d43, RGB distance ~17-21) -- both intentional green
+#          accents for two different families, not a copy-paste
+#          accident like the earlier Boneink/Inkbone collision, but
+#          close enough to flag rather than silently leave.
 
 SUMMARY = (
     "Slate is the document reader and editor you've always wanted: view, "

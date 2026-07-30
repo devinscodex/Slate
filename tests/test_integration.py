@@ -3961,6 +3961,28 @@ def test_settings_toggle_buttons_use_each_themes_own_accent_not_one_fixed_color(
         root.destroy()
 
 
+def test_every_theme_clears_a_real_wcag_contrast_floor_for_checked_toggle_text(tmp_path):
+    """Devin, 2026-07-29: "check all themes and color selections plz,
+    make sure there's no collisions." Real audit, not a guess -- computed
+    actual WCAG 2.x contrast ratios for all 6 themes and found Bonepaper
+    Light specifically failed (2.61:1, below the 3:1 UI-text floor) when
+    checked-state text always used colors["bg"] the way the TOC's own
+    selected row does. Root cause: that convention assumes bg always
+    contrasts better against the theme's own accent than fg does, true
+    for 4 of 6 themes but false for Slate Light and Bonepaper Light,
+    where a light stone/tan bg sits too close in luminance to their own
+    medium-dark accent. Fixed by picking whichever of bg/fg wins real
+    contrast against select_bg per theme (_wire_toggle_button_contrast),
+    computed via _wcag_contrast_ratio -- this test is the regression
+    guard for EVERY current and future theme, not just the 2 that broke
+    this specific time."""
+    for name, colors in theme.THEMES.items():
+        bg_contrast = slate._wcag_contrast_ratio(colors["bg"], colors["select_bg"])
+        fg_contrast = slate._wcag_contrast_ratio(colors["fg"], colors["select_bg"])
+        best = max(bg_contrast, fg_contrast)
+        assert best >= 3.0, f"{name}: neither bg ({bg_contrast:.2f}) nor fg ({fg_contrast:.2f}) clears 3:1 against select_bg"
+
+
 def test_continuous_and_side_by_side_combine_into_a_scrolling_two_column_layout(tmp_path):
     """Both checkboxes on at once (Devin: "both can be turned on") --
     real scroll through page PAIRS, windowing still applies."""

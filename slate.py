@@ -59,6 +59,26 @@ _TAB_CLOSE_GLYPH = "×"  # visual hint only -- middle-click actually closes, see
 # can't drift between the two call sites again.
 RADIO_SELECT_COLOR = "#4a9e3a"
 
+
+def _wcag_contrast_ratio(hex_a: str, hex_b: str) -> float:
+    """Real WCAG 2.x relative-luminance contrast ratio (the same formula
+    behind the 3:1/4.5:1 accessibility thresholds), not a cheap RGB-
+    distance approximation -- used by _wire_toggle_button_contrast to
+    pick real, measured checked-state text color per theme rather than
+    a guessed one (Devin, 2026-07-29: "check all themes and color
+    selections... make sure there's no collisions")."""
+    def _luminance(hexval):
+        hexval = hexval.lstrip("#")
+        def chan(c):
+            c = c / 255
+            return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+        r, g, b = (int(hexval[i:i + 2], 16) for i in (0, 2, 4))
+        r, g, b = chan(r), chan(g), chan(b)
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    la, lb = _luminance(hex_a), _luminance(hex_b)
+    lighter, darker = max(la, lb), min(la, lb)
+    return (lighter + 0.05) / (darker + 0.05)
+
 # UI font scale (Devin, 2026-07-29: "the font needs to be adjustable for
 # the UI, not just the page... pretty small rn"). These are Tk's own
 # built-in NAMED fonts -- virtually every stock Tk/ttk widget (Label,
@@ -411,12 +431,22 @@ class SlateApp:
         mint glow, #b5deb4), so a single static text color can't stay
         readable in both the checked and unchecked state.
 
-        Mirrors the exact convention the TOC's own selected row already
-        uses (foreground=colors["bg"] specifically when highlighted, see
-        test_toc_selected_row_uses_theme_highlight_not_ttks_default_blue)
-        -- same fix, same reasoning, applied here: checked = colors["bg"]
-        text on the accent fill (accents are chosen to contrast against
-        bg already), unchecked = the normal colors["fg"] on colors["bg"].
+        Checked-state text picks WHICHEVER of colors["bg"]/colors["fg"]
+        has the higher real WCAG contrast ratio against colors["select_bg"]
+        (see _wcag_contrast_ratio) -- not a blind "always bg" assumption.
+        Real gap this closes, found by auditing all 6 themes' actual
+        numbers (Devin, 2026-07-29: "check all themes and color
+        selections... make sure there's no collisions"): bg wins for 4
+        of 6 themes (e.g. Bonepaper Dark's near-black bg against its own
+        pale mint accent, 13.83:1 -- exactly the TOC-selected-row
+        convention this was originally modeled on), but fg actually wins
+        for Slate Light and Bonepaper Light specifically, where bg
+        (light stone/tan) sits too close in luminance to their own
+        medium-dark accent (2.61:1 for Bonepaper Light using bg, below
+        the 3:1 UI-text floor -- a real, measured collision, not a
+        guess). Unchecked state stays the plain colors["fg"] on
+        colors["bg"] either way -- that pairing is the theme's own
+        baseline contrast, already relied on everywhere else.
 
         value (for a Radiobutton sharing ONE variable across several
         buttons, e.g. the Theme grid's self.theme_name or Voice/Speed's
@@ -444,7 +474,13 @@ class SlateApp:
             return variable.get() == value if value is not None else bool(variable.get())
         def _refresh(*_a):
             cur_colors = theme.get_palette(fixed_theme_name or self.theme_name.get())
-            widget.configure(fg=cur_colors["bg"] if _is_checked() else cur_colors["fg"])
+            if _is_checked():
+                bg_contrast = _wcag_contrast_ratio(cur_colors["bg"], cur_colors["select_bg"])
+                fg_contrast = _wcag_contrast_ratio(cur_colors["fg"], cur_colors["select_bg"])
+                checked_fg = cur_colors["bg"] if bg_contrast >= fg_contrast else cur_colors["fg"]
+                widget.configure(fg=checked_fg)
+            else:
+                widget.configure(fg=cur_colors["fg"])
         variable.trace_add("write", _refresh)
         widget.slate_toggle_button = True
         widget._slate_refresh_toggle_fg = _refresh
