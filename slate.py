@@ -286,6 +286,14 @@ class SlateApp:
         else:
             self._show_home_screen()
 
+        # F12 (Settings) bound here too, redundant with the copy inside
+        # _ensure_doc_view_widgets() -- that method only runs once the
+        # first document opens, so a fresh launch sitting on the home
+        # screen never registered F12 at all (Devin, 2026-07-29: "F12
+        # doesn't work on homepage"). _show_settings() already tolerates
+        # no open document (its own zoom-label line checks self.viewer).
+        self.root.bind("<F12>", lambda e: self._show_settings())
+
         # Auto-check on launch (Devin, 2026-07-25: "auto-checks for
         # updates"). Delayed 2s so it never competes with initial
         # doc-load/render for the same event loop; silent unless

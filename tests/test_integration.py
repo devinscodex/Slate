@@ -2862,6 +2862,36 @@ def test_home_screen_matches_the_active_theme(tmp_path, monkeypatch):
         root.destroy()
 
 
+def test_f12_opens_settings_from_the_home_screen(tmp_path, monkeypatch):
+    """Real bug (Devin, 2026-07-29): "F12 doesn't work on homepage."
+    Root cause -- the F12 binding lived only inside
+    _ensure_doc_view_widgets(), which early-returns after its first
+    call and only ever runs once a document has been opened at least
+    once. A fresh launch sitting on the home screen never registered
+    F12 at all. Fixed with a redundant bind in __init__ itself, right
+    where the home screen is first shown."""
+    import settings as settings_module
+
+    monkeypatch.setattr(settings_module, "CONFIG_DIR", tmp_path / ".slate")
+    monkeypatch.setattr(settings_module, "SETTINGS_FILE", tmp_path / ".slate" / "settings.json")
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, None)  # no path -- launches straight to home screen
+    try:
+        assert app.doc is None
+        assert getattr(app, "_settings_window", None) is None
+        root.focus_force()
+        root.update()
+        root.event_generate("<F12>")
+        root.update()
+        existing = getattr(app, "_settings_window", None)
+        assert existing is not None and existing.winfo_exists()
+    finally:
+        if app.doc is not None:
+            app.doc.close()
+        root.destroy()
+
+
 def test_toc_selected_row_uses_theme_highlight_not_ttks_default_blue(tmp_path):
     """Real bug caught live (Devin, 2026-07-25: "the highlight in TOC
     is blue, i want that to be inkbone green") -- Treeview's selected-
