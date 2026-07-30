@@ -826,9 +826,25 @@ class SlateApp:
                     # falling back to the active theme's colors for
                     # every plain (non-Theme-grid) toggle, unchanged.
                     _fixed_name = getattr(widget, "slate_fixed_theme_name", None)
-                    _swatch_colors = theme.get_palette(_fixed_name) if _fixed_name else colors
+                    if _fixed_name:
+                        _swatch_colors = theme.get_palette(_fixed_name)
+                        _toggle_bg = _swatch_colors["bg"]
+                    else:
+                        # Real ask (Devin, 2026-07-30: "a smidge more
+                        # contrast to slate settings"): unchecked Mode/
+                        # Display/Voice/Speed toggles were painted flat
+                        # bg == the surrounding panel's own bg, so each
+                        # button read as a borderless blob (only Tk's
+                        # thin relief bevel hinted a button was even
+                        # there). button_bg is already the palette's own
+                        # designated "content/card level" tone (see
+                        # theme.py's chrome-cascade comment) -- reusing
+                        # it here gives a real, theme-consistent step up
+                        # from the panel instead of inventing a new color.
+                        _swatch_colors = colors
+                        _toggle_bg = colors["button_bg"]
                     widget.configure(
-                        bg=_swatch_colors["bg"], activebackground=_swatch_colors["bg"],
+                        bg=_toggle_bg, activebackground=_toggle_bg,
                         activeforeground=_swatch_colors["fg"],
                     )
                     if getattr(widget, "slate_toggle_button", False):
@@ -1733,11 +1749,15 @@ class SlateApp:
             self._stop_autoscroll()
             return
         self._pan_press_pos = (event.x, event.y)
-        # Pan disabled (see the commented-out B2-Motion binding above) --
-        # scan_mark/fleur cursor commented out to match; _pan_press_pos
-        # is still needed below to detect click-vs-drag for autoscroll.
-        # self.canvas.scan_mark(event.x, event.y)
-        # self.canvas.config(cursor="fleur")
+        # Restored 2026-07-30 -- real regression, not an intentional
+        # disable: these two lines got commented out by accident in
+        # 6c4c60d36d (2026-07-27, an unrelated Settings-dialog commit
+        # whose own message admits it hit a tool-level wall-clock limit
+        # mid-session), silently dropping middle-click-drag pan while
+        # leaving click-to-autoscroll working -- Devin, 2026-07-30:
+        # "i seem to have lost my middle click auto-pan/scroll."
+        self.canvas.scan_mark(event.x, event.y)
+        self.canvas.config(cursor="fleur")
 
     def _on_pan_release(self, event):
         if self._autoscroll_active:
@@ -2242,7 +2262,7 @@ class SlateApp:
         # click, one more step.
         self.canvas.bind("<Button-3>", self._show_canvas_context_menu)
         self.canvas.bind("<ButtonPress-2>", self._on_pan_press)
-        # self.canvas.bind("<B2-Motion>", lambda e: self.canvas.scan_dragto(e.x, e.y, gain=1))
+        self.canvas.bind("<B2-Motion>", lambda e: self.canvas.scan_dragto(e.x, e.y, gain=1))
         self.canvas.bind("<ButtonRelease-2>", self._on_pan_release)
         self.canvas.bind("<Motion>", self._on_canvas_motion)
 
