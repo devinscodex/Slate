@@ -125,18 +125,31 @@ class Viewer:
         self.zoom = max(floor, self.zoom - step)
         return self.zoom
 
-    def fit_width(self, viewport_width: float, page_num=None, floor=0.25, ceiling=8.0):
-        """Set zoom so the current (or given) page's native width exactly
-        fills viewport_width. Fixes a real bug (Devin, 2026-07-26): pages
-        wider than DEFAULT_ZOOM's fixed 1.5x (e.g. a landscape diagram
-        PDF) opened at literal 1:1-ish size and ran off-screen -- every
+    def fit_width(self, viewport_width: float, page_num=None, floor=0.25, ceiling=8.0,
+                  content_width=None):
+        """Set zoom so the current (or given) page's width exactly fills
+        viewport_width. Fixes a real bug (Devin, 2026-07-26): pages wider
+        than DEFAULT_ZOOM's fixed 1.5x (e.g. a landscape diagram PDF)
+        opened at literal 1:1-ish size and ran off-screen -- every
         document should default to fitting the view, not a fixed zoom
         that only happens to work for common page sizes. Clamped to the
         same practical range zoom_in/zoom_out already allow (floor stops
         a degenerate near-zero zoom on a very wide page; ceiling stops a
-        tiny page from zooming absurdly large)."""
+        tiny page from zooming absurdly large).
+
+        content_width (Devin, 2026-07-29 -- "crop to content doesn't
+        seem to do anything"): real bug, not cosmetic -- this always
+        measured the page's FULL native width, even with crop_to_content
+        on, so Fit Width (including Book View's auto-fit-on-toggle) kept
+        sizing zoom to the uncropped page. The freed-up margin space
+        crop is supposed to hand back to the reader never got used: the
+        cropped content just floated smaller inside the same frame,
+        reading as "crop does nothing." Callers that know the active
+        crop rect's width now pass it here instead of leaving this at
+        the default (None -> falls back to the real native page width,
+        unchanged behavior when crop is off)."""
         page_num = self.page_num if page_num is None else page_num
-        native_width = self.doc[page_num].rect.width
+        native_width = content_width if content_width is not None else self.doc[page_num].rect.width
         if native_width <= 0:
             return self.zoom  # degenerate page geometry -- leave zoom untouched
         self.zoom = max(floor, min(ceiling, viewport_width / native_width))

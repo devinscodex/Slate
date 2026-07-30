@@ -11,7 +11,14 @@
 ; requires dist\Slate\ to already exist (run PyInstaller first).
 
 #define MyAppName "Slate"
-#define MyAppVersion "1.1.0"
+; Overridable via ISCC's /DMyAppVersion=X.Y.Z (build-installer.ps1 passes
+; version.py's real VERSION this way) so the two never drift apart again
+; -- real gap caught live 2026-07-29: this stayed hardcoded "1.1.0" while
+; version.py had already moved to 1.2.0, so the built installer's own
+; filename silently lied about what it shipped.
+#ifndef MyAppVersion
+  #define MyAppVersion "1.1.0"
+#endif
 #define MyAppPublisher "devinscodex"
 #define MyAppExeName "Slate.exe"
 

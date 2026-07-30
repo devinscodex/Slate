@@ -3547,6 +3547,41 @@ def test_fit_width_divides_viewport_across_columns_in_side_by_side(tmp_path):
         root.destroy()
 
 
+def test_fit_width_uses_the_cropped_content_width_not_the_full_page(tmp_path):
+    """Real bug (Devin, 2026-07-29: "crop to content doesn't seem to do
+    anything"). Root cause: viewer.fit_width() always measured the
+    page's FULL native width, even with crop_to_content on -- so Fit
+    Width (including Book View's own auto-fit-on-toggle) kept sizing
+    zoom to the uncropped page, and the margin space crop is supposed to
+    free up for the reader never actually translated into a bigger
+    effective zoom. Fixed by passing the active crop rect's width
+    through as fit_width()'s new content_width param whenever crop is
+    on. Real regression guard: with crop on, fitting the SAME viewport
+    width must produce MORE zoom than fitting the uncropped page would
+    (the cropped content is narrower, so it should scale up further to
+    fill the same space) -- not just "some number changed.\""""
+    root, app = _make_app(tmp_path)
+    try:
+        root.geometry("1000x900")
+        root.update()
+
+        app.crop_to_content_var.set(False)
+        app._on_crop_toggle()
+        app.fit_width()
+        uncropped_zoom = app.viewer.zoom
+
+        app.crop_to_content_var.set(True)
+        app._on_crop_toggle()
+        app.fit_width()
+        cropped_zoom = app.viewer.zoom
+
+        assert app._get_crop_rect() is not None  # fixture has real detectable content
+        assert cropped_zoom > uncropped_zoom
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_side_by_side_static_shows_two_pages_with_no_scroll_needed(tmp_path):
     """Devin's own framing: "a spread fits the viewport by definition
     at normal zoom" -- side-by-side alone (continuous_scroll off) is a

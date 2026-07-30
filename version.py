@@ -6,7 +6,7 @@ exist on a deployed end-user machine without fossil/git installed.
 
 AUTHOR = "devinscodex"
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 # 1.0.0 -- v1 core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (all 4 slices: fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (3 core families: Flexoki/Bonepaper/
@@ -19,6 +19,14 @@ VERSION = "1.2.0"
 #          iterations... that needs to be rolling with our changes" --
 #          version bumps from here on track real shipped iterations, not
 #          just headline features.
+# 1.2.1 -- Fit Width now fits the CROPPED content width when crop_to_
+#          content is on, not the full native page ("crop to content
+#          doesn't seem to do anything" -- it worked, but Fit Width kept
+#          re-measuring the uncropped page, so freed-up margin never
+#          became extra zoom). Installer version now reads version.py
+#          directly instead of a separately hardcoded string in
+#          slate.iss (that drift is exactly what caused 1.2.0's
+#          installer to briefly still say 1.1.0).
 
 SUMMARY = (
     "Slate is the document reader and editor you've always wanted: view, "

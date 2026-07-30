@@ -49,7 +49,15 @@ if (-not (Test-Path $iscc)) {
     $cmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
     if ($cmd) { $iscc = $cmd.Source } else { throw "ISCC.exe not found -- Inno Setup 6 expected at $iscc" }
 }
-& $iscc "installer\slate.iss"
+# Real version.py is the single source of truth -- slate.iss's own
+# MyAppVersion is just a fallback default now (see its #ifndef comment).
+# Without this, the installer's filename/AppVersion can silently drift
+# from what actually got frozen into dist\Slate\ (real gap, 2026-07-29).
+$versionLine = Select-String -Path "version.py" -Pattern '^VERSION = "([^"]+)"'
+if (-not $versionLine) { throw "Could not read VERSION from version.py" }
+$slateVersion = $versionLine.Matches[0].Groups[1].Value
+Write-Host "Building installer for Slate version $slateVersion"
+& $iscc "/DMyAppVersion=$slateVersion" "installer\slate.iss"
 if ($LASTEXITCODE -ne 0) { throw "ISCC.exe failed (exit $LASTEXITCODE)" }
 
 Write-Host "=== 4/4: reinstall ==="

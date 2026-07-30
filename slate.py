@@ -3161,7 +3161,15 @@ class SlateApp:
             cols = 2 if self.side_by_side else 1
             gap = 2  # matches layout.PageLayout's own default gap= exactly
             per_page_w = (viewport_w - gap * (cols - 1)) / cols
-            self.viewer.fit_width(per_page_w)
+            # Real bug fixed 2026-07-29 (Devin: "crop to content doesn't
+            # seem to do anything"): without this, Fit Width always
+            # measured the FULL native page width even with crop on, so
+            # the margin space crop frees up never got handed back to
+            # the reader as extra zoom -- see viewer.fit_width's own
+            # content_width comment for the full story.
+            crop_rect = self._get_crop_rect()
+            content_width = crop_rect.width if crop_rect is not None else None
+            self.viewer.fit_width(per_page_w, content_width=content_width)
             self.render()
             settings.save({"zoom": self.viewer.zoom})
 
