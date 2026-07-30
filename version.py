@@ -22,7 +22,7 @@ AUTHOR = "devinscodex"
 # "why not MIT?" question doesn't have to be re-derived from scratch.
 LICENSE = "AGPL-3.0-or-later"
 
-VERSION = "1.3.2"
+VERSION = "1.3.3"
 # 1.0.0 -- v1 core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (all 4 slices: fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (3 core families: Flexoki/Bonepaper/
@@ -84,6 +84,21 @@ VERSION = "1.3.2"
 #          accents for two different families, not a copy-paste
 #          accident like the earlier Boneink/Inkbone collision, but
 #          close enough to flag rather than silently leave.
+# 1.3.3 -- Real bug caught live (Devin's Slate Dark screenshot):
+#          Settings is a singleton dialog (built once, reused via
+#          deiconify) -- selectcolor for Mode/Display/Voice/Speed was
+#          only ever set at CONSTRUCTION time, under whatever theme was
+#          active when the dialog first opened. Switching themes later
+#          in that same still-open dialog repainted bg/fg everywhere,
+#          but selectcolor (a separate Tk option _paint_widget never
+#          touched) stayed frozen on the OLD theme's accent -- the
+#          Voice group was stuck showing Bonepaper's jade while the
+#          Theme grid's own "Dark" swatch correctly showed Slate's
+#          green, an obvious mismatch. Fixed generally: the same
+#          per-widget refresh callback _paint_widget already invokes on
+#          every repaint now also reconfigures selectcolor for every
+#          group except the Theme grid itself (whose swatches must stay
+#          pinned to their OWN theme, never the active one).
 
 SUMMARY = (
     "Slate is the document reader and editor you've always wanted: view, "

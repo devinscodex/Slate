@@ -3961,6 +3961,59 @@ def test_settings_toggle_buttons_use_each_themes_own_accent_not_one_fixed_color(
         root.destroy()
 
 
+def test_mode_display_voice_speed_selectcolor_follows_a_live_theme_switch(tmp_path):
+    """Real bug caught live (Devin's screenshot, 2026-07-29): Settings is
+    a singleton dialog (built once, reused via deiconify) -- selectcolor
+    was only ever set at CONSTRUCTION time, under whatever theme was
+    active when the dialog was first opened. Switching themes later, in
+    that same still-open dialog, repainted bg/fg everywhere via
+    _paint_widget, but selectcolor itself (a separate Tk widget option
+    _paint_widget never touched) stayed frozen on the OLD theme's
+    accent -- Devin's real screenshot showed the Voice group still
+    jade (Bonepaper's accent) while the Theme grid's own "Dark" swatch
+    correctly showed Slate's lime green, an obvious mismatch. Fixed:
+    _wire_toggle_button_contrast's own _refresh (already invoked by
+    _paint_widget on every repaint) now also reconfigures selectcolor
+    for every group EXCEPT the Theme grid itself (whose swatches must
+    stay pinned to their OWN theme, never the active one -- see the
+    test right above this one)."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.theme_name.set("bonepaper_dark")
+        app._apply_theme()
+        app._show_settings()
+        top = app._settings_window
+
+        def find(text):
+            def walk(w):
+                if isinstance(w, (tk.Checkbutton, tk.Radiobutton)) and w.cget("text") == text:
+                    return w
+                for c in w.winfo_children():
+                    found = walk(c)
+                    if found:
+                        return found
+                return None
+            return walk(top)
+
+        voice_btn = find("Northern English Male")
+        continuous_btn = find("Continuous")
+        toc_btn = find("Show Table of Contents")
+        assert voice_btn.cget("selectcolor") == theme.THEMES["bonepaper_dark"]["select_bg"]
+
+        # Switch theme in the SAME still-open dialog -- the real scenario.
+        app.theme_name.set("slate_dark")
+        app._on_theme_changed()
+        app._paint_widget(top, theme.get_palette("slate_dark"))
+
+        for btn, label in ((voice_btn, "Voice"), (continuous_btn, "Mode"), (toc_btn, "Display")):
+            assert btn.cget("selectcolor") == theme.THEMES["slate_dark"]["select_bg"], (
+                f"{label} group's selectcolor didn't follow the theme switch"
+            )
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_every_theme_clears_a_real_wcag_contrast_floor_for_checked_toggle_text(tmp_path):
     """Devin, 2026-07-29: "check all themes and color selections plz,
     make sure there's no collisions." Real audit, not a guess -- computed

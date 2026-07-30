@@ -474,6 +474,22 @@ class SlateApp:
             return variable.get() == value if value is not None else bool(variable.get())
         def _refresh(*_a):
             cur_colors = theme.get_palette(fixed_theme_name or self.theme_name.get())
+            # Real bug caught live (Devin's screenshot, 2026-07-29,
+            # Slate Dark Settings): selectcolor was only ever set ONCE
+            # at construction time, under whatever theme was active when
+            # this singleton dialog was first built. Switching themes
+            # later (in the same still-open dialog session) repainted
+            # bg/fg everywhere via _paint_widget, but selectcolor itself
+            # -- a separate Tk widget option _paint_widget never
+            # touches -- stayed frozen on the OLD theme's accent. Mode/
+            # Display/Voice/Speed must track whichever theme is
+            # CURRENTLY active (fixed_theme_name is None for all of
+            # them); only the Theme grid's own per-swatch buttons
+            # (fixed_theme_name set) are deliberately exempt -- their
+            # selectcolor is supposed to stay pinned to that swatch's
+            # own theme forever, never the active one.
+            if fixed_theme_name is None:
+                widget.configure(selectcolor=cur_colors["select_bg"])
             if _is_checked():
                 bg_contrast = _wcag_contrast_ratio(cur_colors["bg"], cur_colors["select_bg"])
                 fg_contrast = _wcag_contrast_ratio(cur_colors["fg"], cur_colors["select_bg"])
