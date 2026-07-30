@@ -499,6 +499,7 @@ class SlateApp:
                 widget.configure(fg=cur_colors["fg"])
         variable.trace_add("write", _refresh)
         widget.slate_toggle_button = True
+        widget.slate_fixed_theme_name = fixed_theme_name
         widget._slate_refresh_toggle_fg = _refresh
         _refresh()
 
@@ -809,9 +810,26 @@ class SlateApp:
                     # selectcolor (the checked-indicator color) is left
                     # alone -- callers already pass their own theme-
                     # accent color for it at construction time.
+                    #
+                    # Real bug, live screenshot 2026-07-30 (dark-on-dark
+                    # text on the Theme grid's unchecked Light swatches,
+                    # e.g. "Slate Light" while Slate Dark is active):
+                    # _wire_toggle_button_contrast already paints this
+                    # widget's UNCHECKED fg from its own fixed_theme_name
+                    # (so "Slate Light"'s button always reads its own
+                    # fg, #13120f) -- but this branch was still painting
+                    # bg from the DIALOG's active theme (Slate Dark's
+                    # #002b36), not the swatch's own. Two code paths
+                    # disagreeing on what "this swatch's own colors"
+                    # means. Fix: read bg (and active* to match) from
+                    # the same fixed palette the fg trace already uses,
+                    # falling back to the active theme's colors for
+                    # every plain (non-Theme-grid) toggle, unchanged.
+                    _fixed_name = getattr(widget, "slate_fixed_theme_name", None)
+                    _swatch_colors = theme.get_palette(_fixed_name) if _fixed_name else colors
                     widget.configure(
-                        bg=colors["bg"], activebackground=colors["bg"],
-                        activeforeground=colors["fg"],
+                        bg=_swatch_colors["bg"], activebackground=_swatch_colors["bg"],
+                        activeforeground=_swatch_colors["fg"],
                     )
                     if getattr(widget, "slate_toggle_button", False):
                         # fg is owned by _wire_toggle_button_contrast's own
