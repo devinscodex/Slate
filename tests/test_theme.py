@@ -35,7 +35,7 @@ def test_every_theme_label_maps_to_a_real_theme():
         assert name in theme.THEMES, label
 
 
-def test_roster_is_exactly_eight_themes():
+def test_roster_is_exactly_six_themes():
     """Devin, 2026-07-25: "make standard light/dark modes the same as
     Flexoki, and get rid of Flexoki as a separate option, also delete
     Gruvbox themes... main will be Dark/Light, Solarized Light/Dark,
@@ -45,31 +45,34 @@ def test_roster_is_exactly_eight_themes():
     Solarized drops to a single variant, roster was 5 total.
 
     Grown to 9, 2026-07-29 (WebUI/CSS council): Boneink (light/dark) and
-    Mosscairn3 (light/dark -- Solarized bones + a desaturated moss
-    accent) added as real candidates. Settled the same day: Mosscairn3
-    -> Mosscairn (dropped the number), Solarized RETIRED ("Solarized can
-    go away" -- Mosscairn Dark already covers its ground), and Inkbone
-    RETIRED too ("let's get rid of inkbone" -- Boneink already shares
-    its exact bg/fg bones). Inkrain added same day, dark-only at first
-    (real branding-imagery batch, no light half in the source material)
-    then given a real light half minutes later ("is there not an Inkrain
-    light? ... news paper style") -- designed, not sampled, unlike the
-    rest of this family. Final roster: Standard/Boneink/Mosscairn/Inkrain,
-    light/dark each, 8 total."""
+    Mosscairn3 (light/dark) added as real candidates, Mosscairn3 ->
+    Mosscairn (dropped the number), Solarized and Inkbone both retired
+    (their ground covered by Mosscairn Dark and Boneink respectively).
+    Inkrain then added, dark-only at first (real branding-imagery batch),
+    given a real designed light half minutes later. Peaked at 9, briefly
+    8 -- then Boneink and Inkrain, which had existed as two separate
+    families for about twenty minutes, were merged into one under the
+    Inkrain name ("make inkrain the dark mode for Boneink... just 3 core
+    themes still... update boneink to 'inkrain'"): Boneink's real light
+    half survives inside Inkrain, Inkrain's real sampled dark half
+    replaces Boneink's own jade-dark, and Inkrain's own short-lived
+    newsprint light is retired. Final roster: Standard/Mosscairn/Inkrain,
+    light/dark each, 6 total -- 3 core families, same count Devin asked
+    for after the very first roster consolidation."""
     assert set(theme.THEMES.keys()) == {
         "light", "dark",
-        "boneink_light", "boneink_dark",
         "mosscairn_light", "mosscairn_dark",
         "inkrain_light", "inkrain_dark",
     }
     for gone in ("flexoki_dark", "flexoki_light", "gruvbox_dark", "gruvbox_light",
                  "solarized_light", "solarized", "mosscairn3_light", "mosscairn3_dark",
-                 "inkbone_light", "inkbone_dark"):
+                 "inkbone_light", "inkbone_dark", "boneink_light", "boneink_dark"):
         assert gone not in theme.THEMES, gone
     for gone_label in ("Flexoki Dark", "Flexoki Light", "Gruvbox Dark", "Gruvbox Light",
                         "Solarized Light", "Solarized Dark", "Solarized",
                         "Mosscairn3 Light", "Mosscairn3 Dark",
-                        "Inkbone Light", "Inkbone Dark"):
+                        "Inkbone Light", "Inkbone Dark",
+                        "Boneink Light", "Boneink Dark"):
         assert gone_label not in theme.THEME_LABELS, gone_label
 
 
@@ -85,7 +88,7 @@ def test_standard_light_dark_carry_flexokis_real_values():
     assert theme.THEMES["light"]["fg"] == "#100f0f"
 
 
-def test_standard_dark_is_lightened_off_spec_for_real_contrast_with_boneink():
+def test_standard_dark_is_lightened_off_spec_for_real_contrast_with_inkrain():
     """Devin, 2026-07-25, asked TWICE: "should be lighter than
     inkbone's dark" then, after a first "already lighter, no change
     needed" answer proved wrong on a real screen, "make standard dark
@@ -96,15 +99,18 @@ def test_standard_dark_is_lightened_off_spec_for_real_contrast_with_boneink():
     fidelity. Real, verifiable minimum: at least DOUBLE the original
     spec's gap from Inkbone, not just marginally more.
 
-    Repointed at boneink_dark 2026-07-29 (Inkbone retired, "let's get
-    rid of inkbone") -- boneink_dark shares Inkbone Dark's exact bg
-    (#0e0c0a, same real "night noir" bones on purpose), so the same
-    contrast-fidelity check still holds against a real current theme."""
+    Repointed twice since (Inkbone retired -> Boneink shared its exact
+    bg; Boneink then merged into Inkrain -- Devin: "update boneink to
+    'inkrain'"). Inkrain's real sampled dark bg (#030302) is even darker
+    than Inkbone's original #0e0c0a was, not the same value anymore --
+    the check still holds, just against a darker real floor than before,
+    which only makes the "at least double the gap" assertion a stronger
+    bar, not a weaker one."""
     standard_bg = theme._hex_to_rgb(theme.THEMES["dark"]["bg"])
-    boneink_bg = theme._hex_to_rgb(theme.THEMES["boneink_dark"]["bg"])
+    inkrain_bg = theme._hex_to_rgb(theme.THEMES["inkrain_dark"]["bg"])
     original_flexoki_bg = theme._hex_to_rgb("#1c1b1a")
-    original_gap = sum(a - b for a, b in zip(original_flexoki_bg, boneink_bg))
-    new_gap = sum(a - b for a, b in zip(standard_bg, boneink_bg))
+    original_gap = sum(a - b for a, b in zip(original_flexoki_bg, inkrain_bg))
+    new_gap = sum(a - b for a, b in zip(standard_bg, inkrain_bg))
     assert new_gap >= original_gap * 2
     # button_bg must still be a lighter step than the new bg (same
     # relative relationship the real spec had, just both shifted up)
@@ -132,8 +138,8 @@ def test_every_theme_accent_is_minimal_pure_accent_lives_in_selection_roles_only
     """Manga-essence pass (Devin, 2026-07-25, originally Inkbone-specific:
     "MINIMAL green, pure accent only... must NOT color tabs or chrome").
     Generalized 2026-07-29 when Inkbone retired -- the rule itself is a
-    real house-wide design constraint every family (Standard, Boneink,
-    Mosscairn) actually follows, not a property unique to the retired
+    real house-wide design constraint every family (Standard, Mosscairn,
+    Inkrain) actually follows, not a property unique to the retired
     theme: accent lives only in the genuine "selection" roles, select_bg
     (Listbox/Entry) and highlight_bg (text-selection highlight), never
     menubar/toolbar/tabstrip."""
@@ -144,13 +150,14 @@ def test_every_theme_accent_is_minimal_pure_accent_lives_in_selection_roles_only
 
 
 def test_named_theme_palettes_are_real_and_distinct():
-    """Standard(Flexoki)/Boneink/Mosscairn -- confirm each is actually a
+    """Standard(Flexoki)/Mosscairn/Inkrain -- confirm each is actually a
     distinct palette (not accidentally aliased to each other) and that
     is_dark matches the palette's own name.
 
     Checks (bg, select_bg) pairs rather than bg alone: this originally
-    guarded boneink_dark deliberately sharing Inkbone Dark's exact bg
-    (#0e0c0a, real "night noir" bones on purpose) -- Inkbone is retired
+    guarded Boneink Dark deliberately sharing Inkbone Dark's exact bg
+    (#0e0c0a, real "night noir" bones on purpose). Both Inkbone and
+    (after the later Boneink+Inkrain merge) that exact bg value are gone
     now, but the pair-check is kept rather than reverted to a stricter
     bg-only check, since it's a strict superset (still catches a genuine
     copy-paste accident: identical bg AND identical accent) and stays

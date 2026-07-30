@@ -130,7 +130,6 @@ def test_comments_are_stripped_before_parsing(tmp_path):
     reason="Runestone vault not present on this machine -- dev-only consistency check",
 )
 @pytest.mark.parametrize("filename,dark_key,light_key", [
-    ("boneink.css", "boneink_dark", "boneink_light"),
     ("mosscairn.css", "mosscairn_dark", "mosscairn_light"),
     ("inkrain.css", "inkrain_dark", "inkrain_light"),
 ])

@@ -24,7 +24,8 @@ variants) to 3 families (6 variants) at the time -- "light"/"dark" now
 carry Flexoki's real published values directly (stephango.com/flexoki,
 verified live). Both Solarized and Inkbone later retired (2026-07-29,
 see THEME_LABELS' own comment) once Mosscairn/Boneink existed and
-covered the same ground -- current roster is Standard/Boneink/Mosscairn.
+covered the same ground. Boneink itself was then folded into Inkrain
+(see THEME_LABELS again) -- current roster is Standard/Mosscairn/Inkrain.
 
 Chrome cascade (Devin, 2026-07-25, same request): "make menu bar
 cascade down in color from window bar down to tabs, to toolbar making
@@ -50,8 +51,9 @@ PREF_FILE = CONFIG_DIR / "theme.json"
 # look inkbone_dark was originally picked as default for), so nothing
 # in that visual identity is actually lost. New default: mosscairn_dark,
 # Devin's stated favorite this session ("these colors are looking
-# GREAT"). Flagged, not silently assumed -- boneink_dark is the closer
-# visual match to the retired default if that steer was wrong.
+# GREAT"). Flagged, not silently assumed -- inkrain_dark (Boneink's own
+# successor, now merged with Inkrain) is the closer visual match to the
+# retired default if that steer was wrong.
 DEFAULT_THEME = "mosscairn_dark"
 
 
@@ -149,31 +151,6 @@ _STANDARD_LIGHT = {
 # accent instead of Solarized's blue. Kept as a one-line historical note,
 # not a dict: the real values live in _MOSSCAIRN_DARK now.
 
-# Boneink -- Cairn's manga/noir family (Runestone's boneink.css, read
-# directly from its real values, 2026-07-29). Shares Inkbone's exact bg/fg
-# bones on both light (#c9b08a vs Inkbone's #c9b896 -- same tan-parchment
-# family, near-identical) and dark (#0e0c0a bg / #ede6d6 fg, literally
-# identical to Inkbone Dark) -- real, already-existing kinship, not
-# invented for this port. Accent corrected same day: the CSS's original
-# "jade" values were numerically identical to Inkbone's own green
-# (#62a945, same ~103deg grass-green hue) -- caught by this file's own
-# test_named_theme_palettes_are_real_and_distinct when the port produced
-# an exact (bg, select_bg) collision with inkbone_dark. Re-derived as a
-# true teal-leaning jade (~158deg) in boneink.css itself and carried
-# here, so this is a genuinely distinct theme, not Inkbone under a rename.
-_BONEINK_DARK = {
-    "bg": "#0e0c0a", "fg": "#ede6d6", "button_bg": "#1d1c1a",
-    "entry_bg": "#0e0c0a", "canvas_bg": "#0e0c0a",
-    "select_bg": "#39c692", "muted_fg": "#98948d", "is_dark": True,
-    "highlight_bg": "#39c692",
-}
-_BONEINK_LIGHT = {
-    "bg": "#c9b08a", "fg": "#201811", "button_bg": "#bea179",
-    "entry_bg": "#c9b08a", "canvas_bg": "#c9b08a",
-    "select_bg": "#2d765b", "muted_fg": "#503f2d", "is_dark": False,
-    "highlight_bg": "#2d765b",
-}
-
 # Mosscairn -- Runestone's mosscairn.css, consolidated 2026-07-29 (was
 # briefly mosscairn/mosscairn2/mosscairn3 -- three iterations landing on
 # one real theme; "these colors are looking GREAT," final name has no
@@ -207,22 +184,24 @@ _MOSSCAIRN_LIGHT = {
     "highlight_bg": "#58763a",
 }
 
-# Inkrain -- Runestone's inkrain.css, 2026-07-29 (Devin's ask, after the new
-# branding/big/ Revelation-imagery batch). True black gutters, sumi-ink
-# linework, one pale sage-mint glow -- named for the one motif every source
-# image shares (rain streaking through near-total dark), not "Japanese
-# newspaper" (Devin's first guess, ruled out: no halftone/dot-grid in the
-# source material at all). Real sampled values (numpy over 5 actual
-# branding/big/ images, not picked by eye) -- ported via css_theme.py's own
-# parser rather than hand-copied, first real dogfood use of that tool.
+# Inkrain -- merged 2026-07-29 (Devin: "make inkrain the dark mode for
+# Boneink... just 3 core themes still... update boneink to 'inkrain'").
+# Was briefly two separate families (Boneink and Inkrain existed side by
+# side for about twenty minutes) before Devin folded them into one.
 #
-# Light added same day (Devin: "is there not an Inkrain light? we should
-# have one! news paper style") -- DESIGNED, not sampled: no light-toned
-# source image exists in the branding/big/ batch, so this half is a
-# deliberate newsprint companion (warm uncoated-paper cream, near-black
-# ink) rather than pretending to be sourced like the dark half. Same
-# sage-mint hue family (h:119), darkened for contrast on a light page, so
-# the two halves still read as one family.
+# Light = Boneink's real light half, UNCHANGED (bone-paper, real fixed
+# teal-jade accent ~158deg -- originally read directly from boneink.css;
+# see fossil history for that file's own real-values provenance and the
+# jade/Inkbone-green collision it was corrected for).
+#
+# Dark = Inkrain's real sampled night-rain values, UNCHANGED (numpy over
+# 5 branding/big/ Revelation-imagery photos, not picked by eye) --
+# replaces what used to be Boneink's own jade-dark outright, not a blend.
+#
+# Inkrain's own short-lived standalone light half (a designed newsprint
+# companion, not sampled, built minutes before this merge) is retired
+# along with it -- Boneink's real light wins the slot instead. Roster
+# back to 3 core families: Standard, Mosscairn, Inkrain.
 _INKRAIN_DARK = {
     "bg": "#030302", "fg": "#e4fadf", "button_bg": "#0a0d09",
     "entry_bg": "#030302", "canvas_bg": "#030302",
@@ -230,17 +209,15 @@ _INKRAIN_DARK = {
     "highlight_bg": "#b5deb4",
 }
 _INKRAIN_LIGHT = {
-    "bg": "#ece6d6", "fg": "#1c1810", "button_bg": "#ddd6c2",
-    "entry_bg": "#ece6d6", "canvas_bg": "#ece6d6",
-    "select_bg": "#327231", "muted_fg": "#564d39", "is_dark": False,
-    "highlight_bg": "#327231",
+    "bg": "#c9b08a", "fg": "#201811", "button_bg": "#bea179",
+    "entry_bg": "#c9b08a", "canvas_bg": "#c9b08a",
+    "select_bg": "#2d765b", "muted_fg": "#503f2d", "is_dark": False,
+    "highlight_bg": "#2d765b",
 }
 
 THEMES = {
     "light": _with_chrome_cascade(_STANDARD_LIGHT),
     "dark": _with_chrome_cascade(_STANDARD_DARK),
-    "boneink_light": _with_chrome_cascade(_BONEINK_LIGHT),
-    "boneink_dark": _with_chrome_cascade(_BONEINK_DARK),
     "mosscairn_light": _with_chrome_cascade(_MOSSCAIRN_LIGHT),
     "mosscairn_dark": _with_chrome_cascade(_MOSSCAIRN_DARK),
     "inkrain_light": _with_chrome_cascade(_INKRAIN_LIGHT),
@@ -249,23 +226,21 @@ THEMES = {
 
 # Display label -> internal THEMES key, in menu order. Devin's stated
 # work order 2026-07-25 ("in order: Standard, Inkbone, Solarized")
-# applied as the real menu order at the time; Boneink/Mosscairn appended
-# 2026-07-29 (WebUI/CSS council). Solarized retired same day ("Solarized
-# can go away") -- Mosscairn Dark already carries its exact neutrals with
-# a moss accent instead of blue, made the standalone entry redundant.
-# Mosscairn was Mosscairn3 during design/comparison; Devin's verdict
-# ("these colors are looking GREAT") dropped the number. Inkbone retired
-# same day too ("let's get rid of inkbone") -- Boneink already shares its
-# exact bg/fg bones, nothing lost. Final roster: Standard, Boneink,
-# Mosscairn, light/dark each. Inkrain appended same day (Devin's ask,
-# real branding-imagery batch) -- dark sampled from real photos; light
-# added minutes later ("is there not an Inkrain light... news paper
-# style") as a deliberately designed newsprint companion, not sampled.
+# applied as the real menu order at the time. Since then, same-session
+# roster history: Solarized retired ("Solarized can go away" -- Mosscairn
+# Dark already covers its ground); Inkbone retired ("let's get rid of
+# inkbone" -- shared Boneink's exact bg/fg bones); Mosscairn3 -> Mosscairn
+# (dropped the number, "these colors are looking GREAT"); Boneink and
+# Inkrain existed as two separate families for about twenty minutes, then
+# merged into one under the Inkrain name ("make inkrain the dark mode for
+# Boneink... update boneink to 'inkrain'") -- Boneink's real light half
+# survives inside it, Inkrain's real sampled dark half replaces Boneink's
+# own jade-dark outright. Final roster: Standard, Mosscairn, Inkrain,
+# light/dark each -- 3 core families, back down from the brief 4-family
+# peak.
 THEME_LABELS = {
     "Light": "light",
     "Dark": "dark",
-    "Boneink Light": "boneink_light",
-    "Boneink Dark": "boneink_dark",
     "Mosscairn Light": "mosscairn_light",
     "Mosscairn Dark": "mosscairn_dark",
     "Inkrain Light": "inkrain_light",
