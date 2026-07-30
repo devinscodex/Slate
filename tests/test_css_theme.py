@@ -132,6 +132,7 @@ def test_comments_are_stripped_before_parsing(tmp_path):
 @pytest.mark.parametrize("filename,dark_key,light_key", [
     ("boneink.css", "boneink_dark", "boneink_light"),
     ("mosscairn.css", "mosscairn_dark", "mosscairn_light"),
+    ("inkrain.css", "inkrain_dark", "inkrain_light"),
 ])
 def test_shipped_theme_dicts_match_the_real_current_css_file(filename, dark_key, light_key):
     """The real point of this whole module: theme.py's hand-tuned dicts
@@ -169,20 +170,3 @@ def test_shipped_theme_dicts_match_the_real_current_css_file(filename, dark_key,
         )
 
 
-@pytest.mark.skipif(
-    not os.path.isdir(_RUNESTONE_SNIPPETS),
-    reason="Runestone vault not present on this machine -- dev-only consistency check",
-)
-def test_inkrain_dark_matches_the_real_current_css_file():
-    """Same consistency guard as test_shipped_theme_dicts_match_the_real_
-    current_css_file, but Inkrain is dark-only (no light half exists in
-    its source material), so it can't share that test's parametrized
-    dark+light shape -- separate test, same real point."""
-    path = os.path.join(_RUNESTONE_SNIPPETS, "inkrain.css")
-    parsed = css_theme.parse_obsidian_css(path)
-    assert "light" not in parsed
-    shipped = theme.THEMES["inkrain_dark"]
-    for key, value in parsed["dark"].items():
-        assert value == shipped[key], (
-            f"inkrain_dark.{key}: CSS file says {value!r}, theme.py says {shipped[key]!r} -- drifted"
-        )

@@ -35,7 +35,7 @@ def test_every_theme_label_maps_to_a_real_theme():
         assert name in theme.THEMES, label
 
 
-def test_roster_is_exactly_seven_themes():
+def test_roster_is_exactly_eight_themes():
     """Devin, 2026-07-25: "make standard light/dark modes the same as
     Flexoki, and get rid of Flexoki as a separate option, also delete
     Gruvbox themes... main will be Dark/Light, Solarized Light/Dark,
@@ -50,24 +50,26 @@ def test_roster_is_exactly_seven_themes():
     -> Mosscairn (dropped the number), Solarized RETIRED ("Solarized can
     go away" -- Mosscairn Dark already covers its ground), and Inkbone
     RETIRED too ("let's get rid of inkbone" -- Boneink already shares
-    its exact bg/fg bones). Inkrain added same day (real branding-imagery
-    batch, dark-only, no light half exists in the source material).
-    Final roster: Standard/Boneink/Mosscairn (light/dark each) + Inkrain
-    (dark only), 7 total."""
+    its exact bg/fg bones). Inkrain added same day, dark-only at first
+    (real branding-imagery batch, no light half in the source material)
+    then given a real light half minutes later ("is there not an Inkrain
+    light? ... news paper style") -- designed, not sampled, unlike the
+    rest of this family. Final roster: Standard/Boneink/Mosscairn/Inkrain,
+    light/dark each, 8 total."""
     assert set(theme.THEMES.keys()) == {
         "light", "dark",
         "boneink_light", "boneink_dark",
         "mosscairn_light", "mosscairn_dark",
-        "inkrain_dark",
+        "inkrain_light", "inkrain_dark",
     }
     for gone in ("flexoki_dark", "flexoki_light", "gruvbox_dark", "gruvbox_light",
                  "solarized_light", "solarized", "mosscairn3_light", "mosscairn3_dark",
-                 "inkbone_light", "inkbone_dark", "inkrain_light"):
+                 "inkbone_light", "inkbone_dark"):
         assert gone not in theme.THEMES, gone
     for gone_label in ("Flexoki Dark", "Flexoki Light", "Gruvbox Dark", "Gruvbox Light",
                         "Solarized Light", "Solarized Dark", "Solarized",
                         "Mosscairn3 Light", "Mosscairn3 Dark",
-                        "Inkbone Light", "Inkbone Dark", "Inkrain Light"):
+                        "Inkbone Light", "Inkbone Dark"):
         assert gone_label not in theme.THEME_LABELS, gone_label
 
 

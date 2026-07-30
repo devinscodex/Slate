@@ -215,15 +215,25 @@ _MOSSCAIRN_LIGHT = {
 # source material at all). Real sampled values (numpy over 5 actual
 # branding/big/ images, not picked by eye) -- ported via css_theme.py's own
 # parser rather than hand-copied, first real dogfood use of that tool.
-# DARK ONLY -- no light-mode reference exists in the source material, so
-# none is fabricated; THEME_LABELS carries no "Inkrain Light" entry, and
-# the Settings dialog grid leaves that cell blank for this row (handles an
-# odd-one-out family fine, built generically for exactly this case).
+#
+# Light added same day (Devin: "is there not an Inkrain light? we should
+# have one! news paper style") -- DESIGNED, not sampled: no light-toned
+# source image exists in the branding/big/ batch, so this half is a
+# deliberate newsprint companion (warm uncoated-paper cream, near-black
+# ink) rather than pretending to be sourced like the dark half. Same
+# sage-mint hue family (h:119), darkened for contrast on a light page, so
+# the two halves still read as one family.
 _INKRAIN_DARK = {
     "bg": "#030302", "fg": "#e4fadf", "button_bg": "#0a0d09",
     "entry_bg": "#030302", "canvas_bg": "#030302",
     "select_bg": "#b5deb4", "muted_fg": "#8a9884", "is_dark": True,
     "highlight_bg": "#b5deb4",
+}
+_INKRAIN_LIGHT = {
+    "bg": "#ece6d6", "fg": "#1c1810", "button_bg": "#ddd6c2",
+    "entry_bg": "#ece6d6", "canvas_bg": "#ece6d6",
+    "select_bg": "#327231", "muted_fg": "#564d39", "is_dark": False,
+    "highlight_bg": "#327231",
 }
 
 THEMES = {
@@ -233,6 +243,7 @@ THEMES = {
     "boneink_dark": _with_chrome_cascade(_BONEINK_DARK),
     "mosscairn_light": _with_chrome_cascade(_MOSSCAIRN_LIGHT),
     "mosscairn_dark": _with_chrome_cascade(_MOSSCAIRN_DARK),
+    "inkrain_light": _with_chrome_cascade(_INKRAIN_LIGHT),
     "inkrain_dark": _with_chrome_cascade(_INKRAIN_DARK),
 }
 
@@ -247,8 +258,9 @@ THEMES = {
 # same day too ("let's get rid of inkbone") -- Boneink already shares its
 # exact bg/fg bones, nothing lost. Final roster: Standard, Boneink,
 # Mosscairn, light/dark each. Inkrain appended same day (Devin's ask,
-# real branding-imagery batch) -- dark-only, no light half exists in the
-# source material, so no "Inkrain Light" entry.
+# real branding-imagery batch) -- dark sampled from real photos; light
+# added minutes later ("is there not an Inkrain light... news paper
+# style") as a deliberately designed newsprint companion, not sampled.
 THEME_LABELS = {
     "Light": "light",
     "Dark": "dark",
@@ -256,6 +268,7 @@ THEME_LABELS = {
     "Boneink Dark": "boneink_dark",
     "Mosscairn Light": "mosscairn_light",
     "Mosscairn Dark": "mosscairn_dark",
+    "Inkrain Light": "inkrain_light",
     "Inkrain Dark": "inkrain_dark",
 }
 
