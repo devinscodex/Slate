@@ -930,12 +930,19 @@ class SlateApp:
         top.resizable(False, False)
         # Visible border (Devin, 2026-07-29: "blends in with the rest of
         # the app too much, can't tell where that window is except for
-        # the title bar"). Fixed green, matching this dialog's own
-        # permanent-accent rule below (Slate's house color, not
-        # theme-variable) -- _paint_widget's Toplevel branch only ever
-        # touches bg, never highlight options, so this needs no
-        # re-assertion after the repaint pass runs.
-        top.configure(highlightthickness=2, highlightbackground="#62a945", highlightcolor="#62a945")
+        # the title bar"). Was fixed green at first, then "change the
+        # border to dark instead of green" -- but a genuinely dark fixed
+        # color (tried #2b2b2b) disappears entirely against Inkrain
+        # Dark's near-black bg (#030302), verified live via a real
+        # screenshot before shipping this value -- the same "can't tell
+        # where the window is" problem this exists to fix, just moved to
+        # dark themes instead of solved. Mid-gray (#6b6b6b) reads as a
+        # quiet structural line rather than a color accent (the actual
+        # ask) while staying visible against both light and near-black
+        # extremes. Fixed, not theme-variable -- _paint_widget's Toplevel
+        # branch only ever touches bg, never highlight options, so this
+        # needs no re-assertion after the repaint pass runs.
+        top.configure(highlightthickness=2, highlightbackground="#6b6b6b", highlightcolor="#6b6b6b")
 
         header = tk.Frame(top)
         header.pack(padx=24, pady=(18, 6), anchor="w")
@@ -1011,10 +1018,12 @@ class SlateApp:
         top = tk.Toplevel(self.root)
         top.title("Settings")
         top.resizable(False, False)
-        # Visible border, same ask + same fixed-green house color as
-        # _show_about's identical fix (2026-07-29) -- see that dialog's
-        # comment for why this doesn't need re-assertion after repaint.
-        top.configure(highlightthickness=2, highlightbackground="#62a945", highlightcolor="#62a945")
+        # Visible border, same ask + same mid-gray fix as _show_about's
+        # identical border (2026-07-29) -- see that dialog's comment for
+        # why it's mid-gray and not the plain dark that was first asked
+        # for (invisible against dark themes), and why it needs no
+        # re-assertion after repaint.
+        top.configure(highlightthickness=2, highlightbackground="#6b6b6b", highlightcolor="#6b6b6b")
 
         header = tk.Frame(top)
         header.pack(padx=24, pady=(18, 6), anchor="w")
