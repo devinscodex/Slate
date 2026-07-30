@@ -22,7 +22,7 @@ AUTHOR = "devinscodex"
 # "why not MIT?" question doesn't have to be re-derived from scratch.
 LICENSE = "AGPL-3.0-or-later"
 
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 # 1.0.0 -- v1 core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (all 4 slices: fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (3 core families: Flexoki/Bonepaper/
@@ -114,6 +114,22 @@ VERSION = "1.4.0"
 #          "Playback failed" convention _read_current_page's own poll()
 #          already uses, and the regression test mocks play() itself
 #          rather than compounding known real-hardware flakiness.
+# 1.4.1 -- Real bug caught live (Devin's screenshot): Settings/About's
+#          own native OS titlebar never picked up dark mode at all --
+#          _apply_native_titlebar_theme only ever targeted self.root.
+#          Content colors were already correct (a separate, earlier-
+#          fixed bug), which is exactly why this one was easy to miss.
+#          Fixed generically via _paint_widget's own Toplevel branch
+#          (reached automatically for every open dialog -- Settings,
+#          About, Sample Voices, any future one -- not hand-listed).
+#          Settings/About are now also modal (grab_set), always-on-top,
+#          and transient to Slate's own main window (Devin: "should
+#          both be modal and always on top... within Slate if
+#          possible"). Standard's display label renamed once more.
+#          "Flexoki" -> "Kepano" (Devin: "no need to mention Kepano
+#          anymore as the theme name is now directly kepano") -- values
+#          are still literally Flexoki's real published palette,
+#          unchanged, only the label points straight at the person now.
 
 SUMMARY = (
     "Slate is the document reader and editor you've always wanted: view, "
@@ -123,8 +139,8 @@ SUMMARY = (
     "FB2/CBZ), plain text, Markdown, HTML, images, and code. Built from "
     "proven libraries (PyMuPDF, pikepdf, pyHanko), not a reimplemented "
     "engine.\n\n"
-    "Flexoki's light/dark modes are Steph Ango's (Kepano, Obsidian's CEO) "
-    "open palette (stephango.com/flexoki) -- a nod to \"File Over App\" "
+    "Kepano's light/dark modes are Steph Ango's open palette "
+    "(stephango.com/flexoki) -- a nod to \"File Over App\" "
     "(stephango.com/file-over-app): data should outlive the software. "
     "Same reason Slate works on real files, not a project-specific "
     "format.\n\n"

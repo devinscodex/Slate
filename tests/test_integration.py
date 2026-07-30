@@ -1707,6 +1707,78 @@ def test_sample_voices_dialog_is_a_single_instance(tmp_path):
         root.destroy()
 
 
+def test_settings_and_about_are_modal_transient_and_topmost(tmp_path):
+    """Devin, 2026-07-29: "settings/about should both be modal and
+    always on top, should be separate windows, they should be within
+    Slate if possible." transient(self.root) is the real "within Slate"
+    mechanism (ties the dialog to Slate's own main window rather than
+    an independent top-level app window); grab_set() is real modality
+    (grab_status() reports "local" while held, "none" once released);
+    -topmost is queried back through Tk's own attributes() call, not
+    just assumed to have taken because we set it."""
+    root, app = _make_app(tmp_path)
+    try:
+        app._show_settings()
+        settings_win = app._settings_window
+        root.update()  # -topmost needs a real event-loop pump to register before it reads back
+        assert settings_win.grab_status() == "local"
+        assert bool(settings_win.attributes("-topmost")) is True
+        assert settings_win.master == root
+
+        app._show_about()
+        about_win = app._about_window
+        root.update()
+        assert about_win.grab_status() == "local"
+        assert bool(about_win.attributes("-topmost")) is True
+        assert about_win.master == root
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_theme_switch_refreshes_native_titlebar_for_every_open_dialog(tmp_path):
+    """Real bug (Devin, 2026-07-29, live screenshot): Settings/About's
+    own native OS titlebar never picked up dark mode at all --
+    _apply_native_titlebar_theme only ever targeted self.root. Content
+    colors were already correct (a separate, already-fixed bug), which
+    is exactly why this one was easy to miss. Fixed generically via
+    _paint_widget's own Toplevel branch (reached automatically for
+    every open dialog, not hand-listed) rather than each dialog calling
+    it separately -- this test can't observe the real ctypes/DWM call
+    itself off Windows (same documented "not live-verified" limitation
+    as the function's own docstring), but it CAN confirm the call
+    actually happens, not just that it would be a no-op skip."""
+    calls = []
+    monkeypatch_target = slate.SlateApp._apply_native_titlebar_theme
+    def spy(self, window=None):
+        calls.append(window)
+        return monkeypatch_target(self, window)
+
+    root, app = _make_app(tmp_path)
+    try:
+        app._show_settings()
+        app._show_about()
+        calls.clear()  # only care about calls from the theme switch below, not dialog-open time
+
+        import unittest.mock
+        with unittest.mock.patch.object(slate.SlateApp, "_apply_native_titlebar_theme", spy):
+            app.theme_name.set("bonepaper_dark")
+            app._on_theme_changed()
+
+        # self.root, Settings, and About must ALL have been reached --
+        # not just whichever dialog happened to trigger the switch.
+        # self.root's own call comes through _apply_theme's direct
+        # self._apply_native_titlebar_theme() (no arg -- defaults to
+        # self.root inside the function), which the spy records as the
+        # literal argument passed, i.e. None, not the resolved window.
+        assert None in calls  # self.root, via the no-arg default path
+        assert app._settings_window in calls
+        assert app._about_window in calls
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_play_voice_preview_loads_the_bundled_clip_for_any_of_the_four_voices(tmp_path, monkeypatch):
     """Real audio LOAD, not just "button exists" -- confirms
     _play_voice_preview actually reaches tts.load_preview_audio and

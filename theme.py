@@ -252,8 +252,14 @@ THEME_LABELS = {
     "Slate Dark": "slate_dark",
     "Bonepaper Light": "bonepaper_light",
     "Bonepaper Dark": "bonepaper_dark",
-    "Flexoki Light": "light",
-    "Flexoki Dark": "dark",
+    # Renamed from "Flexoki" (2026-07-29, Devin: "no need to mention
+    # Kepano anymore as the theme name is now directly kepano... no
+    # dancing around the bush, suckless") -- values are still literally
+    # Flexoki, Steph Ango's (Kepano) real published palette, unchanged;
+    # only the display label points straight at the person now instead
+    # of the palette's own project name.
+    "Kepano Light": "light",
+    "Kepano Dark": "dark",
 }
 
 # Kept as plain names too (not just THEMES["light"]/["dark"]) -- several

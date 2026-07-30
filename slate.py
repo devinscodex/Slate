@@ -548,7 +548,7 @@ class SlateApp:
             self._layout = None
             self.render()
 
-    def _apply_native_titlebar_theme(self):
+    def _apply_native_titlebar_theme(self, window=None):
         """The window title bar itself is drawn by the OS, not Tk --
         genuinely an "outer" component no amount of widget.configure()
         can touch. Windows 10 (2004+)/11 support a real, documented DWM
@@ -561,12 +561,23 @@ class SlateApp:
         environment is Linux/WSL2) -- same "built against the
         documented API, needs an actual machine to confirm" caveat as
         fontmatch.py's Windows registry path.
-        """
+
+        window (Devin, 2026-07-29: "slate dark settings still isn't
+        fixed... on my version of slate" -- real bug, not a repeat of
+        the already-fixed content colors): this only ever targeted
+        self.root before, so Settings/About's own native OS titlebar
+        never picked up dark mode at all, regardless of how correctly
+        their CONTENT repainted -- two completely separate things
+        (content is Tk's job, the titlebar is the OS's). Defaults to
+        self.root (unchanged existing behavior); _show_settings/
+        _show_about now also pass their own Toplevel here, both at
+        open time and on every live theme switch while still open."""
         if platform.system() != "Windows":
             return
+        target = window if window is not None else self.root
         try:
             import ctypes
-            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            hwnd = ctypes.windll.user32.GetParent(target.winfo_id())
             is_dark = theme.get_palette(self.theme_name.get())["is_dark"]
             value = ctypes.c_int(1 if is_dark else 0)
             ctypes.windll.dwmapi.DwmSetWindowAttribute(
@@ -749,6 +760,21 @@ class SlateApp:
             try:
                 if cls in ("Toplevel", "Tk"):
                     widget.configure(bg=colors["bg"])  # no -fg option on these
+                    if cls == "Toplevel":
+                        # Real bug (Devin, 2026-07-29): Settings/About's
+                        # own native OS titlebar never re-themed on a
+                        # live theme switch unless something explicitly
+                        # called _apply_native_titlebar_theme for THAT
+                        # specific window -- and with both dialogs
+                        # sometimes open at once, hand-listing each one
+                        # doesn't scale. This generic repaint walk
+                        # already reaches every open Toplevel (they're
+                        # real children of self.root in Tk's own widget
+                        # tree), so hooking the titlebar refresh in here
+                        # covers Settings/About/Sample Voices/any future
+                        # dialog automatically, not just the ones
+                        # someone remembered to hand-wire.
+                        self._apply_native_titlebar_theme(widget)
                 elif cls == "Frame":
                     # Real bug caught live (Devin's screenshot,
                     # 2026-07-25 -- the home screen never themed
@@ -1162,6 +1188,21 @@ class SlateApp:
         top.title("About Slate")
         top.resizable(False, False)
         top.bind("<Escape>", lambda e: top.destroy())
+        # Devin, 2026-07-29: "settings/about should both be modal and
+        # always on top, should be separate windows, they should be
+        # within Slate if possible." transient() ties this window to
+        # Slate's own main window (the "within Slate" part -- Windows
+        # groups a transient under its owner's taskbar presence rather
+        # than treating it as a fully independent app); grab_set() makes
+        # it real modal (the main window can't be interacted with while
+        # this is open, not just visually on top of it); -topmost keeps
+        # it above every other window, not just Slate's own.
+        top.transient(self.root)
+        top.attributes("-topmost", True)
+        top.grab_set()
+        # Titlebar theme handled generically by _paint_widget's own
+        # Toplevel branch (see its comment) via the self._paint_widget(
+        # top, colors) call below -- no separate call needed here.
         # Visible border (Devin, 2026-07-29: "blends in with the rest of
         # the app too much, can't tell where that window is except for
         # the title bar"). Was fixed green at first, then "change the
@@ -1346,6 +1387,14 @@ class SlateApp:
         top.title("Settings")
         top.resizable(False, False)
         top.bind("<Escape>", lambda e: top.destroy())
+        # Devin, 2026-07-29: "settings/about should both be modal and
+        # always on top... within Slate if possible" -- see _show_about's
+        # identical block for the real reasoning behind each of these 3.
+        top.transient(self.root)
+        top.attributes("-topmost", True)
+        top.grab_set()
+        # Titlebar theme handled generically by _paint_widget's own
+        # Toplevel branch -- see _show_about's identical comment.
         # Visible border, same ask + same mid-gray fix as _show_about's
         # identical border (2026-07-29) -- see that dialog's comment for
         # why it's mid-gray and not the plain dark that was first asked
@@ -1371,8 +1420,8 @@ class SlateApp:
         # "the settings page should fully match the theme," not just at
         # open time.
         def _on_theme_changed_and_repaint():
-            self._on_theme_changed()
-            self._paint_widget(top, theme.get_palette(self.theme_name.get()))
+            self._on_theme_changed()  # re-themes self.root + any other open Toplevel (About, etc.)
+            self._paint_widget(top, theme.get_palette(self.theme_name.get()))  # this dialog + its own titlebar
             accent_bar.configure(bg="#62a945")
 
         # Theme picker as a Light/Dark grid, one row per family (Devin,
