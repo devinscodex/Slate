@@ -120,51 +120,51 @@ def test_standard_light_dark_carry_flexokis_real_values():
     assert theme.THEMES["light"]["fg"] == "#100f0f"
 
 
-def test_standard_dark_is_lightened_off_spec_for_real_contrast_with_bonepaper():
-    """Devin, 2026-07-25, asked TWICE: "should be lighter than
-    inkbone's dark" then, after a first "already lighter, no change
-    needed" answer proved wrong on a real screen, "make standard dark
-    lighter in contrast to inkbone dark" again. Real Flexoki bg
-    (#1c1b1a) IS numerically lighter than Inkbone Dark's bg (#0e0c0a,
-    a genuine ~14-unit gap) but didn't read as different enough live --
-    lightened further, a deliberate deviation from pure Flexoki
-    fidelity. Real, verifiable minimum: at least DOUBLE the original
-    spec's gap from Inkbone, not just marginally more.
+def test_standard_dark_reverted_to_real_flexoki_spec_2026_07_30():
+    """REVERSAL of the 2026-07-25 lightening this test used to guard
+    (that entry's real reasoning kept below, for the record -- it isn't
+    wrong about what happened, just no longer current). Devin,
+    2026-07-30, live: "if flexoki dark could represent Kepano's flexoki
+    dark at home a lil better." The original lightening was deliberate
+    contrast-vs-Inkbone insurance; Inkbone is long retired (2026-07-29)
+    and nothing in the current roster needs Standard/Flexoki Dark
+    pushed off its own real spec anymore, so it's back on it.
 
-    Repointed several times since (Inkbone retired -> Boneink shared its
-    exact bg; Boneink then merged into Inkrain -- Devin: "update boneink
-    to 'inkrain'"; Inkrain then renamed to Bonepaper same day, "i prefer
-    bonepaper..."). Bonepaper's real sampled dark bg (#030302) is even
-    darker than Inkbone's original #0e0c0a was, not the same value
-    anymore -- the check still holds, just against a darker real floor
-    than before, which only makes the "at least double the gap"
-    assertion a stronger bar, not a weaker one."""
-    standard_bg = theme._hex_to_rgb(theme.THEMES["dark"]["bg"])
-    bonepaper_bg = theme._hex_to_rgb(theme.THEMES["bonepaper_dark"]["bg"])
-    original_flexoki_bg = theme._hex_to_rgb("#1c1b1a")
-    original_gap = sum(a - b for a, b in zip(original_flexoki_bg, bonepaper_bg))
-    new_gap = sum(a - b for a, b in zip(standard_bg, bonepaper_bg))
-    assert new_gap >= original_gap * 2
-    # button_bg must still be a lighter step than the new bg (same
-    # relative relationship the real spec had, just both shifted up)
-    button_bg = theme._hex_to_rgb(theme.THEMES["dark"]["button_bg"])
-    assert sum(button_bg) > sum(standard_bg)
+    Original 2026-07-25 reasoning (for history): asked TWICE "should be
+    lighter than inkbone's dark" then, after a first "already lighter,
+    no change needed" answer proved wrong on a real screen, "make
+    standard dark lighter in contrast to inkbone dark" again -- real
+    Flexoki bg (#1c1b1a) IS numerically lighter than Inkbone Dark's bg
+    (#0e0c0a) but didn't read as different enough live, so it got
+    lightened further, off spec, on purpose. That's the deviation this
+    test now confirms is UNDONE."""
+    assert theme.THEMES["dark"]["bg"] == "#1c1b1a"  # real Flexoki base-950
+    assert theme.THEMES["dark"]["button_bg"] == "#282726"  # real Flexoki base-900
+    assert theme.THEMES["dark"]["entry_bg"] == "#100f0f"  # real Flexoki black, never drifted
 
 
-def test_standard_uses_inkbone_green_not_flexoki_blue():
-    """Devin, 2026-07-25, real live feedback: "only request for
+def test_standard_uses_real_flexoki_blue_not_the_shared_house_green():
+    """REVERSAL of the 2026-07-25 green swap this test used to guard
+    (original reasoning kept below). Devin, 2026-07-30, live: "if
+    flexoki dark could represent Kepano's flexoki dark at home a lil
+    better" + "flexoki light, can it represent flexoki light a lil more
+    at home?" -- with light's bg/fg/button_bg already exact spec
+    (verified: only the accent could still be non-Flexoki), the ask can
+    only mean the accent. Real Flexoki blue restored: blue-600 #205EA6
+    for light, blue-400 #4385BE for dark (verified live via
+    stephango.com/flexoki) -- also gives Flexoki its own real identity
+    again now that Slate/Bonepaper/MEG all share the green family this
+    swap was borrowed from.
+
+    Original 2026-07-25 reasoning (for history): "only request for
     standard is to use inkbone green instead of blue for standard if
-    possible." That green is now Standard's own permanent house accent
-    (#62a945) even though Inkbone itself was later retired, 2026-07-29 --
-    the value outlived the theme it was borrowed from. (Solarized's own
-    separate blue identity was retired along with that theme too, same
-    day -- see test_slate_dark_matches_the_real_official_solarized_bones,
-    which keeps the official-palette-fidelity check alive against Slate
-    Dark instead.)"""
-    assert theme.THEMES["dark"]["select_bg"] == "#62a945"
-    assert theme.THEMES["dark"]["highlight_bg"] == "#62a945"
-    assert theme.THEMES["light"]["select_bg"] == "#4a7637"
-    assert theme.THEMES["light"]["highlight_bg"] == "#4a7637"
+    possible." That green became Standard's own permanent house accent
+    even after Inkbone itself was retired (2026-07-29) -- the value
+    outlived the theme it was borrowed from, until this reversal."""
+    assert theme.THEMES["dark"]["select_bg"] == "#4385be"
+    assert theme.THEMES["dark"]["highlight_bg"] == "#4385be"
+    assert theme.THEMES["light"]["select_bg"] == "#205ea6"
+    assert theme.THEMES["light"]["highlight_bg"] == "#205ea6"
 
 
 def test_every_theme_accent_is_minimal_pure_accent_lives_in_selection_roles_only():

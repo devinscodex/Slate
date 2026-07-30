@@ -22,7 +22,7 @@ AUTHOR = "devinscodex"
 # "why not MIT?" question doesn't have to be re-derived from scratch.
 LICENSE = "AGPL-3.0-or-later"
 
-VERSION = "1.5.1"
+VERSION = "1.5.2"
 # 1.0.0 -- v1 core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (all 4 slices: fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (3 core families: Flexoki/Bonepaper/
@@ -146,6 +146,22 @@ VERSION = "1.5.1"
 #          highlight) instead of one flat accent everywhere -- Devin:
 #          "MEG is kinda pointless... add more spark/personality/
 #          energy... green... more MEG."
+# 1.5.2 -- Flexoki light/dark reverted to real stephango.com/flexoki
+#          spec (Devin: "if flexoki dark could represent Kepano's
+#          flexoki dark at home a lil better" / "flexoki light, can it
+#          represent flexoki light a lil more at home?") -- Dark's bg/
+#          button_bg back on real spec (base-950/base-900, undoing a
+#          2026-07-25 deliberate lightening no longer needed now that
+#          Inkbone is retired), both light+dark accents back to real
+#          Flexoki blue instead of the shared house green. Bonepaper
+#          Light re-derived via real numpy sampling over the boneink/
+#          reference artwork (Devin: "a smidge more grundgier and
+#          'bonier' and sepia, look to artwork for samples"). Settings/
+#          About minimize with the main window now (Devin: "settings/
+#          about still are 'children' windows as i believe they should
+#          be if possible"). About/Settings/Sample Voices' fixed green
+#          accent bar simplified to a single flag-driven declaration
+#          (suckless pass) instead of paint-then-reassert in 3 places.
 
 SUMMARY = (
     "Slate is the document reader and editor you've always wanted: view, "

@@ -756,6 +756,15 @@ class SlateApp:
             pass  # _set_mode owns this widget's colors, reasserted after the walk
         elif getattr(widget, "slate_muted", False):
             widget.configure(bg=colors["bg"], fg=colors["muted_fg"])
+        elif getattr(widget, "slate_fixed_bg", None):
+            # Suckless pass 2026-07-30: a widget meant to stay ONE fixed
+            # color regardless of theme (e.g. About's permanent green
+            # accent bar) used to get painted here by the generic Frame
+            # branch below anyway, then manually re-asserted back to its
+            # real color right after every _paint_widget call site --
+            # paint, un-paint, repaint for a value that never changes.
+            # One flag, one config call, no re-assertion needed anywhere.
+            widget.configure(bg=widget.slate_fixed_bg)
         else:
             cls = widget.winfo_class()
             try:
@@ -1290,11 +1299,14 @@ class SlateApp:
         # clever accent of green on the 'about' as well?" then "please
         # add a permanent, clever hint of inkbone green on the about
         # page please"). FIXED hex, not colors["highlight_bg"] -- that
-        # field is theme-variable (Solarized's real accent is blue, on
-        # purpose, per the same-day official-palette review), but this
-        # mark is meant to read as Slate's own house color on the
-        # About page specifically, regardless of which theme is active.
+        # field is theme-variable (Flexoki's real accent is blue again
+        # as of 2026-07-30, on purpose -- see theme.py), but this mark
+        # is meant to read as Slate's own house color on the About page
+        # specifically, regardless of which theme is active.
+        # slate_fixed_bg (not a direct bg=) so _paint_widget's own
+        # generic walk leaves it alone -- see its comment.
         accent_bar = tk.Frame(top, bg="#62a945", height=2)
+        accent_bar.slate_fixed_bg = "#62a945"
         accent_bar.pack(fill=tk.X, padx=24, pady=(0, 10))
         tk.Label(
             top, text=version.SUMMARY, wraplength=360, justify="left"
@@ -1313,12 +1325,6 @@ class SlateApp:
         ).pack(side=tk.LEFT, padx=(0, 10))
         tk.Button(button_row, text="Close", command=top.destroy).pack(side=tk.LEFT)
         self._paint_widget(top, colors)
-        # Real bug caught by this dialog's own test: the generic
-        # _paint_widget walk above recolors EVERY Frame to the theme's
-        # bg, including accent_bar -- it doesn't know this one is
-        # meant to stay fixed. Re-assert the permanent green after the
-        # generic pass, not before.
-        accent_bar.configure(bg="#62a945")
 
         # Center over the main window, not the top-left corner (Devin,
         # 2026-07-25) -- real geometry only exists after the widgets
@@ -1363,6 +1369,7 @@ class SlateApp:
             header, text="Sample Voices", font=self._ui_header_font(extra=5)
         ).pack(side=tk.LEFT)
         accent_bar = tk.Frame(top, bg="#62a945", height=2)
+        accent_bar.slate_fixed_bg = "#62a945"
         accent_bar.pack(fill=tk.X, padx=24, pady=(0, 10))
 
         for voice_id, info in tts.VOICES.items():
@@ -1384,7 +1391,6 @@ class SlateApp:
         tk.Button(btn_row, text="Close", command=top.destroy).pack()
 
         self._paint_widget(top, colors)
-        accent_bar.configure(bg="#62a945")
 
         top.update_idletasks()
         root_x, root_y = self.root.winfo_rootx(), self.root.winfo_rooty()
@@ -1462,21 +1468,20 @@ class SlateApp:
             header, text="Settings", font=self._ui_header_font(extra=5)
         ).pack(side=tk.LEFT)
         accent_bar = tk.Frame(top, bg="#62a945", height=2)
+        accent_bar.slate_fixed_bg = "#62a945"
         accent_bar.pack(fill=tk.X, padx=24, pady=(0, 10))
 
         # -- Theme -- same THEME_LABELS/self.theme_name/_on_theme_changed
         # the View>Theme submenu already uses, not a second theme picker.
         # _on_theme_changed_and_repaint (below) runs the normal handler
         # (repaints the main window, saves the preference, invalidates the
-        # page cache) THEN repaints this still-open dialog too, same
-        # _paint_widget + accent-bar-reassert pattern this function already
-        # runs once at the bottom for the initial paint -- Devin, 2026-07-26:
-        # "the settings page should fully match the theme," not just at
-        # open time.
+        # page cache) THEN repaints this still-open dialog too -- Devin,
+        # 2026-07-26: "the settings page should fully match the theme,"
+        # not just at open time. accent_bar needs no re-assertion here
+        # (slate_fixed_bg handles it inside _paint_widget itself now).
         def _on_theme_changed_and_repaint():
             self._on_theme_changed()  # re-themes self.root + any other open Toplevel (About, etc.)
             self._paint_widget(top, theme.get_palette(self.theme_name.get()))  # this dialog + its own titlebar
-            accent_bar.configure(bg="#62a945")
 
         # Theme picker as a Light/Dark grid, one row per family (Devin,
         # 2026-07-29: "can we stack settings a lil nicer plz" -- the old
@@ -1686,7 +1691,6 @@ class SlateApp:
         tk.Button(btn_row, text="Close", command=top.destroy).pack(side=tk.LEFT)
 
         self._paint_widget(top, colors)
-        accent_bar.configure(bg="#62a945")  # same re-assert-after-paint fix as _show_about
 
         top.update_idletasks()
         root_x, root_y = self.root.winfo_rootx(), self.root.winfo_rooty()
@@ -4888,6 +4892,39 @@ def main():
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", _on_close)
+
+    # Real bug, Devin 2026-07-30: "settings/about still are 'children'
+    # windows as i believe they should be if possible" -- transient()+
+    # -topmost (see _show_settings/_show_about) ties these dialogs to
+    # Slate visually and keeps them grouped under Slate's own taskbar
+    # entry, but neither one makes Windows actually MINIMIZE a child
+    # when its owner minimizes -- topmost specifically fights that,
+    # since Windows treats "stay above everything" and "hide when the
+    # owner hides" as two independent, unrelated states. Without this,
+    # minimizing Slate left Settings/About floating alone on the real
+    # desktop, exactly the "not contained" behavior Devin flagged live.
+    # Fix: watch root's own iconic state directly (<Unmap>/<Map> fire on
+    # more than just minimize, so check root.state() rather than trust
+    # the event alone) and drive every tracked single-instance dialog's
+    # iconify/deiconify in lockstep -- winfo_exists() guards each one
+    # since any of them may not be open, or may have been closed
+    # (destroyed) independently of a minimize/restore cycle.
+    _child_dialog_attrs = ("_settings_window", "_about_window", "_voice_sampler_window")
+
+    def _sync_children_to_root_state(event=None):
+        if event is not None and event.widget is not root:
+            return  # a child Toplevel's own Unmap/Map, not root's
+        iconic = root.state() == "iconic"
+        for attr in _child_dialog_attrs:
+            win = getattr(app, attr, None)
+            if win is not None and win.winfo_exists():
+                if iconic:
+                    win.iconify()
+                else:
+                    win.deiconify()
+
+    root.bind("<Unmap>", _sync_children_to_root_state)
+    root.bind("<Map>", _sync_children_to_root_state)
 
     # Become the server for any LATER invocation. Real thread-safety
     # note (same pattern already established for the TTS synthesis and

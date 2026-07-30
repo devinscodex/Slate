@@ -136,16 +136,42 @@ def _with_chrome_cascade(palette: dict) -> dict:
 # was actually looking at, not that separate, intentional design
 # choice.
 _STANDARD_DARK = {
-    "bg": "#3a3937", "fg": "#e6e4d9", "button_bg": "#484744",
-    "entry_bg": "#100f0f", "canvas_bg": "#3a3937",
-    "select_bg": "#62a945", "muted_fg": "#6f6e69", "is_dark": True,
-    "highlight_bg": "#62a945",
+    # bg/button_bg reverted to real spec 2026-07-30 -- Devin, live:
+    # "if flexoki dark could represent Kepano's flexoki dark at home a
+    # lil better." Was #3a3937/#484744, a 2026-07-25 deliberate
+    # lightening off spec ("make standard dark lighter in contrast to
+    # inkbone dark") that's no longer wanted now that Inkbone is retired
+    # and there's nothing left to contrast against. Real values verified
+    # live via stephango.com/flexoki: base-950 #1C1B1A (bg), base-900
+    # #282726 (button_bg) -- entry_bg (#100f0f, real "black" tier)
+    # already matched spec and stays untouched.
+    #
+    # select_bg/highlight_bg also reverted, same ask: real Flexoki
+    # blue-400 #4385BE, not the shared green every other family (Slate/
+    # Bonepaper/MEG) uses -- the 2026-07-25 green swap is undone here
+    # specifically so Flexoki reads as actually Flexoki again, not a
+    # 4th green reskin.
+    "bg": "#1c1b1a", "fg": "#e6e4d9", "button_bg": "#282726",
+    "entry_bg": "#100f0f", "canvas_bg": "#1c1b1a",
+    "select_bg": "#4385be", "muted_fg": "#6f6e69", "is_dark": True,
+    "highlight_bg": "#4385be",
 }
 _STANDARD_LIGHT = {
+    # bg/fg/button_bg/muted_fg were already exact real Flexoki spec
+    # (paper/black/base-50/base-300, verified live via stephango.com/
+    # flexoki) -- never drifted, only Dark's neutrals did.
+    #
+    # select_bg/highlight_bg reverted 2026-07-30, same "represent
+    # Flexoki... at home" ask as Dark above: real Flexoki blue-600
+    # #205EA6, not the shared green. This is the same real value the
+    # green swap replaced back on 2026-07-25 ("only request for
+    # standard is to use inkbone green instead of blue") -- undone now
+    # that green is Slate/Bonepaper/MEG's shared identity and Flexoki
+    # needs its own.
     "bg": "#fffcf0", "fg": "#100f0f", "button_bg": "#f2f0e5",
     "entry_bg": "#fffcf0", "canvas_bg": "#fffcf0",
-    "select_bg": "#4a7637", "muted_fg": "#b7b5ac", "is_dark": False,
-    "highlight_bg": "#4a7637",
+    "select_bg": "#205ea6", "muted_fg": "#b7b5ac", "is_dark": False,
+    "highlight_bg": "#205ea6",
 }
 
 # Solarized -- RETIRED 2026-07-29 (Devin: "Solarized can go away") --
@@ -233,9 +259,20 @@ _BONEPAPER_LIGHT = {
     # than a partial nudge. Core color, carries through selection
     # highlight/checked-toggle-fill/TOC-highlight everywhere this theme
     # is active, not a one-off.
-    "bg": "#c9b08a", "fg": "#201811", "button_bg": "#bea179",
-    "entry_bg": "#c9b08a", "canvas_bg": "#c9b08a",
-    "select_bg": "#33762d", "muted_fg": "#503f2d", "is_dark": False,
+    # bg/fg/button_bg/muted_fg re-derived 2026-07-30 -- Devin, live:
+    # "bonepaper light, if you can make a smidge more grundgier and
+    # 'bonier' and sepia, look to artwork for samples." Real numpy
+    # sampling (same methodology Bonepaper Dark was originally built
+    # with) over 5 images from the actual boneink/ reference folder
+    # (bone-cathedral, bone-circuit, broken-ribcage, beneath-the-skull,
+    # before-the-broke-bone-gate) -- warm mid-brightness pixels sampled
+    # as the "paper" candidate (#a69d7f, a real grungy olive-sepia, not
+    # picked by eye), near-black pixels as the "ink" candidate (#020202).
+    # Blended 50% from the PREVIOUS values toward these real samples --
+    # "a smidge," not a wholesale swap -- landing here:
+    "bg": "#b8a785", "fg": "#19130d", "button_bg": "#aa9776",
+    "entry_bg": "#b8a785", "canvas_bg": "#b8a785",
+    "select_bg": "#33762d", "muted_fg": "#4e4434", "is_dark": False,
     "highlight_bg": "#33762d",
 }
 
