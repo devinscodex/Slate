@@ -1,5 +1,8 @@
 # Slate
 
+*Slate liberates all the editing.*
+*Slate liberates a trapped ecosystem.*
+
 A small, no-bloat PDF editor. View, annotate, merge/split, redact, sign, fill forms —
 composed from proven libraries (PyMuPDF, pikepdf, pyHanko), not a reimplemented
 PDF engine. Built to replace Foxit Pro / Adobe Pro for daily use.

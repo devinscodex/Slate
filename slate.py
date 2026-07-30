@@ -1226,43 +1226,57 @@ class SlateApp:
             existing.focus_force()
             return
         colors = theme.get_palette(self.theme_name.get())
+        settings_open = getattr(self, "_settings_window", None)
+        if settings_open is not None and not settings_open.winfo_exists():
+            settings_open = None
         top = tk.Toplevel(self.root)
         self._about_window = top
         top.title("About Slate")
         top.resizable(False, False)
-        top.bind("<Escape>", lambda e: top.destroy())
+
+        def _close_about():
+            top.destroy()
+            # Hand Tk's one process-wide grab back to Settings (see the
+            # grab-handoff comment below) -- otherwise Settings, still
+            # open underneath, is left holding no grab at all and its
+            # own controls go dead, the same symptom this fix closes,
+            # just in the opposite direction.
+            if settings_open is not None and settings_open.winfo_exists():
+                settings_open.grab_set()
+
+        top.bind("<Escape>", lambda e: _close_about())
+        top.protocol("WM_DELETE_WINDOW", _close_about)
         # Devin, 2026-07-29: "settings/about should both be modal and
         # always on top, should be separate windows, they should be
-        # within Slate if possible." transient() ties this window to
-        # Slate's own main window (the "within Slate" part -- Windows
-        # groups a transient under its owner's taskbar presence rather
-        # than treating it as a fully independent app); grab_set() makes
-        # it real modal (the main window can't be interacted with while
-        # this is open, not just visually on top of it); -topmost keeps
-        # it above every other window, not just Slate's own.
-        top.transient(self.root)
+        # within Slate if possible." transient() ties this window to its
+        # real opener -- Slate's main window normally, or Settings itself
+        # when opened from Settings' own "About Slate..." button (a true
+        # parent chain root -> settings -> about, not two siblings both
+        # hanging directly off root, per Devin's 2026-07-30 "child nest
+        # those two" ask); grab_set() makes it real modal; -topmost keeps
+        # it above every other window.
+        top.transient(settings_open if settings_open is not None else self.root)
         top.attributes("-topmost", True)
         # Real bug, Devin 2026-07-30 hunch confirmed live (grab_current()
         # actually checked headless, not assumed from reading the code):
         # Tk's grab_set() is a LOCAL grab, but "local" means local to the
         # whole APPLICATION, not to this one Toplevel -- it blocks input
-        # to every other window in the same Tk process, including a
-        # sibling Toplevel like Settings, not just the main root window
-        # the original "modal against the main window" ask was about.
-        # About is reachable FROM INSIDE Settings (its own "About
-        # Slate..." button), so unconditionally grabbing here made every
-        # Settings control (theme, font size, everything) dead on click
-        # the moment About was opened that way -- confirmed via
-        # grab_current() actually returning the About window while
-        # Settings still existed underneath. Fix: only take the grab when
-        # Settings ISN'T open (the plain Help-menu path, where "modal
-        # against the main window" is still exactly what was asked for);
-        # opened from within Settings, stay topmost+transient (still
-        # visually pinned above everything, still grouped within Slate)
-        # but skip the grab so Settings underneath stays live.
-        settings_open = getattr(self, "_settings_window", None)
-        if settings_open is None or not settings_open.winfo_exists():
-            top.grab_set()
+        # to every OTHER window in the same Tk process, including a
+        # sibling Toplevel like Settings. The original fix here just
+        # skipped About's OWN grab_set() when Settings was open, which
+        # stopped About from locking Settings out -- but left Settings'
+        # own pre-existing grab standing, which locks OUT ABOUT instead:
+        # About would open, look normal, and simply never receive input
+        # until Settings' grab was released by closing Settings first --
+        # exactly the "have to close Settings before I can close About"
+        # bug reported live 2026-07-30. Real fix: there is only ever one
+        # process-wide local-grab holder at a time; hand it off cleanly
+        # (Settings releases, About takes it) instead of either window
+        # unconditionally grabbing and starving the other. _close_about
+        # above hands it back the same way on the way out.
+        if settings_open is not None:
+            settings_open.grab_release()
+        top.grab_set()
         # Titlebar theme handled generically by _paint_widget's own
         # Toplevel branch (see its comment) via the self._paint_widget(
         # top, colors) call below -- no separate call needed here.
@@ -1323,7 +1337,7 @@ class SlateApp:
             button_row, text="Check for Updates...",
             command=lambda: self._check_for_updates(silent_if_current=False),
         ).pack(side=tk.LEFT, padx=(0, 10))
-        tk.Button(button_row, text="Close", command=top.destroy).pack(side=tk.LEFT)
+        tk.Button(button_row, text="Close", command=_close_about).pack(side=tk.LEFT)
         self._paint_widget(top, colors)
 
         # Center over the main window, not the top-left corner (Devin,

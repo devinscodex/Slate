@@ -1710,25 +1710,34 @@ def test_sample_voices_dialog_is_a_single_instance(tmp_path):
 def test_settings_and_about_are_modal_transient_and_topmost(tmp_path):
     """Devin, 2026-07-29: "settings/about should both be modal and
     always on top, should be separate windows, they should be within
-    Slate if possible." transient(self.root) is the real "within Slate"
-    mechanism (ties the dialog to Slate's own main window rather than
+    Slate if possible." transient() is the real "within Slate"
+    mechanism (ties a dialog to its real opener rather than acting like
     an independent top-level app window); grab_set() is real modality
     (grab_status() reports "local" while held, "none" once released);
     -topmost is queried back through Tk's own attributes() call, not
     just assumed to have taken because we set it.
 
-    Updated 2026-07-30 -- real bug found live (Devin's hunch, confirmed
-    via grab_current() before this test was touched): Tk's grab_set()
-    is local to the whole APPLICATION, not to one Toplevel, so About
-    unconditionally grabbing blocked every Settings control (theme,
-    font size, everything) the moment About was opened FROM INSIDE
-    Settings (its own "About Slate..." button) -- the original "modal
-    against the main window" ask never meant "and also freeze the
-    dialog you opened me from." Fix: About only takes the grab when
-    Settings isn't open. This test now covers both real paths: About
-    opened standalone (Help menu, no Settings open) still grabs exactly
-    as before; About opened from within Settings does NOT, so Settings
-    stays live underneath -- topmost/transient hold either way."""
+    Updated 2026-07-30 (first pass) -- real bug found live (Devin's
+    hunch, confirmed via grab_current()): Tk's grab_set() is local to
+    the whole APPLICATION, not to one Toplevel, so About unconditionally
+    grabbing blocked every Settings control the moment About was opened
+    FROM INSIDE Settings. First fix: About skipped its own grab whenever
+    Settings was open.
+
+    Updated again same day -- that first fix left Settings' own
+    pre-existing grab standing, which now blocked ABOUT instead (a
+    separate Toplevel, not a Settings descendant): About opened, looked
+    normal, and simply never received input until Settings' grab was
+    released by closing Settings first -- reported live as "I have to
+    close Settings before I can close About." Real fix, matching Devin's
+    "child nest those two" ask: About opened from Settings is now
+    transient to SETTINGS itself (true parent chain root -> settings ->
+    about), Settings releases its grab, About takes it, and closing
+    About hands the grab back to Settings. This test covers both real
+    paths: About opened standalone (Help menu, no Settings open) still
+    grabs against root exactly as before; About opened from within
+    Settings now grabs against Settings, with Settings' own grab
+    released while About is up and restored the moment About closes."""
     root, app = _make_app(tmp_path)
     try:
         app._show_settings()
@@ -1739,20 +1748,35 @@ def test_settings_and_about_are_modal_transient_and_topmost(tmp_path):
         assert settings_win.master == root
 
         # Opened FROM Settings (the common real path, its own "About
-        # Slate..." button) -- must NOT grab, or Settings underneath
-        # goes dead on click.
+        # Slate..." button) -- true parent nesting under Settings, and
+        # the single process-wide grab hands off to About so it can
+        # actually receive input (Settings' own grab is released, not
+        # left standing to starve the dialog opened from inside it).
         app._show_about()
         about_win = app._about_window
         root.update()
-        assert about_win.grab_status() is None
+        assert about_win.grab_status() == "local"
         assert bool(about_win.attributes("-topmost")) is True
-        assert about_win.master == root
-        assert settings_win.grab_status() == "local"  # untouched, still holds its own grab
+        # .master is just the Toplevel() constructor's widget parent
+        # (always root, unchanged) -- the real "child nest" relationship
+        # is the WM transient() hint, queried back the same way, not
+        # assumed from the transient() call we made.
+        assert str(about_win.transient()) == str(settings_win)
+        assert settings_win.grab_status() is None  # released, handed to About
 
-        about_win.destroy()
+        # Closing About must hand the grab back to Settings -- this is
+        # the exact mechanism that fixes "close Settings first" (before
+        # this fix, nothing ever restored Settings' grab, so it was
+        # stuck locked out even after About went away).
+        about_win.focus_force()  # <Escape> binding only fires on the focused widget
+        root.update()
+        about_win.event_generate("<Escape>")
+        root.update()
+        assert not about_win.winfo_exists()
+        assert settings_win.grab_status() == "local"  # restored, not left ungrabbed
+
         settings_win.destroy()
         app._settings_window = None
-        app._about_window = None
 
         # Opened standalone (Help menu path, no Settings open) -- the
         # original "modal against the main window" behavior must still
@@ -1762,7 +1786,7 @@ def test_settings_and_about_are_modal_transient_and_topmost(tmp_path):
         root.update()
         assert about_win.grab_status() == "local"
         assert bool(about_win.attributes("-topmost")) is True
-        assert about_win.master == root
+        assert str(about_win.transient()) == str(root)
     finally:
         app.doc.close()
         root.destroy()
