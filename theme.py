@@ -183,10 +183,16 @@ _SLATE_DARK = {
 _SLATE_LIGHT = {
     # Darkened a smidge + de-tanned 2026-07-29 per Devin's direct live
     # feedback -- re-derived from slate.css's real current light block.
+    #
+    # select_bg/highlight_bg re-hued 2026-07-30 -- Devin, live, right
+    # after the Bonepaper Light re-hue: "i like that olive green more
+    # than the teal on slate light." Reused the exact same #33762d
+    # (not just a similar shift) -- direct preference for that specific
+    # tone, not a generic de-tealing pass.
     "bg": "#d0cbbf", "fg": "#13120f", "button_bg": "#c1bcad",
     "entry_bg": "#d0cbbf", "canvas_bg": "#d0cbbf",
-    "select_bg": "#58763a", "muted_fg": "#322f28", "is_dark": False,
-    "highlight_bg": "#58763a",
+    "select_bg": "#33762d", "muted_fg": "#322f28", "is_dark": False,
+    "highlight_bg": "#33762d",
 }
 
 # Bonepaper -- merged 2026-07-29 (Devin: "make inkrain the dark mode for
@@ -258,17 +264,34 @@ _BONEPAPER_LIGHT = {
 #     near-black "accent" the dark mode uses for bg, MEG's own solid
 #     charcoal rather than the lighter #535353 body-gray (right for
 #     prose on a slide, too low-contrast as this app's primary text).
+#   - select_bg/highlight_bg split 2026-07-30 (Devin, live: "kinda
+#     pointless... our 3 core styles have more [personality] than
+#     MEG's" -> "add more spark/personality/energy to MEG light/dark"
+#     -> "green" -> "more MEG"). Every other family's select_bg and
+#     highlight_bg are the same single value; MEG was too, which was
+#     exactly the flatness Devin called out -- one accent color
+#     repeated everywhere reads generic regardless of which color it
+#     is. Fix uses TWO real, verified MEG brand greens for two
+#     different jobs instead of inventing a new color: select_bg stays
+#     the bright primary #62A945 (checked-toggle fill -- an active
+#     "you selected this" state should read energetic); highlight_bg
+#     becomes the real secondary "Dark Green" #4A7637 (text selection/
+#     TOC highlight -- a sustained-attention state reads better as the
+#     deeper, more professional tone, not the same neon-bright pop).
+#     Both colors are straight off presentation/meg-theme.css's real
+#     --meg-primary/--meg-secondary, same source as everything else in
+#     this family -- still exactly "green," per Devin's own answer.
 _MEG_LIGHT = {
     "bg": "#ffffff", "fg": "#1b2224", "button_bg": "#f9f9f9",
     "entry_bg": "#ffffff", "canvas_bg": "#ffffff",
     "select_bg": "#62a945", "muted_fg": "#535353", "is_dark": False,
-    "highlight_bg": "#62a945",
+    "highlight_bg": "#4a7637",
 }
 _MEG_DARK = {
     "bg": "#1b2224", "fg": "#cfcfcb", "button_bg": "#24272a",
     "entry_bg": "#1b2224", "canvas_bg": "#1b2224",
     "select_bg": "#62a945", "muted_fg": "#7e8180", "is_dark": True,
-    "highlight_bg": "#62a945",
+    "highlight_bg": "#4a7637",
 }
 
 THEMES = {
