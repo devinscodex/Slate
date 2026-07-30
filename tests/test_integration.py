@@ -3839,6 +3839,128 @@ def test_book_view_toggle_sets_both_axes_and_stays_in_sync(tmp_path):
         root.destroy()
 
 
+def test_f4_toggles_colorize_pages(tmp_path):
+    """Devin, 2026-07-29: "colorize pages is so hard to find sometimes
+    and i toggle that one the most... make F4 the toggle hotkey."
+    Same raw-keypress-needs-a-manual-flip-first pattern as F8/Book View
+    -- a bare key event doesn't flip a Tk variable itself the way an
+    actual Checkbutton click does."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.colorize_pages_var.set(False)
+        app._on_colorize_toggle()
+        assert app.colorize_pages is False
+
+        app._kb_toggle_colorize()
+        assert app.colorize_pages_var.get() is True
+        assert app.colorize_pages is True
+
+        app._kb_toggle_colorize()
+        assert app.colorize_pages_var.get() is False
+        assert app.colorize_pages is False
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_settings_dialog_mode_group_collapses_to_continuous_or_book_view(tmp_path):
+    """Devin, 2026-07-29, live screenshot review: "the top 3 should be
+    grouped, and really only 2 modes bookview and continuous." The View
+    MENU keeps all 3 real checkboxes (Continuous Scroll/Side by Side/
+    Book View) as independent axes, unchanged -- this only covers the
+    Settings dialog's own simplified 2-radio collapse
+    (_select_view_mode_continuous/_select_view_mode_book), and that
+    view_mode_var stays honest in both directions the same way
+    book_view_var already does."""
+    root, app = _make_app(tmp_path)
+    try:
+        app._select_view_mode_continuous()
+        assert app.view_mode_var.get() == "continuous"
+        assert app.continuous_scroll is True
+        assert app.side_by_side is False
+
+        app._select_view_mode_book()
+        assert app.view_mode_var.get() == "book"
+        assert app.continuous_scroll is True
+        assert app.side_by_side is True
+
+        app._select_view_mode_continuous()
+        assert app.view_mode_var.get() == "continuous"
+        assert app.side_by_side is False
+
+        # Toggling the underlying menu checkboxes directly (not via the
+        # Settings radios) must keep view_mode_var honest too, same as
+        # book_view_var already does.
+        app.side_by_side_var.set(True)
+        app._set_view_mode()
+        assert app.view_mode_var.get() == "book"
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_settings_toggle_buttons_use_each_themes_own_accent_not_one_fixed_color(tmp_path):
+    """Devin, 2026-07-29, live screenshot review: "the button color in
+    is interesting... better visibility UX color pass." Real fix: these
+    indicatoron=False toggle buttons now fill with the ACTIVE theme's
+    own select_bg (the same accent already reserved for "selection
+    roles only" everywhere else), not one universal fixed green -- and
+    the Theme grid specifically must show each SWATCH's own accent
+    (Bonepaper Dark's pale mint) regardless of which theme is actually
+    active (Slate), since that grid is choosing between themes, not
+    displaying the current one."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.theme_name.set("slate_dark")
+        app._apply_theme()
+        app._show_settings()
+        top = app._settings_window
+
+        def find(text):
+            def walk(w):
+                if isinstance(w, (tk.Checkbutton, tk.Radiobutton)) and w.cget("text") == text:
+                    return w
+                for c in w.winfo_children():
+                    found = walk(c)
+                    if found:
+                        return found
+                return None
+            return walk(top)
+
+        continuous_btn = find("Continuous")
+        assert continuous_btn.cget("selectcolor") == theme.THEMES["slate_dark"]["select_bg"]
+
+        bonepaper_dark_btn = find("Dark")
+        # Multiple "Dark" buttons exist (one per family) -- walk finds
+        # the first (Slate's row, built first) unless we search scoped
+        # to the right row instead; assert against ALL "Dark" swatches'
+        # selectcolor values directly instead of relying on which one a
+        # generic text-match happens to find first.
+        def find_all(text):
+            results = []
+            def walk(w):
+                if isinstance(w, (tk.Checkbutton, tk.Radiobutton)) and w.cget("text") == text:
+                    results.append(w)
+                for c in w.winfo_children():
+                    walk(c)
+            walk(top)
+            return results
+
+        dark_buttons = find_all("Dark")
+        assert len(dark_buttons) == 3  # Slate, Bonepaper, Flexoki
+        selectcolors = {btn.cget("selectcolor") for btn in dark_buttons}
+        # Each family's swatch must carry ITS OWN accent, not one shared
+        # value -- the real point of this test.
+        assert selectcolors == {
+            theme.THEMES["slate_dark"]["select_bg"],
+            theme.THEMES["bonepaper_dark"]["select_bg"],
+            theme.THEMES["dark"]["select_bg"],
+        }
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_continuous_and_side_by_side_combine_into_a_scrolling_two_column_layout(tmp_path):
     """Both checkboxes on at once (Devin: "both can be turned on") --
     real scroll through page PAIRS, windowing still applies."""

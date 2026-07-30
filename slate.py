@@ -398,6 +398,58 @@ class SlateApp:
             magnitude = max(6, abs(base_size) + self.ui_font_scale)
             tkfont.nametofont(name).configure(size=sign * magnitude)
 
+    def _wire_toggle_button_contrast(self, widget, variable, value=None, fixed_theme_name=None):
+        """indicatoron=False Checkbutton/Radiobutton widgets (Settings
+        dialog's Theme/Mode/Display/Voice/Speed toggles) fill their ENTIRE
+        background with selectcolor when checked -- Devin, 2026-07-29,
+        live screenshot review: "the button color in is interesting...
+        better visibility UX color pass." Real fix: selectcolor is now
+        each theme's own select_bg (the same accent already reserved for
+        "selection roles only" everywhere else in this file), not one
+        fixed universal green -- but that accent ranges from very dark
+        (Bonepaper Light's jade, #2d765b) to very light (Bonepaper Dark's
+        mint glow, #b5deb4), so a single static text color can't stay
+        readable in both the checked and unchecked state.
+
+        Mirrors the exact convention the TOC's own selected row already
+        uses (foreground=colors["bg"] specifically when highlighted, see
+        test_toc_selected_row_uses_theme_highlight_not_ttks_default_blue)
+        -- same fix, same reasoning, applied here: checked = colors["bg"]
+        text on the accent fill (accents are chosen to contrast against
+        bg already), unchecked = the normal colors["fg"] on colors["bg"].
+
+        value (for a Radiobutton sharing ONE variable across several
+        buttons, e.g. the Theme grid's self.theme_name or Voice/Speed's
+        shared vars): "checked" means variable.get() == value, not the
+        variable's own truthiness. None (the default) covers a plain
+        per-widget Checkbutton/BooleanVar instead, where the variable's
+        own value already IS the checked state.
+
+        fixed_theme_name (Theme grid only): each radio there represents
+        a SPECIFIC theme, not "whichever theme happens to be active" --
+        "Bonepaper Dark"'s own swatch must show Bonepaper's own accent
+        even while Slate is the live theme, so this pins which palette
+        _refresh reads colors from instead of always reading
+        self.theme_name.get(). None (every other group) means "whatever
+        the active theme's own accent is," which is what a plain feature
+        toggle actually wants.
+
+        Looks up the theme fresh on every call (not a colors snapshot
+        from wire-time) so this stays correct across a later theme
+        switch too -- a trace on the variable covers a checked-state
+        change; _paint_widget calls the stored callback directly on
+        every repaint to cover a theme change with no checked-state
+        change."""
+        def _is_checked():
+            return variable.get() == value if value is not None else bool(variable.get())
+        def _refresh(*_a):
+            cur_colors = theme.get_palette(fixed_theme_name or self.theme_name.get())
+            widget.configure(fg=cur_colors["bg"] if _is_checked() else cur_colors["fg"])
+        variable.trace_add("write", _refresh)
+        widget.slate_toggle_button = True
+        widget._slate_refresh_toggle_fg = _refresh
+        _refresh()
+
     def _ui_header_font(self, extra=0, weight="bold"):
         """A header/title font sized relative to the CURRENT (possibly
         user-scaled) TkDefaultFont, not a hardcoded absolute point size
@@ -677,12 +729,23 @@ class SlateApp:
                     # "Menu" branch below), never a standalone widget
                     # class, so this branch never existed until now.
                     # selectcolor (the checked-indicator color) is left
-                    # alone -- callers already pass their own green
-                    # accent for it at construction time.
+                    # alone -- callers already pass their own theme-
+                    # accent color for it at construction time.
                     widget.configure(
-                        bg=colors["bg"], fg=colors["fg"], activebackground=colors["bg"],
+                        bg=colors["bg"], activebackground=colors["bg"],
                         activeforeground=colors["fg"],
                     )
+                    if getattr(widget, "slate_toggle_button", False):
+                        # fg is owned by _wire_toggle_button_contrast's own
+                        # trace (it depends on THIS widget's checked state,
+                        # light-on-dark vs dark-on-light varying by theme)
+                        # -- re-invoke it here so a THEME switch with no
+                        # checked-state change still picks up the new
+                        # theme's colors (the trace alone only fires on a
+                        # variable write, not a repaint).
+                        widget._slate_refresh_toggle_fg()
+                    else:
+                        widget.configure(fg=colors["fg"])
                 elif cls == "Labelframe":
                     widget.configure(bg=colors["bg"], fg=colors["fg"])
                 elif cls == "Canvas":
@@ -805,6 +868,21 @@ class SlateApp:
         # this toggle only does what's actually real today (scroll +
         # side-by-side + fit-width), not a centered layout.
         self.book_view_var = tk.BooleanVar(value=self.continuous_scroll and self.side_by_side)
+        # Settings dialog's own simplified 2-option view (Devin, 2026-07-29,
+        # live screenshot review: "really only 2 modes bookview and
+        # continuous") -- the View MENU keeps all 3 real checkboxes exactly
+        # as-is (Continuous Scroll / Side by Side / Book View, independent
+        # axes, unchanged), but the Settings dialog collapses them to one
+        # Continuous/Book View choice for a much shorter, easier-to-scan
+        # list. Explicit accepted tradeoff: continuous=False+side_by_side=
+        # True (side-by-side WITHOUT continuous scroll) has no radio of its
+        # own here and reads as "continuous" if reached some other way --
+        # still fully reachable via the View menu, just not a 3rd option in
+        # this dialog. Kept honest in both directions same as book_view_var
+        # (see _set_view_mode).
+        self.view_mode_var = tk.StringVar(
+            value="book" if (self.continuous_scroll and self.side_by_side) else "continuous"
+        )
         layoutmenu = tk.Menu(viewm, tearoff=0)
         layoutmenu.add_checkbutton(
             label="Continuous Scroll", variable=self.continuous_scroll_var,
@@ -839,6 +917,7 @@ class SlateApp:
         viewm.add_checkbutton(
             label="Colorize pages to theme", variable=self.colorize_pages_var,
             command=self._on_colorize_toggle, selectcolor=radio_select_color,
+            accelerator="F4",
         )
         # Crop to Content (Devin, 2026-07-29): opt-in same as Colorize
         # above -- a display-altering feature, default off so it doesn't
@@ -1180,55 +1259,65 @@ class SlateApp:
                 if mode not in modes:
                     continue
                 label, name = modes[mode]
-                tk.Radiobutton(
+                # selectcolor is THIS swatch's own theme accent, not
+                # whichever theme happens to be active right now --
+                # "Bonepaper Dark" must show Bonepaper's own glow even
+                # while Slate is the live theme (Devin, 2026-07-29:
+                # "better visibility UX color pass" on these buttons).
+                btn = tk.Radiobutton(
                     theme_frame, text=mode, variable=self.theme_name, value=name,
-                    command=_on_theme_changed_and_repaint, selectcolor=RADIO_SELECT_COLOR,
+                    command=_on_theme_changed_and_repaint, selectcolor=theme.THEMES[name]["select_bg"],
                     indicatoron=False, relief=tk.RAISED, padx=8, pady=2,
-                ).grid(row=row, column=col, sticky="we", padx=4, pady=1)
+                )
+                btn.grid(row=row, column=col, sticky="we", padx=4, pady=1)
+                self._wire_toggle_button_contrast(btn, self.theme_name, value=name, fixed_theme_name=name)
         theme_frame.grid_columnconfigure(1, weight=1)
         theme_frame.grid_columnconfigure(2, weight=1)
 
-        # -- View --
-        view_frame = tk.LabelFrame(top, text="View")
-        view_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
-        # indicatoron=False (Devin, 2026-07-29, live screenshot of Slate
-        # Dark: "the selection... hard to see") -- classic Tk's tiny
-        # checkbox/radio indicator dot relies on a native ring-vs-fill
-        # contrast that doesn't hold up against a dark theme's own dark
-        # bg. Rendering these as real toggle buttons instead (selectcolor
-        # fills the WHOLE button when checked, not a 6px dot) is the
-        # standard suckless-Tk fix -- unmistakable in any theme, and it
-        # scales with UI font size instead of staying a fixed-size glyph.
-        tk.Checkbutton(
-            view_frame, text="Continuous Scroll", variable=self.continuous_scroll_var,
-            command=self._set_view_mode, selectcolor=RADIO_SELECT_COLOR,
-            indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
-        ).pack(fill=tk.X, padx=10, pady=(6, 2))
-        tk.Checkbutton(
-            view_frame, text="Side by Side", variable=self.side_by_side_var,
-            command=self._set_view_mode, selectcolor=RADIO_SELECT_COLOR,
-            indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
-        ).pack(fill=tk.X, padx=10, pady=2)
-        tk.Checkbutton(
-            view_frame, text="Book View (F8)", variable=self.book_view_var,
-            command=self._toggle_book_view, selectcolor=RADIO_SELECT_COLOR,
-            indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
-        ).pack(fill=tk.X, padx=10, pady=2)
-        tk.Checkbutton(
-            view_frame, text="Colorize pages to theme", variable=self.colorize_pages_var,
-            command=self._on_colorize_toggle, selectcolor=RADIO_SELECT_COLOR,
-            indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
-        ).pack(fill=tk.X, padx=10, pady=2)
-        tk.Checkbutton(
-            view_frame, text="Crop to Content", variable=self.crop_to_content_var,
-            command=self._on_crop_toggle, selectcolor=RADIO_SELECT_COLOR,
-            indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
-        ).pack(fill=tk.X, padx=10, pady=2)
-        tk.Checkbutton(
-            view_frame, text="Show Table of Contents", variable=self.toc_visible,
-            command=self._toggle_toc_panel, selectcolor=RADIO_SELECT_COLOR,
-            indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
-        ).pack(fill=tk.X, padx=10, pady=(2, 6))
+        # -- Mode -- collapsed to the 2 real reading modes (Devin,
+        # 2026-07-29, live screenshot review: "the top 3 should be
+        # grouped, and really only 2 modes bookview and continuous").
+        # The View MENU keeps all 3 real checkboxes (Continuous Scroll/
+        # Side by Side/Book View) exactly as independent axes, unchanged
+        # -- this dialog's own simplified view collapses them to one
+        # Continuous/Book View radio choice instead. Accepted tradeoff,
+        # explicit not accidental: side-by-side WITHOUT continuous
+        # scroll has no radio of its own here (reads as "Continuous" if
+        # reached some other way) -- still fully reachable via the View
+        # menu, just not exposed as a 3rd option in this shorter list.
+        mode_frame = tk.LabelFrame(top, text="Mode")
+        mode_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
+        for text, value, cmd, pad in (
+            ("Continuous", "continuous", self._select_view_mode_continuous, (6, 2)),
+            ("Book View (F8)", "book", self._select_view_mode_book, (2, 6)),
+        ):
+            btn = tk.Radiobutton(
+                mode_frame, text=text, variable=self.view_mode_var, value=value,
+                command=cmd, selectcolor=colors["select_bg"],
+                indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
+            )
+            btn.pack(fill=tk.X, padx=10, pady=pad)
+            self._wire_toggle_button_contrast(btn, self.view_mode_var, value=value)
+
+        # -- Display -- Colorize moved to the TOP of this group (Devin,
+        # 2026-07-29: "colorize pages is so hard to find sometimes and i
+        # toggle that one the most... make that the top of the next
+        # small group") -- also now bound to F4 (see _kb_toggle_colorize)
+        # since it's the one Devin says he reaches for most.
+        display_frame = tk.LabelFrame(top, text="Display")
+        display_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
+        for text, variable, cmd, pad in (
+            ("Colorize pages to theme (F4)", self.colorize_pages_var, self._on_colorize_toggle, (6, 2)),
+            ("Crop to Content", self.crop_to_content_var, self._on_crop_toggle, (2, 2)),
+            ("Show Table of Contents", self.toc_visible, self._toggle_toc_panel, (2, 6)),
+        ):
+            btn = tk.Checkbutton(
+                display_frame, text=text, variable=variable,
+                command=cmd, selectcolor=colors["select_bg"],
+                indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
+            )
+            btn.pack(fill=tk.X, padx=10, pady=pad)
+            self._wire_toggle_button_contrast(btn, variable)
 
         # -- Zoom -- read-only display + the existing commands, not a
         # parallel editable field (avoids a second place zoom state could
@@ -1319,20 +1408,24 @@ class SlateApp:
         voice_row = tk.Frame(tts_frame)
         voice_row.pack(fill=tk.X, padx=10)
         for voice_id, info in tts.VOICES.items():
-            tk.Radiobutton(
+            btn = tk.Radiobutton(
                 voice_row, text=info["label"], variable=self.tts_voice, value=voice_id,
-                command=self._on_tts_voice_changed, selectcolor=RADIO_SELECT_COLOR,
+                command=self._on_tts_voice_changed, selectcolor=colors["select_bg"],
                 indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
-            ).pack(fill=tk.X, pady=1)
+            )
+            btn.pack(fill=tk.X, pady=1)
+            self._wire_toggle_button_contrast(btn, self.tts_voice, value=voice_id)
         tk.Label(tts_frame, text="Speed:").pack(anchor="w", padx=10, pady=(6, 0))
         speed_row = tk.Frame(tts_frame)
         speed_row.pack(fill=tk.X, padx=10, pady=(0, 6))
         for speed in (0.75, 1.0, 1.25, 1.5, 2.0):
-            tk.Radiobutton(
+            btn = tk.Radiobutton(
                 speed_row, text=f"{speed}x", variable=self.tts_speed, value=speed,
-                command=self._on_tts_speed_changed, selectcolor=RADIO_SELECT_COLOR,
+                command=self._on_tts_speed_changed, selectcolor=colors["select_bg"],
                 indicatoron=False, relief=tk.RAISED, padx=6, pady=2,
-            ).pack(side=tk.LEFT, padx=(0, 4))
+            )
+            btn.pack(side=tk.LEFT, padx=(0, 4))
+            self._wire_toggle_button_contrast(btn, self.tts_speed, value=speed)
 
         btn_row = tk.Frame(top)
         btn_row.pack(pady=(0, 16))
@@ -1994,6 +2087,7 @@ class SlateApp:
         self.root.bind("<Key-slash>", self._kb_open_find)
         self.root.bind("<Control-c>", self._copy_selection)
         self.root.bind("<F8>", self._kb_toggle_book_view)
+        self.root.bind("<F4>", self._kb_toggle_colorize)
 
         # CUA keybinds (Devin, 2026-07-25: "ctrl+w close tab (and other
         # CUA keybinds)") -- the standard Windows/Mac shortcut set,
@@ -2142,6 +2236,7 @@ class SlateApp:
         # Book View item -- it should only show checked when BOTH
         # underlying axes actually agree, never a stale/independent guess.
         self.book_view_var.set(self.continuous_scroll and self.side_by_side)
+        self.view_mode_var.set("book" if (self.continuous_scroll and self.side_by_side) else "continuous")
         if self.viewer is None:
             return
         self._selected_words = []
@@ -2176,6 +2271,32 @@ class SlateApp:
         self.book_view_var.set(not self.book_view_var.get())
         self._toggle_book_view()
         return "break"
+
+    def _kb_toggle_colorize(self, event=None):
+        """F4 (Devin, 2026-07-29: "colorize pages is so hard to find
+        sometimes and i toggle that one the most") -- same raw-keypress-
+        needs-a-manual-flip-first pattern as F8/_kb_toggle_book_view,
+        reusing _on_colorize_toggle's real cache-invalidate-and-render
+        logic rather than duplicating it."""
+        self.colorize_pages_var.set(not self.colorize_pages_var.get())
+        self._on_colorize_toggle()
+
+    def _select_view_mode_continuous(self):
+        """Settings dialog's simplified "Continuous" radio -- plain
+        single-column continuous scroll, side_by_side off. Reuses
+        _set_view_mode's existing save/render/scroll path via the same
+        two underlying Tk vars the View menu's real checkboxes use, so
+        this dialog can never drift from the menu's own state."""
+        self.continuous_scroll_var.set(True)
+        self.side_by_side_var.set(False)
+        self._set_view_mode()
+
+    def _select_view_mode_book(self):
+        """Settings dialog's simplified "Book View" radio -- reuses
+        _toggle_book_view's real logic (which also runs Fit Width)
+        rather than duplicating it."""
+        self.book_view_var.set(True)
+        self._toggle_book_view()
 
     def _on_canvas_frame_configure(self, event=None):
         """Devin, 2026-07-25: "if the horizontal size reaches 'side by

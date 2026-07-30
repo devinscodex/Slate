@@ -6,7 +6,7 @@ exist on a deployed end-user machine without fossil/git installed.
 
 AUTHOR = "devinscodex"
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 # 1.0.0 -- v1 core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (all 4 slices: fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (3 core families: Flexoki/Bonepaper/
@@ -36,6 +36,19 @@ VERSION = "1.3.0"
 #          button when checked) after Devin's live Slate Dark
 #          screenshot showed the classic tiny indicator dot was hard to
 #          tell selected from not.
+# 1.3.1 -- Settings dialog reorganized (Devin, live screenshot review):
+#          View collapsed from 6 loose rows into "Mode" (Continuous/
+#          Book View, the 2 real reading modes -- View menu keeps all 3
+#          real checkboxes unchanged) and "Display" (Colorize pages to
+#          theme moved to the top, now also bound to F4 -- "colorize
+#          pages is so hard to find sometimes and i toggle that one the
+#          most"). Toggle-button colors now use each THEME's own accent
+#          (select_bg) instead of one fixed universal green -- the
+#          Theme grid shows each swatch's own real accent regardless of
+#          which theme is active. Real bug fixed along the way: F8
+#          (_kb_toggle_book_view) had lost its call to
+#          _toggle_book_view() during this same edit, caught by the
+#          existing regression test before it shipped.
 
 SUMMARY = (
     "Slate is the document reader and editor you've always wanted: view, "
