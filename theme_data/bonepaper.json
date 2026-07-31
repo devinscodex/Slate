@@ -16,9 +16,9 @@
     "button_bg": "#0a0d09",
     "entry_bg": "#030302",
     "canvas_bg": "#030302",
-    "select_bg": "#a1eb70",
+    "select_bg": "#28bd73",
     "muted_fg": "#7d7d78",
-    "highlight_bg": "#a1eb70",
+    "highlight_bg": "#28bd73",
     "external_link": "#9d8cf0"
   }
 }
