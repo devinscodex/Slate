@@ -257,7 +257,12 @@ _SLATE_LIGHT = _load_base("slate", "light")
 # 3 core families: Standard, Bonepaper, Slate.
 # Real values now loaded from theme_data/bonepaper.json (pulled from
 # themes-custom) rather than hand-transcribed here -- see _load_base
-# above. History kept for provenance:
+# above. Briefly renamed to "Ossuary" 2026-07-31 (Devin: "Bonepaper never
+# really stuck"), reverted same day ("leave bonepaper") once the 4th
+# family got renamed to "Martin" instead of "Graphpaper" -- no more
+# "-paper" collision to avoid, so no reason to move off the name Devin
+# already has real attachment to ("i prefer bonepaper..."). History kept
+# for provenance:
 _BONEPAPER_DARK = _load_base("bonepaper", "dark")
 # select_bg/highlight_bg re-hued 2026-07-30 -- Devin, live feedback:
 # "too teal, less green like in the branding." Old #2d765b (h:158,
@@ -288,8 +293,12 @@ _BONEPAPER_LIGHT = _load_base("bonepaper", "light")
 # live: "Martin Construction can suck it, i hate Martin's Blue Team,
 # we're green team all the way!!" -- "Martin" alone collides with an
 # unrelated company Devin has real beef with; MEG is the company's own
-# actual internal shorthand and sidesteps the collision outright. Every
-# value below is a REAL, verified MEG brand color, not picked by eye:
+# actual internal shorthand and sidesteps the collision outright.
+# REVERSED 2026-07-31, Devin's own explicit call after being flagged with
+# this exact history ("just Martin," confirmed twice, "clean, elegant")
+# -- his call to make each time, not mine to keep overriding once he's
+# seen the flag and decided anyway. Every value below is a REAL, verified
+# MEG brand color, not picked by eye:
 #   - select_bg/highlight_bg #62A945 and the dark-mode bg/button_bg/fg
 #     stack (#1B2224/#24272a/#cfcfcb) come straight from
 #     presentation/meg-theme.css, itself pulled 2026-07-22 via curl from
@@ -325,20 +334,8 @@ _BONEPAPER_LIGHT = _load_base("bonepaper", "light")
 #     Both colors are straight off presentation/meg-theme.css's real
 #     --meg-primary/--meg-secondary, same source as everything else in
 #     this family -- still exactly "green," per Devin's own answer.
-# Real values now loaded from theme_data/gridpaper.json (pulled from
-# themes-custom) rather than hand-transcribed here -- see _load_base
-# above. Renamed 2026-07-31: was filed under "MEG" (this comment block's
-# own name above), then "anthracite" (company-neutral for the shared
-# repo), now "gridpaper" -- Devin merged this family with a separately-
-# parked "Gridpaper" plan (white/green MEG-official look, real
-# engineering graph paper: white bg, green ruled lines). Values
-# unchanged throughout every rename -- still the real MEG brand colors
-# sourced in the comment block above. Internal key + display label both
-# renamed this time (unlike Flexoki's rename, which kept "light"/"dark"
-# internal) -- no dual role for this key to preserve, cleaner to match
-# the load-source name directly.
-_GRIDPAPER_LIGHT = _load_base("gridpaper", "light")
-_GRIDPAPER_DARK = _load_base("gridpaper", "dark")
+_MARTIN_LIGHT = _load_base("martin", "light")
+_MARTIN_DARK = _load_base("martin", "dark")
 
 THEMES = {
     "light": _with_chrome_cascade(_STANDARD_LIGHT),
@@ -347,8 +344,8 @@ THEMES = {
     "slate_dark": _with_chrome_cascade(_SLATE_DARK),
     "bonepaper_light": _with_chrome_cascade(_BONEPAPER_LIGHT),
     "bonepaper_dark": _with_chrome_cascade(_BONEPAPER_DARK),
-    "gridpaper_light": _with_chrome_cascade(_GRIDPAPER_LIGHT),
-    "gridpaper_dark": _with_chrome_cascade(_GRIDPAPER_DARK),
+    "martin_light": _with_chrome_cascade(_MARTIN_LIGHT),
+    "martin_dark": _with_chrome_cascade(_MARTIN_DARK),
 }
 
 # Display label -> internal THEMES key, in menu order. Devin's stated
@@ -364,9 +361,18 @@ THEMES = {
 # update boneink to 'inkrain'") -- Boneink's real light half survives
 # inside it, Inkrain's real sampled dark half replaces Boneink's own
 # jade-dark outright -- then renamed Inkrain -> Bonepaper same day
-# ("i prefer bonepaper..."). Final roster: Standard, Bonepaper, Slate,
-# light/dark each -- 3 core families, back down from the brief 4-family
-# peak.
+# ("i prefer bonepaper..."). Bonepaper briefly renamed Ossuary
+# 2026-07-31, reverted same day ("leave bonepaper").
+#
+# 4th family's own long name history, all same-day 2026-07-31: MEG ->
+# Anthracite -> Gridpaper -> Graphpaper -> **Martin** (Devin's final
+# call, explicit override of his own earlier "Martin Construction"
+# collision concern -- flagged, confirmed twice anyway, "clean,
+# elegant"). Values unchanged through every rename.
+#
+# Menu order, changed 2026-07-31 (Devin's explicit rule): Slate is
+# always top/default; the other three sort alphabetically (Bonepaper,
+# Flexoki, Martin) rather than the old ad-hoc arrival order.
 THEME_LABELS = {
     "Slate Light": "slate_light",
     "Slate Dark": "slate_dark",
@@ -380,13 +386,12 @@ THEME_LABELS = {
     # project name instead of the person's.
     "Flexoki Light": "light",
     "Flexoki Dark": "dark",
-    # New 2026-07-30 -- real Martin Energy Group brand colors, see
-    # _GRIDPAPER_LIGHT/_GRIDPAPER_DARK's own comment for full sourcing.
-    # Renamed MEG -> Gridpaper 2026-07-31 (Devin's call, merged with the
-    # separately-parked white/green graph-paper plan) -- both the
-    # internal key and this display label moved together this time.
-    "Gridpaper Light": "gridpaper_light",
-    "Gridpaper Dark": "gridpaper_dark",
+    # Real Martin Energy Group brand colors, see _MARTIN_LIGHT/
+    # _MARTIN_DARK's own comment for full sourcing and the long same-day
+    # rename history (MEG -> Anthracite -> Gridpaper -> Graphpaper ->
+    # Martin).
+    "Martin Light": "martin_light",
+    "Martin Dark": "martin_dark",
 }
 
 # Kept as plain names too (not just THEMES["light"]/["dark"]) -- several

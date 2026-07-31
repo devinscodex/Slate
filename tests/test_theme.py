@@ -69,27 +69,30 @@ def test_roster_is_exactly_eight_themes():
     after the very first roster consolidation.
 
     Grown to 8, 2026-07-30: MEG (light/dark) added, real verified Martin
-    Energy Group brand colors (see theme.py's own _GRIDPAPER_LIGHT/
-    _GRIDPAPER_DARK comment for full sourcing) -- named "MEG" specifically,
+    Energy Group brand colors (see theme.py's own _MARTIN_LIGHT/
+    _MARTIN_DARK comment for full sourcing) -- named "MEG" specifically,
     not "Martin" (Devin, same day: "Martin Construction can suck it... we're
     green team all the way!!" -- the bare name collides with an unrelated
     company he has real beef with). Same day, Standard's own display
     label reverted "Kepano" (a brief 2026-07-29 rename) back to
-    "Flexoki", its original real source name. Renamed again 2026-07-31:
-    MEG -> Gridpaper (Devin merged it with a separately-parked white/
-    green graph-paper plan; values unchanged, internal key + label both
-    moved together this time)."""
+    "Flexoki", its original real source name. Renamed 2026-07-31, several
+    times same day: MEG -> Anthracite -> Gridpaper -> Graphpaper ->
+    **Martin** (Devin's final call, explicit override of the exact
+    collision concern above -- flagged, confirmed twice anyway). Values
+    unchanged through every rename."""
     assert set(theme.THEMES.keys()) == {
         "light", "dark",
         "slate_light", "slate_dark",
         "bonepaper_light", "bonepaper_dark",
-        "gridpaper_light", "gridpaper_dark",
+        "martin_light", "martin_dark",
     }
     for gone in ("flexoki_dark", "flexoki_light", "gruvbox_dark", "gruvbox_light",
                  "solarized_light", "solarized", "mosscairn3_light", "mosscairn3_dark",
                  "inkbone_light", "inkbone_dark", "boneink_light", "boneink_dark",
                  "mosscairn_light", "mosscairn_dark", "inkrain_light", "inkrain_dark",
-                 "meg_light", "meg_dark"):
+                 "meg_light", "meg_dark", "anthracite_light", "anthracite_dark",
+                 "gridpaper_light", "gridpaper_dark", "graphpaper_light", "graphpaper_dark",
+                 "ossuary_light", "ossuary_dark"):
         assert gone not in theme.THEMES, gone
     for gone_label in ("Gruvbox Dark", "Gruvbox Light",
                         "Solarized Light", "Solarized Dark", "Solarized",
@@ -99,10 +102,14 @@ def test_roster_is_exactly_eight_themes():
                         "Mosscairn Light", "Mosscairn Dark",
                         "Inkrain Light", "Inkrain Dark",
                         "Kepano Light", "Kepano Dark",
-                        "MEG Light", "MEG Dark"):
+                        "MEG Light", "MEG Dark",
+                        "Anthracite Light", "Anthracite Dark",
+                        "Gridpaper Light", "Gridpaper Dark",
+                        "Graphpaper Light", "Graphpaper Dark",
+                        "Ossuary Light", "Ossuary Dark"):
         assert gone_label not in theme.THEME_LABELS, gone_label
-    assert theme.THEME_LABELS["Gridpaper Light"] == "gridpaper_light"
-    assert theme.THEME_LABELS["Gridpaper Dark"] == "gridpaper_dark"
+    assert theme.THEME_LABELS["Martin Light"] == "martin_light"
+    assert theme.THEME_LABELS["Martin Dark"] == "martin_dark"
     # The bare "Light"/"Dark" labels were themselves retired the same day
     # Standard's display name became "Flexoki" -- those two strings now
     # only exist as internal THEMES keys, never as a THEME_LABELS key.
