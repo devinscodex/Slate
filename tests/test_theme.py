@@ -69,23 +69,27 @@ def test_roster_is_exactly_eight_themes():
     after the very first roster consolidation.
 
     Grown to 8, 2026-07-30: MEG (light/dark) added, real verified Martin
-    Energy Group brand colors (see theme.py's own _MEG_LIGHT/_MEG_DARK
-    comment for full sourcing) -- named "MEG" specifically, not "Martin"
-    (Devin, same day: "Martin Construction can suck it... we're green
-    team all the way!!" -- the bare name collides with an unrelated
+    Energy Group brand colors (see theme.py's own _GRIDPAPER_LIGHT/
+    _GRIDPAPER_DARK comment for full sourcing) -- named "MEG" specifically,
+    not "Martin" (Devin, same day: "Martin Construction can suck it... we're
+    green team all the way!!" -- the bare name collides with an unrelated
     company he has real beef with). Same day, Standard's own display
     label reverted "Kepano" (a brief 2026-07-29 rename) back to
-    "Flexoki", its original real source name."""
+    "Flexoki", its original real source name. Renamed again 2026-07-31:
+    MEG -> Gridpaper (Devin merged it with a separately-parked white/
+    green graph-paper plan; values unchanged, internal key + label both
+    moved together this time)."""
     assert set(theme.THEMES.keys()) == {
         "light", "dark",
         "slate_light", "slate_dark",
         "bonepaper_light", "bonepaper_dark",
-        "meg_light", "meg_dark",
+        "gridpaper_light", "gridpaper_dark",
     }
     for gone in ("flexoki_dark", "flexoki_light", "gruvbox_dark", "gruvbox_light",
                  "solarized_light", "solarized", "mosscairn3_light", "mosscairn3_dark",
                  "inkbone_light", "inkbone_dark", "boneink_light", "boneink_dark",
-                 "mosscairn_light", "mosscairn_dark", "inkrain_light", "inkrain_dark"):
+                 "mosscairn_light", "mosscairn_dark", "inkrain_light", "inkrain_dark",
+                 "meg_light", "meg_dark"):
         assert gone not in theme.THEMES, gone
     for gone_label in ("Gruvbox Dark", "Gruvbox Light",
                         "Solarized Light", "Solarized Dark", "Solarized",
@@ -94,10 +98,11 @@ def test_roster_is_exactly_eight_themes():
                         "Boneink Light", "Boneink Dark",
                         "Mosscairn Light", "Mosscairn Dark",
                         "Inkrain Light", "Inkrain Dark",
-                        "Kepano Light", "Kepano Dark"):
+                        "Kepano Light", "Kepano Dark",
+                        "MEG Light", "MEG Dark"):
         assert gone_label not in theme.THEME_LABELS, gone_label
-    assert theme.THEME_LABELS["MEG Light"] == "meg_light"
-    assert theme.THEME_LABELS["MEG Dark"] == "meg_dark"
+    assert theme.THEME_LABELS["Gridpaper Light"] == "gridpaper_light"
+    assert theme.THEME_LABELS["Gridpaper Dark"] == "gridpaper_dark"
     # The bare "Light"/"Dark" labels were themselves retired the same day
     # Standard's display name became "Flexoki" -- those two strings now
     # only exist as internal THEMES keys, never as a THEME_LABELS key.
@@ -289,10 +294,20 @@ def test_slate_dark_matches_the_real_official_solarized_bones():
     time), caught that Slate's own muted_fg had been hand-copied from
     --text-faint (base01) instead of the property it's actually meant
     to mirror, --text-muted (base00) -- see theme.py's own _SLATE_DARK
-    comment for the full story."""
+    comment for the full story.
+
+    bg/canvas_bg moved off stock Solarized 2026-07-31 -- Devin: "i do
+    like that theme for our Slate Dark," referring to Solarized Osaka
+    (craftzdog/solarized-osaka.nvim, real values pulled from Devin's own
+    Alacritty config, not memory). Osaka's real `black` (#073642) and
+    `foreground` (#839496) already matched Slate Dark's button_bg/fg
+    exactly -- only Osaka's deeper primary background (#001a1d vs stock
+    Solarized's #002b36) actually differs, so that's the only value that
+    moved. button_bg/fg/muted_fg/select_bg all still real official
+    Solarized-lineage values, unchanged."""
     dark = theme.THEMES["slate_dark"]
-    assert dark["bg"] == "#002b36"  # Solarized base03
-    assert dark["button_bg"] == "#073642"  # Solarized base02
-    assert dark["fg"] == "#839496"  # Solarized base0
+    assert dark["bg"] == "#001a1d"  # Solarized Osaka's real primary background
+    assert dark["button_bg"] == "#073642"  # Solarized base02 (== Osaka's own "black")
+    assert dark["fg"] == "#839496"  # Solarized base0 (== Osaka's own "foreground")
     assert dark["muted_fg"] == "#657b83"  # Solarized base00 (--text-muted, not --text-faint)
     assert dark["select_bg"] == "#699d43"  # Slate's own moss accent, not Solarized's blue

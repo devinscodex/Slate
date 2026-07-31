@@ -10,11 +10,11 @@
     "highlight_bg": "#33762d"
   },
   "dark": {
-    "bg": "#002b36",
+    "bg": "#001a1d",
     "fg": "#839496",
     "button_bg": "#073642",
     "entry_bg": "#073642",
-    "canvas_bg": "#002b36",
+    "canvas_bg": "#001a1d",
     "select_bg": "#699d43",
     "muted_fg": "#657b83",
     "highlight_bg": "#699d43"

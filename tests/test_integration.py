@@ -4201,7 +4201,7 @@ def test_settings_toggle_buttons_use_each_themes_own_accent_not_one_fixed_color(
             return results
 
         dark_buttons = find_all("Dark")
-        assert len(dark_buttons) == 4  # Slate, Bonepaper, Flexoki, MEG (added 2026-07-30)
+        assert len(dark_buttons) == 4  # Slate, Bonepaper, Flexoki, Gridpaper (was MEG, renamed 2026-07-31)
         selectcolors = {btn.cget("selectcolor") for btn in dark_buttons}
         # Each family's swatch must carry ITS OWN accent, not one shared
         # value -- the real point of this test.
@@ -4209,7 +4209,7 @@ def test_settings_toggle_buttons_use_each_themes_own_accent_not_one_fixed_color(
             theme.THEMES["slate_dark"]["select_bg"],
             theme.THEMES["bonepaper_dark"]["select_bg"],
             theme.THEMES["dark"]["select_bg"],
-            theme.THEMES["meg_dark"]["select_bg"],
+            theme.THEMES["gridpaper_dark"]["select_bg"],
         }
     finally:
         app.doc.close()

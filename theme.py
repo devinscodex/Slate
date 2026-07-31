@@ -325,14 +325,20 @@ _BONEPAPER_LIGHT = _load_base("bonepaper", "light")
 #     Both colors are straight off presentation/meg-theme.css's real
 #     --meg-primary/--meg-secondary, same source as everything else in
 #     this family -- still exactly "green," per Devin's own answer.
-# Real values now loaded from theme_data/anthracite.json (pulled from
+# Real values now loaded from theme_data/gridpaper.json (pulled from
 # themes-custom) rather than hand-transcribed here -- see _load_base
-# above. Filed under "anthracite" in the shared repo (company-neutral,
-# since themes-custom spans multiple apps now) -- the values themselves
-# are still real MEG brand colors, and Slate's own menu keeps calling
-# this family "MEG" (THEME_LABELS below), unchanged.
-_MEG_LIGHT = _load_base("anthracite", "light")
-_MEG_DARK = _load_base("anthracite", "dark")
+# above. Renamed 2026-07-31: was filed under "MEG" (this comment block's
+# own name above), then "anthracite" (company-neutral for the shared
+# repo), now "gridpaper" -- Devin merged this family with a separately-
+# parked "Gridpaper" plan (white/green MEG-official look, real
+# engineering graph paper: white bg, green ruled lines). Values
+# unchanged throughout every rename -- still the real MEG brand colors
+# sourced in the comment block above. Internal key + display label both
+# renamed this time (unlike Flexoki's rename, which kept "light"/"dark"
+# internal) -- no dual role for this key to preserve, cleaner to match
+# the load-source name directly.
+_GRIDPAPER_LIGHT = _load_base("gridpaper", "light")
+_GRIDPAPER_DARK = _load_base("gridpaper", "dark")
 
 THEMES = {
     "light": _with_chrome_cascade(_STANDARD_LIGHT),
@@ -341,8 +347,8 @@ THEMES = {
     "slate_dark": _with_chrome_cascade(_SLATE_DARK),
     "bonepaper_light": _with_chrome_cascade(_BONEPAPER_LIGHT),
     "bonepaper_dark": _with_chrome_cascade(_BONEPAPER_DARK),
-    "meg_light": _with_chrome_cascade(_MEG_LIGHT),
-    "meg_dark": _with_chrome_cascade(_MEG_DARK),
+    "gridpaper_light": _with_chrome_cascade(_GRIDPAPER_LIGHT),
+    "gridpaper_dark": _with_chrome_cascade(_GRIDPAPER_DARK),
 }
 
 # Display label -> internal THEMES key, in menu order. Devin's stated
@@ -375,9 +381,12 @@ THEME_LABELS = {
     "Flexoki Light": "light",
     "Flexoki Dark": "dark",
     # New 2026-07-30 -- real Martin Energy Group brand colors, see
-    # _MEG_LIGHT/_MEG_DARK's own comment for full sourcing.
-    "MEG Light": "meg_light",
-    "MEG Dark": "meg_dark",
+    # _GRIDPAPER_LIGHT/_GRIDPAPER_DARK's own comment for full sourcing.
+    # Renamed MEG -> Gridpaper 2026-07-31 (Devin's call, merged with the
+    # separately-parked white/green graph-paper plan) -- both the
+    # internal key and this display label moved together this time.
+    "Gridpaper Light": "gridpaper_light",
+    "Gridpaper Dark": "gridpaper_dark",
 }
 
 # Kept as plain names too (not just THEMES["light"]/["dark"]) -- several
