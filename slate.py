@@ -211,6 +211,31 @@ class SlateApp:
         # self._layout exist" rather than a mode check.
         self.continuous_scroll = _saved["continuous_scroll"]
         self.side_by_side = _saved["side_by_side"]
+        # Devin, 2026-07-31, live on a 3440x1440 ultrawide: "can we do
+        # more than 2 columns automatically... based on how wide your
+        # viewport is." side_by_side stays a plain bool (2 columns vs 1,
+        # what the View menu's "Side by Side" checkbox + settings.json
+        # persistence still mean) for backward compat; num_columns is
+        # the real render-time column count, auto-recomputed from the
+        # live viewport width by _apply_width_based_side_by_side below
+        # (every old "2 if self.side_by_side else 1" call site now
+        # reads this instead). Seeded from the persisted bool so the
+        # very first render (before any width measurement has happened)
+        # still gets a sane 1-or-2 starting value.
+        self.num_columns = 2 if self.side_by_side else 1
+        # Devin, 2026-07-31, reversing his own earlier "always auto, no
+        # manual override" call: "it's easier for you to focus on that
+        # [zoom/centering] when I am the one who tells you how many
+        # columns to focus your zooming/centering efforts around." A
+        # manually-picked count now PINS num_columns -- the width-based
+        # auto-follow (_apply_width_based_side_by_side) checks this
+        # first and does nothing while pinned, so it can't silently
+        # overwrite Devin's own explicit choice on the next resize.
+        # Session-scoped only, matches the original "always auto by
+        # default" spirit for anyone who never touches this control --
+        # every fresh launch starts unpinned, real auto behavior, same
+        # as before this control existed.
+        self._columns_pinned = False
         self._layout = None
         # Static (non-scrolling) row rendering draws the CURRENT row
         # translated to canvas origin (0, 0) -- self._layout's own
@@ -1481,6 +1506,14 @@ class SlateApp:
         tk.Label(
             header, text="Settings", font=self._ui_header_font(extra=5)
         ).pack(side=tk.LEFT)
+        # Devin, 2026-07-31: "along with the current Slate version in
+        # the settings pane?" -- same muted-gray treatment as About's
+        # own version line, just inline next to the title here instead
+        # of its own row (Settings' header is a lot tighter than
+        # About's).
+        version_label = tk.Label(header, text=f"v{version.VERSION}", fg="gray40")
+        version_label.slate_muted = True
+        version_label.pack(side=tk.LEFT, padx=(8, 0), pady=(4, 0))
         accent_bar = tk.Frame(top, bg="#62a945", height=2)
         accent_bar.slate_fixed_bg = "#62a945"
         accent_bar.pack(fill=tk.X, padx=24, pady=(0, 10))
@@ -1493,9 +1526,38 @@ class SlateApp:
         # 2026-07-26: "the settings page should fully match the theme,"
         # not just at open time. accent_bar needs no re-assertion here
         # (slate_fixed_bg handles it inside _paint_widget itself now).
+        # Real bug, Devin live 2026-07-31: "the green rectangle still
+        # isn't cutting it." Root cause: #62a945 (this file's own fixed
+        # house green) is IDENTICAL to Martin's own select_bg, and every
+        # OTHER family in the roster is also green or blue (checked
+        # directly: theme.THEMES[*]["select_bg"] across all 8 themes is
+        # exactly {#205ea6, #33762d, #4385be, #62a945, #699d43,
+        # #b4e4bc} -- two hue families, no red/orange anywhere) -- a
+        # green ring blends into a green-bordered swatch instead of
+        # standing apart from it, defeating the whole "move a rectangle
+        # over the selected one" point. A warm red-orange is outside
+        # both hue families roster-wide, so it can never collide with a
+        # swatch's own accent the way the house green did.
+        _SELECTION_RING_COLOR = "#c0392b"
+        _theme_swatch_rings = {}  # name -> the selection-ring Frame, populated below
+
+        def _refresh_theme_swatch_selection():
+            """Moves the selection indicator to whichever swatch is
+            currently active, WITHOUT touching any swatch's own bg/
+            border colors -- see the swatch-building comment below for
+            why this exists as a separate widget layer."""
+            current = self.theme_name.get()
+            for name, ring in _theme_swatch_rings.items():
+                if name == current:
+                    ring.configure(highlightthickness=3, highlightbackground=_SELECTION_RING_COLOR,
+                                    highlightcolor=_SELECTION_RING_COLOR)
+                else:
+                    ring.configure(highlightthickness=0)
+
         def _on_theme_changed_and_repaint():
             self._on_theme_changed()  # re-themes self.root + any other open Toplevel (About, etc.)
             self._paint_widget(top, theme.get_palette(self.theme_name.get()))  # this dialog + its own titlebar
+            _refresh_theme_swatch_selection()  # covers every trigger, not just clicking a swatch (F2 palette, View menu, ...)
 
         # Theme picker as a Light/Dark grid, one row per family (Devin,
         # 2026-07-29: "can we stack settings a lil nicer plz" -- the old
@@ -1507,8 +1569,42 @@ class SlateApp:
         # with the real roster -- the exact class of bug the theme
         # roster itself just went through today (mosscairn2.css drifting
         # out from under mosscairn3's copied values).
+        #
+        # Rebuilt as custom preview swatches, 2026-07-31 (Devin, live,
+        # after seeing the colored-Radiobutton-grid version): "the darks
+        # are too close together... is there a different way to
+        # highlight... instead of filling it in with its accents? can
+        # we move a rectangle over which one is selected without
+        # tampering with the internal color? would we also show more of
+        # key colors... (outline or something) to show the core and
+        # accent color of each color family?" Real problem with the
+        # Radiobutton version: indicatoron=False's selectcolor IS the
+        # fill, so an unselected swatch showed no color at all (just a
+        # plain gray button) and a selected one showed ONLY the accent,
+        # never the family's actual background -- two dark themes'
+        # accents alone genuinely can render close together, and no
+        # swatch ever previewed its own bg color at all. Fixed with two
+        # independent widget layers per swatch instead of one
+        # Radiobutton: an inner fixed-size Frame whose bg IS the
+        # family's real background and whose own border (highlightbg)
+        # IS its real accent -- both real colors, always visible,
+        # completely independent of selection state (slate_fixed_bg
+        # keeps _paint_widget's generic repaint walk from ever touching
+        # it, same convention as About's permanent accent bar) -- and an
+        # outer Frame used ONLY as a selection ring (_SELECTION_RING_COLOR,
+        # a warm red-orange chosen specifically to never match any
+        # family's own green/blue accent -- see that constant's own
+        # comment, amended 2026-07-31 after the first pick collided),
+        # toggled on/off by _refresh_theme_swatch_selection
+        # above rather than baked into either swatch's own colors.
         theme_frame = tk.LabelFrame(top, text="Theme")
         theme_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
+        tk.Label(theme_frame, text="Light", anchor="center").grid(
+            row=0, column=1, sticky="we", padx=4, pady=(4, 1)
+        )
+        tk.Label(theme_frame, text="Dark", anchor="center").grid(
+            row=0, column=2, sticky="we", padx=4, pady=(4, 1)
+        )
         _families = {}
         for label, name in theme.THEME_LABELS.items():
             if label.endswith(" Light"):
@@ -1519,7 +1615,7 @@ class SlateApp:
                 _families.setdefault("Standard", {})[label] = (label, name)
             else:
                 _families.setdefault(label, {})["Light"] = (label, name)
-        for row, (family, modes) in enumerate(_families.items()):
+        for row, (family, modes) in enumerate(_families.items(), start=1):
             tk.Label(theme_frame, text=family, anchor="w").grid(
                 row=row, column=0, sticky="w", padx=(10, 6), pady=1
             )
@@ -1527,20 +1623,29 @@ class SlateApp:
                 if mode not in modes:
                     continue
                 label, name = modes[mode]
-                # selectcolor is THIS swatch's own theme accent, not
-                # whichever theme happens to be active right now --
-                # "Bonepaper Dark" must show Bonepaper's own glow even
-                # while Slate is the live theme (Devin, 2026-07-29:
-                # "better visibility UX color pass" on these buttons).
-                btn = tk.Radiobutton(
-                    theme_frame, text=mode, variable=self.theme_name, value=name,
-                    command=_on_theme_changed_and_repaint, selectcolor=theme.THEMES[name]["select_bg"],
-                    indicatoron=False, relief=tk.RAISED, padx=8, pady=2,
+
+                def _select_this_theme(event=None, name=name):
+                    self.theme_name.set(name)
+                    _on_theme_changed_and_repaint()
+
+                ring = tk.Frame(theme_frame)
+                ring.grid(row=row, column=col, sticky="we", padx=4, pady=1)
+                _theme_swatch_rings[name] = ring
+
+                swatch = tk.Frame(
+                    ring, width=44, height=26, cursor="hand2",
+                    highlightthickness=2, highlightbackground=theme.THEMES[name]["select_bg"],
+                    highlightcolor=theme.THEMES[name]["select_bg"],
                 )
-                btn.grid(row=row, column=col, sticky="we", padx=4, pady=1)
-                self._wire_toggle_button_contrast(btn, self.theme_name, value=name, fixed_theme_name=name)
+                swatch.configure(bg=theme.THEMES[name]["bg"])
+                swatch.slate_fixed_bg = theme.THEMES[name]["bg"]  # never touched by the generic repaint walk
+                swatch.pack_propagate(False)
+                swatch.pack(padx=4, pady=4)
+                ring.bind("<Button-1>", _select_this_theme)
+                swatch.bind("<Button-1>", _select_this_theme)
         theme_frame.grid_columnconfigure(1, weight=1)
         theme_frame.grid_columnconfigure(2, weight=1)
+        _refresh_theme_swatch_selection()  # initial ring position -- matches theme_name at dialog-open time
 
         # -- Mode -- collapsed to the 2 real reading modes (Devin,
         # 2026-07-29, live screenshot review: "the top 3 should be
@@ -1622,6 +1727,60 @@ class SlateApp:
         tk.Button(zoom_btns, text="-", width=2, command=_zoom_out_and_refresh, state=zoom_state).pack(side=tk.LEFT)
         tk.Button(zoom_btns, text="+", width=2, command=_zoom_in_and_refresh, state=zoom_state).pack(side=tk.LEFT, padx=4)
         tk.Button(zoom_btns, text="Fit Width", command=_fit_width_and_refresh, state=zoom_state).pack(side=tk.LEFT)
+
+        # Devin, 2026-07-31: "that should likely go in the settings pane
+        # too i think" (re: column count) -- started read-only ("you
+        # just worry about zooming nicely and rendering right based on
+        # window size"), then reversed same session: "it's easier for
+        # you to focus on that when I am the one who tells you how many
+        # columns to focus your zooming/centering efforts around
+        # though." Real manual control now, same -/+ shape as Zoom
+        # above -- a click PINS num_columns (self._columns_pinned),
+        # which _apply_width_based_side_by_side and _set_view_mode both
+        # now check first and skip entirely while set, so a manual pick
+        # can't get silently overwritten by the next resize or mode
+        # toggle. "Auto" un-pins and recomputes immediately from the
+        # real current viewport width, not just on the next resize.
+        columns_row = tk.Frame(zoom_frame)
+        columns_row.pack(fill=tk.X, padx=10, pady=(0, 6))
+
+        def _columns_label_text():
+            return f"Columns: {self.num_columns}" + ("" if self._columns_pinned else " (auto)")
+
+        columns_label = tk.Label(columns_row, text=_columns_label_text())
+        columns_label.pack(side=tk.LEFT)
+
+        def _refresh_columns_label():
+            columns_label.config(text=_columns_label_text())
+
+        def _columns_dec_and_refresh():
+            self._columns_pinned = True
+            self.num_columns = max(1, self.num_columns - 1)
+            self._render_current_layout()
+            _refresh_columns_label()
+
+        def _columns_inc_and_refresh():
+            self._columns_pinned = True
+            self.num_columns = min(6, self.num_columns + 1)
+            self._render_current_layout()
+            _refresh_columns_label()
+
+        def _columns_auto_and_refresh():
+            self._columns_pinned = False
+            self._apply_width_based_side_by_side()  # real recompute now, not just next resize
+            _refresh_columns_label()
+
+        columns_btns = tk.Frame(columns_row)
+        columns_btns.pack(side=tk.RIGHT)
+        tk.Button(
+            columns_btns, text="-", width=2, command=_columns_dec_and_refresh, state=zoom_state
+        ).pack(side=tk.LEFT)
+        tk.Button(
+            columns_btns, text="+", width=2, command=_columns_inc_and_refresh, state=zoom_state
+        ).pack(side=tk.LEFT, padx=4)
+        tk.Button(
+            columns_btns, text="Auto", command=_columns_auto_and_refresh, state=zoom_state
+        ).pack(side=tk.LEFT)
 
         # -- UI Font Size -- separate from Zoom above (Devin, 2026-07-29:
         # "the font needs to be adjustable for the UI, not just the
@@ -1992,7 +2151,26 @@ class SlateApp:
         self.home_frame = tk.Frame(self.root, padx=30, pady=30)
         self.home_frame.pack(fill=tk.BOTH, expand=True)
 
-        header = tk.Frame(self.home_frame)
+        # Devin, 2026-07-30: "keep the homepage centered even upon
+        # resizing" -- everything below used to pack directly into
+        # home_frame with anchor="w", which pins the whole block to the
+        # top-LEFT corner; on a wide/maximized window that just leaves a
+        # permanent dead zone on the right (the screenshot this was
+        # flagged from). Fixing it means the block needs to re-center
+        # itself as the window resizes, not just look centered once at
+        # open time -- Tk's pack geometry manager already recomputes
+        # anchor position on every resize automatically, so wrapping
+        # everything in one inner frame and packing THAT with
+        # anchor="n" (top-CENTER, not top-left) gets real live-resize
+        # centering for free, no <Configure> handler needed. fill=Y
+        # (vertical only, not X) + expand=True lets `content` still
+        # stretch to the window's full height, so the recent-files
+        # Listbox below keeps filling available vertical space exactly
+        # like before -- only the horizontal centering behavior changes.
+        content = tk.Frame(self.home_frame)
+        content.pack(fill=tk.Y, expand=True, anchor="n")
+
+        header = tk.Frame(content)
         header.pack(anchor="w", fill=tk.X)
         if getattr(self, "_icon_img", None) is not None:
             # subsample(4) on a 256x256 source -> a crisp 64x64 logo,
@@ -2012,22 +2190,22 @@ class SlateApp:
         tagline.slate_muted = True  # theme walker keeps this dimmer than normal text
         tagline.pack(anchor="w", pady=(4, 0))
 
-        tk.Button(self.home_frame, text="Open...", command=self.open_file).pack(
+        tk.Button(content, text="Open...", command=self.open_file).pack(
             anchor="w", pady=(16, 16)
         )
 
-        tk.Label(self.home_frame, text="Recently viewed", font=self._ui_header_font(extra=3)).pack(
+        tk.Label(content, text="Recently viewed", font=self._ui_header_font(extra=3)).pack(
             anchor="w"
         )
         entries = recent.get_recent()
         if not entries:
-            no_files_label = tk.Label(self.home_frame, text="No recently viewed files", fg="gray40")
+            no_files_label = tk.Label(content, text="No recently viewed files", fg="gray40")
             no_files_label.slate_muted = True
             no_files_label.pack(anchor="w", pady=6)
         else:
             self._recent_entries = entries
             self._recent_listbox = tk.Listbox(
-                self.home_frame, width=90, height=min(10, len(entries))
+                content, width=90, height=min(10, len(entries))
             )
             for e in entries:
                 name = os.path.basename(e["path"])
@@ -2239,8 +2417,30 @@ class SlateApp:
         # render() forced update_idletasks() (real geometry realization
         # made the border inset apply consistently instead of by luck).
         self.canvas = tk.Canvas(canvas_frame, bg="gray80", highlightthickness=0, bd=0)
-        self._vscroll = tk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview)
-        self._hscroll = tk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
+        # elementborderwidth (Devin, 2026-07-31, live: "i love the
+        # scrollbars that [are] in the Unixy/python/tkinter set... idk
+        # if there's a way to bring that to windows?"): real Tk quirk,
+        # not guesswork -- tk.Scrollbar's default elementborderwidth is
+        # -1 ("inherit from borderwidth"), and on that default Tk defers
+        # to Windows' own native XP-theme scrollbar renderer, which is
+        # exactly the more modern/flat look Devin is contrasting against
+        # the classic beveled Motif-style arrows he already sees running
+        # this same tk.Scrollbar code through WSLg (a real Linux Tk
+        # render, not native Win32 chrome, which is WHY it looks
+        # different at all despite being identical widget code). Setting
+        # elementborderwidth explicitly forces Tk's own portable/classic
+        # rendering path on every platform, sidestepping the native
+        # Windows theme hook entirely -- same widget, same look,
+        # regardless of OS. Needs a real Windows-desktop screenshot to
+        # confirm (same standing caveat as every other Windows-only
+        # visual fix in this project -- no real window manager in this
+        # Linux sandbox).
+        self._vscroll = tk.Scrollbar(
+            canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview, elementborderwidth=2
+        )
+        self._hscroll = tk.Scrollbar(
+            canvas_frame, orient=tk.HORIZONTAL, command=self.canvas.xview, elementborderwidth=2
+        )
         # yscrollcommand SHOULD fire on every y-view change regardless
         # of cause, but confirmed live (this dev box's headless Xvfb)
         # that a plain yview_moveto()/scrollbar-drag doesn't reliably
@@ -2505,6 +2705,21 @@ class SlateApp:
         options."""
         self.continuous_scroll = self.continuous_scroll_var.get()
         self.side_by_side = self.side_by_side_var.get()
+        # Canonical entry point for the plain 2-vs-1 meaning num_columns
+        # has always had -- every caller that flips side_by_side_var and
+        # calls _set_view_mode() directly (menu checkbox, Settings
+        # dialog radios, and a good chunk of the test suite) gets the
+        # right column count without needing its own num_columns line.
+        # _apply_width_based_side_by_side (ultrawide auto-follow) is the
+        # ONE other case that wants a count above 2 -- it deliberately
+        # overrides this again, AFTER calling here, for that case only.
+        # Skipped entirely while pinned (Devin, 2026-07-31: "I am the
+        # one who tells you how many columns") -- a Continuous/Book View
+        # mode switch shouldn't silently stomp a manually-chosen column
+        # count either, same reasoning as the auto-follow function's own
+        # pin check.
+        if not self._columns_pinned:
+            self.num_columns = 2 if self.side_by_side else 1
         settings.save({"continuous_scroll": self.continuous_scroll, "side_by_side": self.side_by_side})
         # Keep Book View's own checkbox honest even when the user toggles
         # the two underlying boxes individually rather than via F8/the
@@ -2512,6 +2727,13 @@ class SlateApp:
         # underlying axes actually agree, never a stale/independent guess.
         self.book_view_var.set(self.continuous_scroll and self.side_by_side)
         self.view_mode_var.set("book" if (self.continuous_scroll and self.side_by_side) else "continuous")
+        self._render_current_layout()
+
+    def _render_current_layout(self):
+        """Shared re-render + scroll-position-fix tail, extracted
+        2026-07-31 so _apply_width_based_side_by_side can reuse it after
+        overriding num_columns past what _set_view_mode's own 2-vs-1
+        default just set, without duplicating the scroll-fix logic."""
         if self.viewer is None:
             return
         self._selected_words = []
@@ -2534,7 +2756,7 @@ class SlateApp:
         want = self.book_view_var.get()
         self.continuous_scroll_var.set(want)
         self.side_by_side_var.set(want)
-        self._set_view_mode()
+        self._set_view_mode()  # also sets num_columns (2-vs-1) from side_by_side, see its own comment
         if want:
             self.fit_width()
 
@@ -2585,26 +2807,53 @@ class SlateApp:
         self._autolayout_after_id = self.root.after(150, self._apply_width_based_side_by_side)
 
     def _apply_width_based_side_by_side(self):
-        """Real width threshold, not a guess: a two-page spread at the
-        CURRENT zoom needs 2 * (widest page's width) + one inter-page
+        """Real width threshold, not a guess: each additional column at
+        the CURRENT zoom costs one more page-width + one more inter-page
         gap. continuous_scroll is never touched here (Devin, same
-        thread: "continuous scroll stays a default") -- only the
-        side_by_side axis auto-follows width. Always follows (no
-        separate "did the user manually override this" tracking) --
-        Devin's own call: "simplest: always auto-follow... unless
-        Devin says otherwise once he sees it live." Reuses
-        side_by_side_var + _set_view_mode so the View menu's checkbox
-        stays visually in sync with whatever this decided."""
+        thread: "continuous scroll stays a default") -- only the column
+        count auto-follows width.
+
+        Extended 2026-07-31 (Devin, live, 3440x1440 ultrawide): "can we
+        do more than 2 columns automatically... based on how wide your
+        viewport is" -- was a hardcoded 2-vs-1 threshold, now computes
+        however many whole columns actually fit, same real-width-math
+        approach, just generalized from a boolean to a count. Capped at
+        6 -- past that, per-column width gets uncomfortably narrow for
+        reading regardless of how much raw pixel width is available,
+        and nothing about the rest of the rendering path has been
+        exercised past that count. self.side_by_side (plain bool) stays
+        in sync as "num_columns >= 2" purely for the View menu's
+        existing "Side by Side" checkbox + settings.json persistence --
+        num_columns, not this bool, is what every render call site
+        actually reads now.
+
+        Devin, same day, reversing his own earlier "always auto, no
+        manual override" call: "it's easier for you to focus on that
+        when I am the one who tells you how many columns... though."
+        self._columns_pinned (Settings' own Columns -/+ control) now
+        short-circuits this entirely while set -- a manual pick stops
+        being silently overwritten by the next resize, which was the
+        real problem with "always auto" once a real manual control
+        existed to fight with."""
         self._autolayout_after_id = None
-        if self.viewer is None or self.doc is None:
+        if self._columns_pinned or self.viewer is None or self.doc is None:
             return
         available_w = self._canvas_frame.winfo_width()
         page_w = self.doc[0].rect.width * self.viewer.zoom
         gap = self._layout.gap if self._layout is not None else 8
-        should_be_side_by_side = available_w >= (2 * page_w + gap)
+        new_cols = max(1, min(6, int((available_w + gap) // (page_w + gap))))
+        if new_cols == self.num_columns:
+            return
+        should_be_side_by_side = new_cols >= 2
         if should_be_side_by_side != self.side_by_side_var.get():
             self.side_by_side_var.set(should_be_side_by_side)
+            # _set_view_mode() also resets num_columns to its own plain
+            # 1-or-2 default as a side effect (see its comment) -- fine,
+            # overridden with the real count right after, before the
+            # actual render happens below.
             self._set_view_mode()
+        self.num_columns = new_cols
+        self._render_current_layout()
 
     def _goto_page_entry(self, event=None):
         """Foxit/Acrobat convention: type a page number into the
@@ -3084,7 +3333,7 @@ class SlateApp:
         this translates the row to (0, 0) via self._static_row_offset,
         which _page_offset() applies symmetrically when resolving a
         click back to PDF space."""
-        cols = 2 if self.side_by_side else 1
+        cols = self.num_columns
         zoom = self.viewer.zoom
         crop_rect = self._get_crop_rect()
         need_new_layout = (
@@ -3220,7 +3469,7 @@ class SlateApp:
         cheap colored placeholder rect, lazily upgraded as the window
         moves (see _shift_window, the pure-scroll incremental path that
         avoids even this full rebuild for ordinary scrolling)."""
-        cols = 2 if self.side_by_side else 1
+        cols = self.num_columns
         zoom = self.viewer.zoom
         # Centering (Devin, 2026-07-29 -- "current default alignment isn't
         # centered"): continuous mode deliberately does NOT resize the
@@ -3527,7 +3776,7 @@ class SlateApp:
             return
         if self.viewer.page_num >= self.viewer.page_count - 1:
             return
-        step = 2 if self.side_by_side else 1
+        step = self.num_columns
         self._go_to_page(min(self.viewer.page_num + step, self.viewer.page_count - 1))
 
     def prev(self):
@@ -3536,7 +3785,7 @@ class SlateApp:
             return
         if self.viewer.page_num <= 0:
             return
-        step = 2 if self.side_by_side else 1
+        step = self.num_columns
         self._go_to_page(max(self.viewer.page_num - step, 0))
 
     def _prev_page_landing_at_bottom(self):
@@ -3689,7 +3938,7 @@ class SlateApp:
         self.canvas.update_idletasks()
         viewport_w = self.canvas.winfo_width()
         if viewport_w > 1:
-            cols = 2 if self.side_by_side else 1
+            cols = self.num_columns
             gap = 2  # matches layout.PageLayout's own default gap= exactly
             per_page_w = (viewport_w - gap * (cols - 1)) / cols
             # Real bug fixed 2026-07-29 (Devin: "crop to content doesn't
@@ -4933,9 +5182,26 @@ def main():
             win = getattr(app, attr, None)
             if win is not None and win.winfo_exists():
                 if iconic:
+                    # Real gap, Devin live 2026-07-31: "when Slate is
+                    # minimized, Settings/About remain and have 'on top'
+                    # priority over other apps that i drag over it." The
+                    # iconify() call above was already right, but -topmost
+                    # is a WINDOW-MANAGER attribute independent of Tk's
+                    # iconic state -- exactly the tension this code's own
+                    # comment already named ("Windows treats 'stay above
+                    # everything' and 'hide when the owner hides' as two
+                    # independent, unrelated states"), just not carried far
+                    # enough: a still-topmost window can keep rendering
+                    # above whatever the user drags over it even once
+                    # iconified, on top of every other app, not just Slate.
+                    # Clear -topmost before iconifying so a minimized
+                    # Settings/About behaves like any other minimized
+                    # window -- restored on the way back out below.
+                    win.attributes("-topmost", False)
                     win.iconify()
                 else:
                     win.deiconify()
+                    win.attributes("-topmost", True)
 
     root.bind("<Unmap>", _sync_children_to_root_state)
     root.bind("<Map>", _sync_children_to_root_state)

@@ -4117,6 +4117,97 @@ def test_f4_toggles_colorize_pages(tmp_path):
         root.destroy()
 
 
+def test_settings_header_shows_the_real_running_version(tmp_path):
+    """Devin, 2026-07-31: "along with the current Slate version in the
+    settings pane?" Real value, not a hardcoded string -- must match
+    version.VERSION exactly, same source About's own header already
+    uses."""
+    root, app = _make_app(tmp_path)
+    try:
+        app._show_settings()
+        top = app._settings_window
+
+        def find(text_predicate, w=top):
+            try:
+                t = w.cget("text")
+                if isinstance(w, tk.Label) and text_predicate(t):
+                    return w
+            except tk.TclError:
+                pass
+            for c in w.winfo_children():
+                found = find(text_predicate, c)
+                if found is not None:
+                    return found
+            return None
+
+        assert find(lambda t: t == f"v{version.VERSION}") is not None
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_settings_columns_control_pins_the_count_and_survives_resize(tmp_path):
+    """Devin, 2026-07-31: first wanted this read-only/auto-only ("you
+    just worry about zooming nicely and rendering right based on window
+    size"), then reversed same session: "it's easier for you to focus
+    on that when I am the one who tells you how many columns... though."
+    Real regression test for the manual pin: clicking + must set
+    num_columns AND set self._columns_pinned, the label must drop its
+    "(auto)" suffix once pinned, and -- the actual point of pinning --
+    a subsequent width-based resize check must NOT overwrite the manual
+    choice. "Auto" must release the pin and hand control back to the
+    real width computation immediately."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.num_columns = 2
+        app._show_settings()
+        top = app._settings_window
+
+        def find(cls, text_predicate, w=top):
+            try:
+                t = w.cget("text")
+            except tk.TclError:
+                t = None
+            if isinstance(w, cls) and t is not None and text_predicate(t):
+                return w
+            for c in w.winfo_children():
+                found = find(cls, text_predicate, c)
+                if found is not None:
+                    return found
+            return None
+
+        label = find(tk.Label, lambda t: t.startswith("Columns:"))
+        assert label.cget("text") == "Columns: 2 (auto)"
+        assert app._columns_pinned is False
+
+        plus_btn = find(
+            tk.Button,
+            lambda t: t == "+",
+            w=label.master,  # scope to the Columns row itself -- "+" also exists in the Zoom row above it
+        )
+        plus_btn.invoke()
+        root.update()
+        assert app.num_columns == 3
+        assert app._columns_pinned is True
+        assert label.cget("text") == "Columns: 3"  # no "(auto)" once pinned
+
+        # The real point: a resize-driven width recheck must leave a
+        # pinned count alone, not silently overwrite Devin's own choice.
+        root.geometry("6000x1200")  # would compute 6 columns if NOT pinned
+        root.update()
+        app._apply_width_based_side_by_side()
+        assert app.num_columns == 3  # untouched
+
+        auto_btn = find(tk.Button, lambda t: t == "Auto", w=label.master)
+        auto_btn.invoke()
+        root.update()
+        assert app._columns_pinned is False
+        assert app.num_columns == 6  # real recompute against the real (wide) viewport, not stale
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_settings_dialog_mode_group_collapses_to_continuous_or_book_view(tmp_path):
     """Devin, 2026-07-29, live screenshot review: "the top 3 should be
     grouped, and really only 2 modes bookview and continuous." The View
@@ -4155,14 +4246,19 @@ def test_settings_dialog_mode_group_collapses_to_continuous_or_book_view(tmp_pat
 
 def test_settings_toggle_buttons_use_each_themes_own_accent_not_one_fixed_color(tmp_path):
     """Devin, 2026-07-29, live screenshot review: "the button color in
-    is interesting... better visibility UX color pass." Real fix: these
-    indicatoron=False toggle buttons now fill with the ACTIVE theme's
-    own select_bg (the same accent already reserved for "selection
-    roles only" everywhere else), not one universal fixed green -- and
-    the Theme grid specifically must show each SWATCH's own accent
-    (Bonepaper Dark's pale mint) regardless of which theme is actually
-    active (Slate), since that grid is choosing between themes, not
-    displaying the current one."""
+    is interesting... better visibility UX color pass." Real fix: the
+    Mode/Display/Voice/Speed indicatoron=False toggle buttons fill with
+    the ACTIVE theme's own select_bg (the same accent already reserved
+    for "selection roles only" everywhere else), not one universal
+    fixed green.
+
+    Scope narrowed 2026-07-31 (Devin, live): "i don't like the button
+    style we've swapped and landed on for a while... i like the cleaner
+    style you had before with the radio buttons" -- the Theme grid
+    itself reverted to plain standard radio buttons (see
+    test_settings_theme_picker_is_plain_radio_buttons_no_accent below
+    for its own coverage), so this test now only covers the OTHER
+    toggle-button groups (Mode/Display/Voice/Speed) that are unchanged."""
     root, app = _make_app(tmp_path)
     try:
         app.theme_name.set("slate_dark")
@@ -4183,34 +4279,167 @@ def test_settings_toggle_buttons_use_each_themes_own_accent_not_one_fixed_color(
 
         continuous_btn = find("Continuous")
         assert continuous_btn.cget("selectcolor") == theme.THEMES["slate_dark"]["select_bg"]
+    finally:
+        app.doc.close()
+        root.destroy()
 
-        bonepaper_dark_btn = find("Dark")
-        # Multiple "Dark" buttons exist (one per family) -- walk finds
-        # the first (Slate's row, built first) unless we search scoped
-        # to the right row instead; assert against ALL "Dark" swatches'
-        # selectcolor values directly instead of relying on which one a
-        # generic text-match happens to find first.
-        def find_all(text):
-            results = []
-            def walk(w):
-                if isinstance(w, (tk.Checkbutton, tk.Radiobutton)) and w.cget("text") == text:
-                    results.append(w)
-                for c in w.winfo_children():
-                    walk(c)
-            walk(top)
-            return results
 
-        dark_buttons = find_all("Dark")
-        assert len(dark_buttons) == 4  # Slate, Bonepaper, Flexoki, Martin (was MEG, renamed several times 2026-07-31)
-        selectcolors = {btn.cget("selectcolor") for btn in dark_buttons}
-        # Each family's swatch must carry ITS OWN accent, not one shared
-        # value -- the real point of this test.
-        assert selectcolors == {
-            theme.THEMES["slate_dark"]["select_bg"],
-            theme.THEMES["bonepaper_dark"]["select_bg"],
-            theme.THEMES["dark"]["select_bg"],
-            theme.THEMES["martin_dark"]["select_bg"],
+def test_settings_theme_grid_shows_colored_swatches_with_a_shared_header(tmp_path):
+    """Devin, 2026-07-31, live, two real rounds of feedback on the same
+    day: first asked for plain radio buttons, then rolled that back
+    after seeing it ("roll back to this [colored-button screenshot] but
+    don't write 'light/dark' in the buttons... just have 2 columns,
+    Light Dark, above the color swatch buttons"), THEN found a real
+    problem with that colored-Radiobutton-grid version too: "the darks
+    are too close together... can we move a rectangle over which one is
+    selected without tampering with the internal color? would we also
+    show more of key colors... to show the core and accent color of
+    each family?" Real bug named: indicatoron=False's selectcolor IS the
+    fill, so an unselected swatch showed NO color at all (plain gray
+    button) and a selected one showed ONLY the accent, never the
+    family's actual background. Rebuilt with 2 independent widget layers
+    per swatch instead of one Radiobutton: an inner fixed-size Frame
+    whose bg is the family's real background and whose own border is
+    its real accent (both always visible, independent of selection --
+    this test's real point), and an outer "ring" Frame used only as a
+    selection indicator, toggled by _refresh_theme_swatch_selection
+    rather than baked into either color."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.theme_name.set("slate_dark")
+        app._apply_theme()
+        app._show_settings()
+        top = app._settings_window
+
+        def find_theme_frame(w):
+            if isinstance(w, tk.LabelFrame) and w.cget("text") == "Theme":
+                return w
+            for c in w.winfo_children():
+                found = find_theme_frame(c)
+                if found is not None:
+                    return found
+            return None
+
+        theme_frame = find_theme_frame(top)
+        assert theme_frame is not None
+
+        header_labels = {
+            c.cget("text") for c in theme_frame.winfo_children()
+            if isinstance(c, tk.Label) and c.cget("text") in ("Light", "Dark")
         }
+        assert header_labels == {"Light", "Dark"}  # the ONE shared header row, not per-button text
+
+        # Swatches are identified by slate_fixed_bg (same convention as
+        # About's permanent accent bar), not by widget class -- there's
+        # no Radiobutton in this design at all anymore.
+        def find_swatches(w, out):
+            if getattr(w, "slate_fixed_bg", None):
+                out.append(w)
+            for c in w.winfo_children():
+                find_swatches(c, out)
+        swatches = []
+        find_swatches(theme_frame, swatches)
+        assert len(swatches) == 8  # Slate, Bonepaper, Flexoki, Martin x Light/Dark
+
+        by_bg = {s.slate_fixed_bg for s in swatches}
+        assert by_bg == {
+            theme.THEMES["slate_dark"]["bg"], theme.THEMES["slate_light"]["bg"],
+            theme.THEMES["bonepaper_dark"]["bg"], theme.THEMES["bonepaper_light"]["bg"],
+            theme.THEMES["dark"]["bg"], theme.THEMES["light"]["bg"],
+            theme.THEMES["martin_dark"]["bg"], theme.THEMES["martin_light"]["bg"],
+        }
+        # Each swatch's OWN accent is its border, real color always
+        # visible regardless of selection -- the actual fix for "show
+        # more of key colors... core and accent."
+        by_border = {s.cget("highlightbackground") for s in swatches}
+        assert by_border == {
+            theme.THEMES["slate_dark"]["select_bg"], theme.THEMES["slate_light"]["select_bg"],
+            theme.THEMES["bonepaper_dark"]["select_bg"], theme.THEMES["bonepaper_light"]["select_bg"],
+            theme.THEMES["dark"]["select_bg"], theme.THEMES["light"]["select_bg"],
+            theme.THEMES["martin_dark"]["select_bg"], theme.THEMES["martin_light"]["select_bg"],
+        }
+        # No swatch's bg/border may EVER equal the fixed selection-ring
+        # color -- if it did, selection would look like it was
+        # "tampering with the internal color" again, the exact
+        # complaint this rebuild fixes. Real bug once found here: the
+        # ring's original color (#62a945) WAS identical to Martin's own
+        # select_bg -- this assertion is what such a collision would
+        # actually fail, not a hardcoded historical value.
+        assert "#c0392b" not in by_bg
+        assert "#c0392b" not in by_border
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_selection_ring_color_never_matches_any_theme_accent():
+    """Real bug, Devin live 2026-07-31: "the green rectangle still
+    isn't cutting it." The original ring color (#62a945) turned out to
+    be IDENTICAL to Martin's own select_bg -- this asserts the general
+    invariant (no theme's accent may ever equal the ring color), not
+    just the one specific collision that was caught, so a future theme
+    add can't silently reintroduce the same class of bug."""
+    ring_color = "#c0392b"
+    accents = {theme.THEMES[name]["select_bg"] for name in theme.THEMES}
+    assert ring_color not in accents
+
+
+def test_settings_theme_selection_ring_moves_without_changing_swatch_colors(tmp_path):
+    """Real regression test for the "move a rectangle over which one is
+    selected... without tampering with the internal color" ask: exactly
+    ONE swatch's ring is highlighted at a time, it moves when a
+    different swatch is clicked, and neither swatch's own bg/border
+    changes across the click."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.theme_name.set("slate_light")
+        app._apply_theme()
+        app._show_settings()
+        top = app._settings_window
+
+        def find_theme_frame(w):
+            if isinstance(w, tk.LabelFrame) and w.cget("text") == "Theme":
+                return w
+            for c in w.winfo_children():
+                found = find_theme_frame(c)
+                if found is not None:
+                    return found
+            return None
+
+        theme_frame = find_theme_frame(top)
+
+        def find_swatch(name):
+            def walk(w):
+                if getattr(w, "slate_fixed_bg", None) == theme.THEMES[name]["bg"] and \
+                        w.cget("highlightbackground") == theme.THEMES[name]["select_bg"]:
+                    return w
+                for c in w.winfo_children():
+                    found = walk(c)
+                    if found is not None:
+                        return found
+                return None
+            return walk(theme_frame)
+
+        slate_light_swatch = find_swatch("slate_light")
+        bonepaper_dark_swatch = find_swatch("bonepaper_dark")
+        slate_light_ring = slate_light_swatch.master
+        bonepaper_dark_ring = bonepaper_dark_swatch.master
+
+        assert int(slate_light_ring.cget("highlightthickness")) > 0  # currently selected
+        assert int(bonepaper_dark_ring.cget("highlightthickness")) == 0
+
+        slate_bg_before = slate_light_swatch.cget("bg")
+        slate_border_before = slate_light_swatch.cget("highlightbackground")
+
+        bonepaper_dark_ring.event_generate("<Button-1>")
+        root.update()
+
+        assert app.theme_name.get() == "bonepaper_dark"
+        assert int(bonepaper_dark_ring.cget("highlightthickness")) > 0  # ring moved here
+        assert int(slate_light_ring.cget("highlightthickness")) == 0  # and off the old one
+        # Neither swatch's own real colors moved -- the actual point.
+        assert slate_light_swatch.cget("bg") == slate_bg_before
+        assert slate_light_swatch.cget("highlightbackground") == slate_border_before
     finally:
         app.doc.close()
         root.destroy()
@@ -4371,6 +4600,53 @@ def test_auto_toggle_never_touches_continuous_scroll(tmp_path):
         root.update()
         app._apply_width_based_side_by_side()
         assert app.continuous_scroll is True
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_auto_column_goes_past_two_on_an_ultrawide_viewport(tmp_path):
+    """Devin, 2026-07-31, live on a 3440x1440 ultrawide: "can we do more
+    than 2 columns automatically... based on how wide your viewport
+    is." Real regression test for the hardcoded 2-column cap being
+    lifted to N -- an absurdly wide window must land on num_columns=6,
+    the deliberate ceiling (see _apply_width_based_side_by_side's own
+    docstring for why 6), not just flip a boolean to True."""
+    root, app = _make_app(tmp_path)
+    try:
+        assert app.num_columns == 1
+        root.geometry("6000x1200")  # comfortably past 6 columns' worth of width at any sane per-page size
+        root.update()
+
+        app._apply_width_based_side_by_side()
+        assert app.num_columns == 6
+        assert app._layout.cols == 6
+        assert app.side_by_side is True  # still tracks num_columns >= 2 for the menu checkbox/persistence
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_auto_column_count_updates_again_without_the_side_by_side_bool_changing(tmp_path):
+    """The bool (side_by_side) only has 2 states, but num_columns can
+    change multiple times while it stays True throughout (e.g. 3
+    columns fit, then window widens further to fit 4) -- real
+    regression guard for the early-return being keyed on num_columns
+    itself, not on the boolean, which would silently miss this case."""
+    root, app = _make_app(tmp_path)
+    try:
+        root.geometry("6000x1200")
+        root.update()
+        app._apply_width_based_side_by_side()
+        assert app.num_columns == 6
+        assert app.side_by_side is True
+
+        root.geometry("2400x1200")  # narrower, but still >= 2 columns' worth -- bool stays True
+        root.update()
+        app._apply_width_based_side_by_side()
+        assert app.num_columns == 2  # real change nonetheless
+        assert app.side_by_side is True  # bool never flipped across this whole resize
+        assert app._layout.cols == 2
     finally:
         app.doc.close()
         root.destroy()
