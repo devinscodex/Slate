@@ -79,7 +79,11 @@ def test_roster_is_exactly_eight_themes():
     times same day: MEG -> Anthracite -> Gridpaper -> Graphpaper ->
     **Martin** (Devin's final call, explicit override of the exact
     collision concern above -- flagged, confirmed twice anyway). Values
-    unchanged through every rename."""
+    unchanged through every rename.
+
+    Gotham (real Alacritty theme, dark-only) added and removed same day,
+    2026-07-31 -- roster stays at 8 (see theme.py's own THEME_LABELS
+    comment for the full add/remove note)."""
     assert set(theme.THEMES.keys()) == {
         "light", "dark",
         "slate_light", "slate_dark",
@@ -92,7 +96,7 @@ def test_roster_is_exactly_eight_themes():
                  "mosscairn_light", "mosscairn_dark", "inkrain_light", "inkrain_dark",
                  "meg_light", "meg_dark", "anthracite_light", "anthracite_dark",
                  "gridpaper_light", "gridpaper_dark", "graphpaper_light", "graphpaper_dark",
-                 "ossuary_light", "ossuary_dark"):
+                 "ossuary_light", "ossuary_dark", "gotham_dark"):
         assert gone not in theme.THEMES, gone
     for gone_label in ("Gruvbox Dark", "Gruvbox Light",
                         "Solarized Light", "Solarized Dark", "Solarized",
@@ -156,23 +160,16 @@ def test_standard_dark_reverted_to_real_flexoki_spec_2026_07_30():
 
 
 def test_standard_uses_real_flexoki_blue_not_the_shared_house_green():
-    """REVERSAL of the 2026-07-25 green swap this test used to guard
-    (original reasoning kept below). Devin, 2026-07-30, live: "if
-    flexoki dark could represent Kepano's flexoki dark at home a lil
-    better" + "flexoki light, can it represent flexoki light a lil more
-    at home?" -- with light's bg/fg/button_bg already exact spec
-    (verified: only the accent could still be non-Flexoki), the ask can
-    only mean the accent. Real Flexoki blue restored: blue-600 #205EA6
-    for light, blue-400 #4385BE for dark (verified live via
-    stephango.com/flexoki) -- also gives Flexoki its own real identity
-    again now that Slate/Bonepaper/MEG all share the green family this
-    swap was borrowed from.
-
-    Original 2026-07-25 reasoning (for history): "only request for
-    standard is to use inkbone green instead of blue for standard if
-    possible." That green became Standard's own permanent house accent
-    even after Inkbone itself was retired (2026-07-29) -- the value
-    outlived the theme it was borrowed from, until this reversal."""
+    """A same-day teal experiment (2026-07-31, live webUI parity ask)
+    came and went -- reverted back to Flexoki's real published blue
+    (#205EA6 light / #4385BE dark, stephango.com/flexoki) when this
+    checkout synced theme_data/*.json against themes-custom's own
+    canonical values (2026-08-01, secondary's reconciliation pass:
+    "had drifted independently in this branch checkout... reconciled
+    against primary's webUI"). Blue is the ratified value again --
+    this test's job is just guarding against the shared house green
+    (the 2026-07-25 swap this test has guarded against from the
+    start), not re-litigating blue vs. teal."""
     assert theme.THEMES["dark"]["select_bg"] == "#4385be"
     assert theme.THEMES["dark"]["highlight_bg"] == "#4385be"
     assert theme.THEMES["light"]["select_bg"] == "#205ea6"

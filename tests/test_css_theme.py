@@ -153,6 +153,21 @@ def test_shipped_theme_dicts_match_the_real_current_css_file(filename, dark_key,
     # gets checked. Same for chrome-cascade keys (menubar_bg etc.),
     # which _with_chrome_cascade() computes, never sourced from the CSS.
     skip_keys = {"entry_bg"}
+    # Slate Dark's canvas_bg and Bonepaper Dark's select_bg/highlight_bg
+    # both went through same-day 2026-07-31 experiments (a body/sidebar
+    # invert; a Catppuccin Mocha accent swap) that were reverted again
+    # 2026-08-01 when this checkout synced theme_data/*.json against
+    # themes-custom's own canonical values (secondary's reconciliation
+    # pass) -- both keys are back to matching this CSS snapshot exactly,
+    # so no skip is needed for them anymore. button_bg is the one real,
+    # still-live divergence: webUI already moved Bonepaper Dark's
+    # button_bg off the old warm-olive #0a0d09 to a cool near-black
+    # #07080a (Devin: "look to bonepaper dark webUI... they look vastly
+    # different"), confirmed correct and KEPT through the 2026-08-01
+    # sync -- Runestone's own CSS file here just hasn't caught up to
+    # that fix yet, a real pending sync gap, not drift on Slate's side.
+    if dark_key == "bonepaper_dark":
+        skip_keys.add("button_bg")
     for key in parsed["dark"]:
         if key in skip_keys:
             continue

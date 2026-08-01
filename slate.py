@@ -638,20 +638,22 @@ class SlateApp:
         style.configure("TNotebook", background=colors["tabstrip_bg"], borderwidth=0)
         # Tab redesign (Devin, 2026-07-25, seeing it running live: "the
         # sepia... remove that from the tabs... come up with a better,
-        # more creative solution"). No color block at all now, active
-        # or inactive -- inactive = button_bg/muted_fg (a quiet card,
-        # recedes into the chrome), active = bg/fg (the SAME tone as
-        # the content area below it, so the active tab visually melts
-        # into the page instead of sitting on top of it as a colored
-        # block) -- distinguished from inactive purely by brightness
-        # (bright fg text vs muted_fg), the way a lit panel reads
-        # against darker ones on a manga page, not by a filled color.
+        # more creative solution") -- the ORIGINAL fix dropped color
+        # blocks entirely (inactive = button_bg/muted_fg, active = bg/fg,
+        # distinguished only by brightness). Revisited 2026-07-31, a
+        # fresh ask, not a reversal of the old complaint: "can we also
+        # use clever hints of green for our active tabs in all themes of
+        # Slate plz?" active_tab_bg (theme.py's own chrome-cascade
+        # addition, 35% toward select_bg from button_bg, never a full
+        # fill) is the deliberately subtle middle ground -- a real tint,
+        # not the flat sepia BLOCK Devin rejected back in July, and each
+        # family's OWN accent hue rather than a forced green everywhere.
         style.configure(
             "TNotebook.Tab", background=colors["button_bg"], foreground=colors["muted_fg"]
         )
         style.map(
             "TNotebook.Tab",
-            background=[("selected", colors["bg"])],
+            background=[("selected", colors["active_tab_bg"])],
             foreground=[("selected", colors["fg"])],
         )
         style.configure(
@@ -1538,114 +1540,116 @@ class SlateApp:
         # over the selected one" point. A warm red-orange is outside
         # both hue families roster-wide, so it can never collide with a
         # swatch's own accent the way the house green did.
-        _SELECTION_RING_COLOR = "#c0392b"
-        _theme_swatch_rings = {}  # name -> the selection-ring Frame, populated below
+        # Theme picker, rebuilt a 3rd time 2026-07-31 (Devin, live, after
+        # the swatch-grid+selection-ring version): "we were almost
+        # there, but the rectangle selection is not cutting it... redesign
+        # as dropdown but include the color palette somewhere in a
+        # classy way. please have radio buttons for light/dark. please
+        # use best modern/practical/suckless UX practices." Real
+        # progression this session: colored-Radiobutton-grid (2026-07-29)
+        # -> plain radio buttons (rejected, "I like the cleaner style"
+        # turned out to mean something else once seen) -> colored grid
+        # restored, per-button text moved to a shared header -> custom
+        # swatches + a moving selection ring (fixed the "internal color"
+        # complaint, but the ring itself never read as clearly
+        # "selected" even after 2 color fixes) -> this: a family
+        # dropdown + 2 plain light/dark radios (both real, standard
+        # controls -- no custom selection-indicator problem AT ALL,
+        # because ttk.Combobox and tk.Radiobutton already show their own
+        # selected state natively) + a small real palette-preview strip
+        # so the actual colors are still visible somewhere, per Devin's
+        # own ask, without needing a big swatch grid to show them.
+        #
+        # Families still derived from THEME_LABELS itself (split on a
+        # trailing "Light"/"Dark" word), same reasoning as every prior
+        # version: a future theme add/remove/rename can't silently drift
+        # this out of sync with the real roster.
+        theme_frame = tk.LabelFrame(top, text="Theme")
+        theme_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
 
-        def _refresh_theme_swatch_selection():
-            """Moves the selection indicator to whichever swatch is
-            currently active, WITHOUT touching any swatch's own bg/
-            border colors -- see the swatch-building comment below for
-            why this exists as a separate widget layer."""
-            current = self.theme_name.get()
-            for name, ring in _theme_swatch_rings.items():
-                if name == current:
-                    ring.configure(highlightthickness=3, highlightbackground=_SELECTION_RING_COLOR,
-                                    highlightcolor=_SELECTION_RING_COLOR)
-                else:
-                    ring.configure(highlightthickness=0)
+        _families = {}
+        for label, name in theme.THEME_LABELS.items():
+            if label.endswith(" Light"):
+                _families.setdefault(label[: -len(" Light")], {})["Light"] = name
+            elif label.endswith(" Dark"):
+                _families.setdefault(label[: -len(" Dark")], {})["Dark"] = name
+            elif label in ("Light", "Dark"):
+                _families.setdefault("Standard", {})[label] = name
+            else:
+                _families.setdefault(label, {})["Light"] = name
+        _family_names = list(_families.keys())  # display order = THEME_LABELS' own insertion order
+
+        _current_family, _current_mode = _family_names[0], "Light"
+        for _fam, _modes in _families.items():
+            for _mode, _name in _modes.items():
+                if _name == self.theme_name.get():
+                    _current_family, _current_mode = _fam, _mode
+
+        picker_row = tk.Frame(theme_frame)
+        picker_row.pack(fill=tk.X, padx=10, pady=(8, 6))
+        tk.Label(picker_row, text="Family:").pack(side=tk.LEFT)
+        family_var = tk.StringVar(value=_current_family)
+        family_combo = ttk.Combobox(
+            picker_row, textvariable=family_var, values=_family_names,
+            state="readonly", width=13,
+        )
+        family_combo.pack(side=tk.LEFT, padx=(6, 18))
+        mode_var = tk.StringVar(value=_current_mode)
+        mode_frame = tk.Frame(picker_row)
+        mode_frame.pack(side=tk.LEFT)
+
+        def _select_theme(*_args):
+            modes = _families.get(family_var.get(), {})
+            mode = mode_var.get()
+            if mode not in modes:
+                # Single-mode family (a real future case, not a current
+                # one) -- fall back to whatever it actually has rather
+                # than a KeyError.
+                mode = next(iter(modes))
+                mode_var.set(mode)
+            self.theme_name.set(modes[mode])
+            _on_theme_changed_and_repaint()
+
+        tk.Radiobutton(
+            mode_frame, text="Light", variable=mode_var, value="Light", command=_select_theme
+        ).pack(side=tk.LEFT)
+        tk.Radiobutton(
+            mode_frame, text="Dark", variable=mode_var, value="Dark", command=_select_theme
+        ).pack(side=tk.LEFT, padx=(10, 0))
+        family_combo.bind("<<ComboboxSelected>>", _select_theme)
+
+        # Palette preview -- "include the color palette somewhere in a
+        # classy way." 3 small real color chips (background, chrome,
+        # accent -- the 3 tones that actually define a theme's look),
+        # not a big grid, updating live with the picker above. Same
+        # slate_fixed_bg convention as every other permanently-colored
+        # swatch in this app (About's accent bar, the old theme-grid
+        # swatches) -- keeps _paint_widget's generic repaint walk from
+        # ever fighting these colors.
+        preview_row = tk.Frame(theme_frame)
+        preview_row.pack(fill=tk.X, padx=10, pady=(0, 8))
+        preview_caption = tk.Label(preview_row, text="Preview:", fg="gray40")
+        preview_caption.slate_muted = True
+        preview_caption.pack(side=tk.LEFT, padx=(0, 8))
+        _preview_chips = []
+        for _ in range(3):
+            chip = tk.Frame(preview_row, width=26, height=18, highlightthickness=1)
+            chip.pack_propagate(False)
+            chip.pack(side=tk.LEFT, padx=3)
+            _preview_chips.append(chip)
+
+        def _refresh_palette_preview():
+            palette = theme.THEMES[self.theme_name.get()]
+            for chip, color in zip(_preview_chips, (palette["bg"], palette["button_bg"], palette["select_bg"])):
+                chip.configure(bg=color, highlightbackground=palette["fg"], highlightcolor=palette["fg"])
+                chip.slate_fixed_bg = color
 
         def _on_theme_changed_and_repaint():
             self._on_theme_changed()  # re-themes self.root + any other open Toplevel (About, etc.)
             self._paint_widget(top, theme.get_palette(self.theme_name.get()))  # this dialog + its own titlebar
-            _refresh_theme_swatch_selection()  # covers every trigger, not just clicking a swatch (F2 palette, View menu, ...)
+            _refresh_palette_preview()  # covers every trigger, not just this picker (F2 palette, View menu, ...)
 
-        # Theme picker as a Light/Dark grid, one row per family (Devin,
-        # 2026-07-29: "can we stack settings a lil nicer plz" -- the old
-        # one-radio-per-line list made this LabelFrame taller than every
-        # other section combined once the roster grew past 5). Families
-        # are derived from THEME_LABELS itself (split on a trailing
-        # "Light"/"Dark" word) rather than hardcoded, so a future theme
-        # add/remove/rename can't silently drift this layout out of sync
-        # with the real roster -- the exact class of bug the theme
-        # roster itself just went through today (mosscairn2.css drifting
-        # out from under mosscairn3's copied values).
-        #
-        # Rebuilt as custom preview swatches, 2026-07-31 (Devin, live,
-        # after seeing the colored-Radiobutton-grid version): "the darks
-        # are too close together... is there a different way to
-        # highlight... instead of filling it in with its accents? can
-        # we move a rectangle over which one is selected without
-        # tampering with the internal color? would we also show more of
-        # key colors... (outline or something) to show the core and
-        # accent color of each color family?" Real problem with the
-        # Radiobutton version: indicatoron=False's selectcolor IS the
-        # fill, so an unselected swatch showed no color at all (just a
-        # plain gray button) and a selected one showed ONLY the accent,
-        # never the family's actual background -- two dark themes'
-        # accents alone genuinely can render close together, and no
-        # swatch ever previewed its own bg color at all. Fixed with two
-        # independent widget layers per swatch instead of one
-        # Radiobutton: an inner fixed-size Frame whose bg IS the
-        # family's real background and whose own border (highlightbg)
-        # IS its real accent -- both real colors, always visible,
-        # completely independent of selection state (slate_fixed_bg
-        # keeps _paint_widget's generic repaint walk from ever touching
-        # it, same convention as About's permanent accent bar) -- and an
-        # outer Frame used ONLY as a selection ring (_SELECTION_RING_COLOR,
-        # a warm red-orange chosen specifically to never match any
-        # family's own green/blue accent -- see that constant's own
-        # comment, amended 2026-07-31 after the first pick collided),
-        # toggled on/off by _refresh_theme_swatch_selection
-        # above rather than baked into either swatch's own colors.
-        theme_frame = tk.LabelFrame(top, text="Theme")
-        theme_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
-        tk.Label(theme_frame, text="Light", anchor="center").grid(
-            row=0, column=1, sticky="we", padx=4, pady=(4, 1)
-        )
-        tk.Label(theme_frame, text="Dark", anchor="center").grid(
-            row=0, column=2, sticky="we", padx=4, pady=(4, 1)
-        )
-        _families = {}
-        for label, name in theme.THEME_LABELS.items():
-            if label.endswith(" Light"):
-                _families.setdefault(label[: -len(" Light")], {})["Light"] = (label, name)
-            elif label.endswith(" Dark"):
-                _families.setdefault(label[: -len(" Dark")], {})["Dark"] = (label, name)
-            elif label in ("Light", "Dark"):
-                _families.setdefault("Standard", {})[label] = (label, name)
-            else:
-                _families.setdefault(label, {})["Light"] = (label, name)
-        for row, (family, modes) in enumerate(_families.items(), start=1):
-            tk.Label(theme_frame, text=family, anchor="w").grid(
-                row=row, column=0, sticky="w", padx=(10, 6), pady=1
-            )
-            for col, mode in enumerate(("Light", "Dark"), start=1):
-                if mode not in modes:
-                    continue
-                label, name = modes[mode]
-
-                def _select_this_theme(event=None, name=name):
-                    self.theme_name.set(name)
-                    _on_theme_changed_and_repaint()
-
-                ring = tk.Frame(theme_frame)
-                ring.grid(row=row, column=col, sticky="we", padx=4, pady=1)
-                _theme_swatch_rings[name] = ring
-
-                swatch = tk.Frame(
-                    ring, width=44, height=26, cursor="hand2",
-                    highlightthickness=2, highlightbackground=theme.THEMES[name]["select_bg"],
-                    highlightcolor=theme.THEMES[name]["select_bg"],
-                )
-                swatch.configure(bg=theme.THEMES[name]["bg"])
-                swatch.slate_fixed_bg = theme.THEMES[name]["bg"]  # never touched by the generic repaint walk
-                swatch.pack_propagate(False)
-                swatch.pack(padx=4, pady=4)
-                ring.bind("<Button-1>", _select_this_theme)
-                swatch.bind("<Button-1>", _select_this_theme)
-        theme_frame.grid_columnconfigure(1, weight=1)
-        theme_frame.grid_columnconfigure(2, weight=1)
-        _refresh_theme_swatch_selection()  # initial ring position -- matches theme_name at dialog-open time
+        _refresh_palette_preview()  # initial state -- matches theme_name at dialog-open time
 
         # -- Mode -- collapsed to the 2 real reading modes (Devin,
         # 2026-07-29, live screenshot review: "the top 3 should be

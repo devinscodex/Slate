@@ -125,7 +125,17 @@ def _with_chrome_cascade(palette: dict) -> dict:
     every "core" family (Standard/Inkbone/Solarized), riding the
     theme's own guaranteed bg<->fg contrast rather than button_bg
     (which button_bg keeps for its own original role: tab fills,
-    general Button widgets -- unaffected by this cascade now)."""
+    general Button widgets -- unaffected by this cascade now).
+
+    active_tab_bg added 2026-07-31 (Devin: "can we also use clever
+    hints of green for our active tabs in all themes of Slate plz?"):
+    35% of the way from button_bg (the plain tab fill every OTHER tab
+    still uses) toward the theme's OWN select_bg -- a real tint, not a
+    full-saturation fill (which would be loud, not "clever"), and each
+    family's OWN accent hue, not a forced green -- Flexoki's is its own
+    real blue, matching the standing "each family keeps its own accent
+    identity" rule already documented above rather than special-casing
+    green everywhere "hints of green" could be read literally to mean."""
     palette = dict(palette)
     bg, fg = palette["bg"], palette["fg"]
     palette["menubar_bg"] = bg
@@ -133,6 +143,7 @@ def _with_chrome_cascade(palette: dict) -> dict:
     palette["tabstrip_bg"] = _lerp_toward_fg(bg, fg, 0.08)
     palette["toolbar_bg"] = _lerp_toward_fg(bg, fg, 0.16)
     palette["toolbar_fg"] = fg
+    palette["active_tab_bg"] = _lerp_toward_fg(palette["button_bg"], palette["select_bg"], 0.35)
     return palette
 
 
@@ -392,6 +403,12 @@ THEME_LABELS = {
     # Martin).
     "Martin Light": "martin_light",
     "Martin Dark": "martin_dark",
+    # Gotham (real Alacritty theme, dark-only) added and removed same
+    # day, 2026-07-31 -- Devin: "let's remove gotham, sorry, but... this
+    # may leave room for other themes ppl may not know about." Roster
+    # stays at 8; the picker redesign in progress (dropdown + light/dark
+    # radios) is the real next step for surfacing more families later,
+    # not another swatch-grid row.
 }
 
 # Kept as plain names too (not just THEMES["light"]/["dark"]) -- several

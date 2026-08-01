@@ -3027,12 +3027,21 @@ def test_chrome_cascade_colors_menubar_tabstrip_toolbar_as_three_real_steps(tmp_
         root.destroy()
 
 
-def test_tabs_never_use_select_bg_active_or_inactive(tmp_path):
+def test_active_tab_gets_a_subtle_accent_tint_not_a_full_fill(tmp_path):
     """Devin, 2026-07-25: "remove the sepia from the tabs... come up
-    with a better, more creative solution." Real regression guard: tab
-    styling must never reference select_bg again -- inactive uses
-    button_bg/muted_fg, active uses bg/fg (blends into the content
-    area instead of a filled color block)."""
+    with a better, more creative solution" -- the ORIGINAL fix (this
+    test used to guard) dropped color from tabs entirely, distinguishing
+    active/inactive by brightness alone. Revisited 2026-07-31, a fresh
+    ask, not a reversal of the old complaint: "can we also use clever
+    hints of green for our active tabs in all themes of Slate plz?"
+    Real regression guard for the new design: inactive tabs are
+    unchanged (button_bg/muted_fg, no accent at all); the active tab
+    uses active_tab_bg (theme.py's own chrome-cascade addition, 35%
+    toward select_bg from button_bg) -- a real, visible step toward the
+    accent, but the actual point of this test is that it's NEITHER the
+    old plain bg (that design is gone) NOR a full select_bg fill (the
+    original "sepia block" complaint) -- something genuinely in
+    between."""
     root, app = _make_app(tmp_path)
     try:
         app.theme_name.set("bonepaper_dark")
@@ -3047,10 +3056,11 @@ def test_tabs_never_use_select_bg_active_or_inactive(tmp_path):
 
         selected_bg = style.lookup("TNotebook.Tab", "background", ("selected",))
         selected_fg = style.lookup("TNotebook.Tab", "foreground", ("selected",))
-        assert selected_bg == colors["bg"]
+        assert selected_bg == colors["active_tab_bg"]
         assert selected_fg == colors["fg"]
-        # the real point of this test: neither state is select_bg
-        assert colors["select_bg"] not in (base_bg, selected_bg)
+        # The real point: a genuine tint, distinct from both the plain
+        # button_bg base AND a full-saturation select_bg fill.
+        assert selected_bg not in (colors["button_bg"], colors["select_bg"])
     finally:
         app.doc.close()
         root.destroy()
@@ -4284,26 +4294,18 @@ def test_settings_toggle_buttons_use_each_themes_own_accent_not_one_fixed_color(
         root.destroy()
 
 
-def test_settings_theme_grid_shows_colored_swatches_with_a_shared_header(tmp_path):
-    """Devin, 2026-07-31, live, two real rounds of feedback on the same
-    day: first asked for plain radio buttons, then rolled that back
-    after seeing it ("roll back to this [colored-button screenshot] but
-    don't write 'light/dark' in the buttons... just have 2 columns,
-    Light Dark, above the color swatch buttons"), THEN found a real
-    problem with that colored-Radiobutton-grid version too: "the darks
-    are too close together... can we move a rectangle over which one is
-    selected without tampering with the internal color? would we also
-    show more of key colors... to show the core and accent color of
-    each family?" Real bug named: indicatoron=False's selectcolor IS the
-    fill, so an unselected swatch showed NO color at all (plain gray
-    button) and a selected one showed ONLY the accent, never the
-    family's actual background. Rebuilt with 2 independent widget layers
-    per swatch instead of one Radiobutton: an inner fixed-size Frame
-    whose bg is the family's real background and whose own border is
-    its real accent (both always visible, independent of selection --
-    this test's real point), and an outer "ring" Frame used only as a
-    selection indicator, toggled by _refresh_theme_swatch_selection
-    rather than baked into either color."""
+def test_settings_theme_picker_is_a_dropdown_with_light_dark_radios(tmp_path):
+    """Devin, 2026-07-31, live, after 2 prior redesigns same day (plain
+    radio grid, then colored swatches + a moving selection ring that
+    "isn't cutting it"): "redesign as dropdown but include the color
+    palette somewhere in a classy way. please have radio buttons for
+    light/dark." Real structural test: a real ttk.Combobox lists exactly
+    the 4 families (readonly -- can't type an invalid one), and 2 plain
+    tk.Radiobutton widgets (not indicatoron=False, no custom
+    selectcolor) cover Light/Dark. No custom selection-indicator code
+    exists in this design at all -- both real widgets show their own
+    selected state natively, which is the actual fix for "not cutting
+    it": nothing left to get wrong."""
     root, app = _make_app(tmp_path)
     try:
         app.theme_name.set("slate_dark")
@@ -4323,73 +4325,35 @@ def test_settings_theme_grid_shows_colored_swatches_with_a_shared_header(tmp_pat
         theme_frame = find_theme_frame(top)
         assert theme_frame is not None
 
-        header_labels = {
-            c.cget("text") for c in theme_frame.winfo_children()
-            if isinstance(c, tk.Label) and c.cget("text") in ("Light", "Dark")
-        }
-        assert header_labels == {"Light", "Dark"}  # the ONE shared header row, not per-button text
-
-        # Swatches are identified by slate_fixed_bg (same convention as
-        # About's permanent accent bar), not by widget class -- there's
-        # no Radiobutton in this design at all anymore.
-        def find_swatches(w, out):
-            if getattr(w, "slate_fixed_bg", None):
+        def find_all(cls, w=theme_frame):
+            out = []
+            if isinstance(w, cls):
                 out.append(w)
             for c in w.winfo_children():
-                find_swatches(c, out)
-        swatches = []
-        find_swatches(theme_frame, swatches)
-        assert len(swatches) == 8  # Slate, Bonepaper, Flexoki, Martin x Light/Dark
+                out.extend(find_all(cls, c))
+            return out
 
-        by_bg = {s.slate_fixed_bg for s in swatches}
-        assert by_bg == {
-            theme.THEMES["slate_dark"]["bg"], theme.THEMES["slate_light"]["bg"],
-            theme.THEMES["bonepaper_dark"]["bg"], theme.THEMES["bonepaper_light"]["bg"],
-            theme.THEMES["dark"]["bg"], theme.THEMES["light"]["bg"],
-            theme.THEMES["martin_dark"]["bg"], theme.THEMES["martin_light"]["bg"],
-        }
-        # Each swatch's OWN accent is its border, real color always
-        # visible regardless of selection -- the actual fix for "show
-        # more of key colors... core and accent."
-        by_border = {s.cget("highlightbackground") for s in swatches}
-        assert by_border == {
-            theme.THEMES["slate_dark"]["select_bg"], theme.THEMES["slate_light"]["select_bg"],
-            theme.THEMES["bonepaper_dark"]["select_bg"], theme.THEMES["bonepaper_light"]["select_bg"],
-            theme.THEMES["dark"]["select_bg"], theme.THEMES["light"]["select_bg"],
-            theme.THEMES["martin_dark"]["select_bg"], theme.THEMES["martin_light"]["select_bg"],
-        }
-        # No swatch's bg/border may EVER equal the fixed selection-ring
-        # color -- if it did, selection would look like it was
-        # "tampering with the internal color" again, the exact
-        # complaint this rebuild fixes. Real bug once found here: the
-        # ring's original color (#62a945) WAS identical to Martin's own
-        # select_bg -- this assertion is what such a collision would
-        # actually fail, not a hardcoded historical value.
-        assert "#c0392b" not in by_bg
-        assert "#c0392b" not in by_border
+        combos = find_all(ttk.Combobox)
+        assert len(combos) == 1
+        family_combo = combos[0]
+        assert str(family_combo.cget("state")) == "readonly"
+        assert set(family_combo.cget("values")) == {"Slate", "Bonepaper", "Flexoki", "Martin"}
+        assert family_combo.get() == "Slate"  # matches slate_dark's own family
+
+        radios = find_all(tk.Radiobutton)
+        assert {r.cget("text") for r in radios} == {"Light", "Dark"}
+        for r in radios:
+            assert bool(r.cget("indicatoron")) is True  # real radio dot, not a colored button
     finally:
         app.doc.close()
         root.destroy()
 
 
-def test_selection_ring_color_never_matches_any_theme_accent():
-    """Real bug, Devin live 2026-07-31: "the green rectangle still
-    isn't cutting it." The original ring color (#62a945) turned out to
-    be IDENTICAL to Martin's own select_bg -- this asserts the general
-    invariant (no theme's accent may ever equal the ring color), not
-    just the one specific collision that was caught, so a future theme
-    add can't silently reintroduce the same class of bug."""
-    ring_color = "#c0392b"
-    accents = {theme.THEMES[name]["select_bg"] for name in theme.THEMES}
-    assert ring_color not in accents
-
-
-def test_settings_theme_selection_ring_moves_without_changing_swatch_colors(tmp_path):
-    """Real regression test for the "move a rectangle over which one is
-    selected... without tampering with the internal color" ask: exactly
-    ONE swatch's ring is highlighted at a time, it moves when a
-    different swatch is clicked, and neither swatch's own bg/border
-    changes across the click."""
+def test_settings_theme_picker_selects_the_right_theme_from_family_plus_mode(tmp_path):
+    """Real regression test for the actual selection logic: picking a
+    family (combobox) or a mode (radio) must combine into the right
+    theme_name and trigger a real repaint, in both directions -- family
+    changed with mode held, and mode changed with family held."""
     root, app = _make_app(tmp_path)
     try:
         app.theme_name.set("slate_light")
@@ -4408,38 +4372,91 @@ def test_settings_theme_selection_ring_moves_without_changing_swatch_colors(tmp_
 
         theme_frame = find_theme_frame(top)
 
-        def find_swatch(name):
-            def walk(w):
-                if getattr(w, "slate_fixed_bg", None) == theme.THEMES[name]["bg"] and \
-                        w.cget("highlightbackground") == theme.THEMES[name]["select_bg"]:
-                    return w
-                for c in w.winfo_children():
-                    found = walk(c)
-                    if found is not None:
-                        return found
-                return None
-            return walk(theme_frame)
+        def find_all(cls, w=theme_frame):
+            out = []
+            if isinstance(w, cls):
+                out.append(w)
+            for c in w.winfo_children():
+                out.extend(find_all(cls, c))
+            return out
 
-        slate_light_swatch = find_swatch("slate_light")
-        bonepaper_dark_swatch = find_swatch("bonepaper_dark")
-        slate_light_ring = slate_light_swatch.master
-        bonepaper_dark_ring = bonepaper_dark_swatch.master
+        family_combo = find_all(ttk.Combobox)[0]
+        dark_radio = next(r for r in find_all(tk.Radiobutton) if r.cget("text") == "Dark")
 
-        assert int(slate_light_ring.cget("highlightthickness")) > 0  # currently selected
-        assert int(bonepaper_dark_ring.cget("highlightthickness")) == 0
+        # Mode changed, family held -> slate_light to slate_dark.
+        dark_radio.invoke()
+        root.update()
+        assert app.theme_name.get() == "slate_dark"
 
-        slate_bg_before = slate_light_swatch.cget("bg")
-        slate_border_before = slate_light_swatch.cget("highlightbackground")
+        # Family changed, mode held (still Dark) -> slate_dark to bonepaper_dark.
+        family_combo.set("Bonepaper")
+        family_combo.event_generate("<<ComboboxSelected>>")
+        root.update()
+        assert app.theme_name.get() == "bonepaper_dark"
+    finally:
+        app.doc.close()
+        root.destroy()
 
-        bonepaper_dark_ring.event_generate("<Button-1>")
+
+def test_settings_palette_preview_shows_the_real_current_theme_colors(tmp_path):
+    """Devin, 2026-07-31: "include the color palette somewhere in a
+    classy way." Real regression test: the 3 preview chips must show
+    the CURRENT theme's actual bg/button_bg/select_bg (not a stale
+    snapshot from dialog-open time), and must update when the picker
+    changes theme -- a palette preview that doesn't track the real
+    selection would be worse than no preview at all."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.theme_name.set("slate_light")
+        app._apply_theme()
+        app._show_settings()
+        top = app._settings_window
+
+        def find_theme_frame(w):
+            if isinstance(w, tk.LabelFrame) and w.cget("text") == "Theme":
+                return w
+            for c in w.winfo_children():
+                found = find_theme_frame(c)
+                if found is not None:
+                    return found
+            return None
+
+        theme_frame = find_theme_frame(top)
+
+        def find_chips(w, out):
+            if getattr(w, "slate_fixed_bg", None):
+                out.append(w)
+            for c in w.winfo_children():
+                find_chips(c, out)
+        chips = []
+        find_chips(theme_frame, chips)
+        assert len(chips) == 3
+
+        palette = theme.THEMES["slate_light"]
+        assert {c.slate_fixed_bg for c in chips} == {
+            palette["bg"], palette["button_bg"], palette["select_bg"]
+        }
+
+        # Switch theme via the dropdown -- preview must follow, not stay stale.
+        def find_all(cls, w=theme_frame):
+            out = []
+            if isinstance(w, cls):
+                out.append(w)
+            for c in w.winfo_children():
+                out.extend(find_all(cls, c))
+            return out
+        family_combo = find_all(ttk.Combobox)[0]
+        family_combo.set("Martin")
+        family_combo.event_generate("<<ComboboxSelected>>")
         root.update()
 
-        assert app.theme_name.get() == "bonepaper_dark"
-        assert int(bonepaper_dark_ring.cget("highlightthickness")) > 0  # ring moved here
-        assert int(slate_light_ring.cget("highlightthickness")) == 0  # and off the old one
-        # Neither swatch's own real colors moved -- the actual point.
-        assert slate_light_swatch.cget("bg") == slate_bg_before
-        assert slate_light_swatch.cget("highlightbackground") == slate_border_before
+        martin_palette = theme.THEMES[app.theme_name.get()]
+        assert app.theme_name.get() == "martin_light"
+        chips_after = []
+        find_chips(theme_frame, chips_after)
+        assert {c.slate_fixed_bg for c in chips_after} == {
+            martin_palette["bg"], martin_palette["button_bg"], martin_palette["select_bg"]
+        }
     finally:
         app.doc.close()
         root.destroy()

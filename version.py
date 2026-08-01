@@ -22,7 +22,7 @@ AUTHOR = "devinscodex"
 # "why not MIT?" question doesn't have to be re-derived from scratch.
 LICENSE = "AGPL-3.0-or-later"
 
-VERSION = "1.5.2"
+VERSION = "1.5.3"
 # 1.0.0 -- v1 core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (all 4 slices: fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (3 core families: Flexoki/Bonepaper/
@@ -162,6 +162,18 @@ VERSION = "1.5.2"
 #          be if possible"). About/Settings/Sample Voices' fixed green
 #          accent bar simplified to a single flag-driven declaration
 #          (suckless pass) instead of paint-then-reassert in 3 places.
+# 1.5.3 -- Theme picker rebuilt a 3rd time (Devin, after the swatch-grid
+#          + selection-ring version "isn't cutting it"): a real
+#          ttk.Combobox for family + 2 plain tk.Radiobutton widgets for
+#          Light/Dark, both native controls with their own selected-
+#          state -- no custom selection-indicator code left to get
+#          wrong. A small 3-chip palette preview (bg/button_bg/
+#          select_bg) keeps the real colors visible. Active tabs now
+#          get a subtle accent tint (active_tab_bg, 35% toward
+#          select_bg from button_bg) instead of reading identical to
+#          inactive tabs -- Devin: "clever hints of green for our
+#          active tabs in all themes." Bonepaper Dark's button_bg
+#          synced to match the webUI's already-fixed cool near-black.
 
 SUMMARY = (
     "Slate liberates all the editing.\n"
