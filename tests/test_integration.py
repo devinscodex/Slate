@@ -2803,9 +2803,8 @@ def test_tab_cycle_with_only_one_tab_does_not_raise(tmp_path):
 
 
 def test_startup_schedules_a_silent_update_check(tmp_path, monkeypatch):
-    """Devin, 2026-07-25: "auto-checks for updates" -- confirms the
-    real app wires this up (not just updatecheck.py in isolation),
-    without hitting the real network or blocking startup."""
+    """Confirms the real app wires this up (not just updatecheck.py in
+    isolation), without hitting the real network or blocking startup."""
     calls = []
     monkeypatch.setattr(
         "updatecheck.check_for_update",
