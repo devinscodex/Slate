@@ -1,0 +1,8 @@
+pymupdf
+pikepdf
+pyhanko
+pytest
+pdfminer.six
+piper-tts
+sounddevice
+soundfile

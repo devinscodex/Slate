@@ -1,0 +1,22 @@
+{
+  "light": {
+    "bg": "#fdf6dc",
+    "fg": "#100f0f",
+    "button_bg": "#eee2c9",
+    "entry_bg": "#fdf6dc",
+    "canvas_bg": "#fdf6dc",
+    "select_bg": "#24837b",
+    "muted_fg": "#b7b5ac",
+    "highlight_bg": "#24837b"
+  },
+  "dark": {
+    "bg": "#1c1b1a",
+    "fg": "#e6e4d9",
+    "button_bg": "#282726",
+    "entry_bg": "#100f0f",
+    "canvas_bg": "#1c1b1a",
+    "select_bg": "#3aa99f",
+    "muted_fg": "#6f6e69",
+    "highlight_bg": "#3aa99f"
+  }
+}
