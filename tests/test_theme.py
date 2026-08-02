@@ -130,9 +130,15 @@ def test_standard_light_dark_carry_flexokis_real_values():
     why (a real, repeated, live-feedback-driven deviation). Internal
     keys stay "light"/"dark" even after the display label became
     "Flexoki Light"/"Flexoki Dark" -- the values were always Flexoki's,
-    only the label changed."""
+    only the label changed.
+
+    light bg/button_bg updated 2026-08-01/02 (secondary's devs-themes
+    reconciliation pass, landed via themes-custom -> devs-themes rename
+    + sync): #fdf6dc/#eee2c9, a webUI-parity variant rather than the
+    stock stephango.com paper/base-50 (#fffcf0/#f2f0e5) -- fg stays on
+    real spec either way."""
     assert theme.THEMES["dark"]["fg"] == "#e6e4d9"
-    assert theme.THEMES["light"]["bg"] == "#fffcf0"
+    assert theme.THEMES["light"]["bg"] == "#fdf6dc"
     assert theme.THEMES["light"]["fg"] == "#100f0f"
 
 
@@ -159,21 +165,22 @@ def test_standard_dark_reverted_to_real_flexoki_spec_2026_07_30():
     assert theme.THEMES["dark"]["entry_bg"] == "#100f0f"  # real Flexoki black, never drifted
 
 
-def test_standard_uses_real_flexoki_blue_not_the_shared_house_green():
-    """A same-day teal experiment (2026-07-31, live webUI parity ask)
-    came and went -- reverted back to Flexoki's real published blue
-    (#205EA6 light / #4385BE dark, stephango.com/flexoki) when this
-    checkout synced theme_data/*.json against devs-themes's own
-    canonical values (2026-08-01, secondary's reconciliation pass:
-    "had drifted independently in this branch checkout... reconciled
-    against primary's webUI"). Blue is the ratified value again --
-    this test's job is just guarding against the shared house green
-    (the 2026-07-25 swap this test has guarded against from the
-    start), not re-litigating blue vs. teal."""
-    assert theme.THEMES["dark"]["select_bg"] == "#4385be"
-    assert theme.THEMES["dark"]["highlight_bg"] == "#4385be"
-    assert theme.THEMES["light"]["select_bg"] == "#205ea6"
-    assert theme.THEMES["light"]["highlight_bg"] == "#205ea6"
+def test_standard_uses_real_flexoki_teal_not_the_shared_house_green():
+    """The 2026-07-31 teal experiment (live webUI parity ask: "change
+    Kepano's accent from blue to dark teal... like osaka teal?") briefly
+    reverted to Flexoki's real published blue, then landed for real as
+    teal once secondary's devs-themes reconciliation pass (2026-08-01/02)
+    synced theme_data/*.json against the actual current webUI/devs-themes
+    values: #24837B light / #3AA99F dark -- still Flexoki's own real
+    published palette (real cyan swatch, --color-cyan), just not the one
+    Kepano originally picked as his interactive-accent, per that same
+    live ask. This test's real job is just guarding against the shared
+    house green (the 2026-07-25 swap this test has guarded against from
+    the start), not blue vs. teal."""
+    assert theme.THEMES["dark"]["select_bg"] == "#3aa99f"
+    assert theme.THEMES["dark"]["highlight_bg"] == "#3aa99f"
+    assert theme.THEMES["light"]["select_bg"] == "#24837b"
+    assert theme.THEMES["light"]["highlight_bg"] == "#24837b"
 
 
 def test_every_theme_accent_is_minimal_pure_accent_lives_in_selection_roles_only():
@@ -307,11 +314,17 @@ def test_slate_dark_matches_the_real_official_solarized_bones():
     `foreground` (#839496) already matched Slate Dark's button_bg/fg
     exactly -- only Osaka's deeper primary background (#001a1d vs stock
     Solarized's #002b36) actually differs, so that's the only value that
-    moved. button_bg/fg/muted_fg/select_bg all still real official
-    Solarized-lineage values, unchanged."""
+    moved at the time.
+
+    bg/button_bg moved AGAIN 2026-08-01/02 -- a "Bluish-gray Slate Dark"
+    pass (secondary's devs-themes reconciliation commit) landed
+    #2c3640/#414f5a, moving further off both stock Solarized and Osaka
+    toward a cooler blue-gray. fg/muted_fg/select_bg are still the same
+    official Solarized-lineage/moss values as before, unchanged by this
+    pass."""
     dark = theme.THEMES["slate_dark"]
-    assert dark["bg"] == "#001a1d"  # Solarized Osaka's real primary background
-    assert dark["button_bg"] == "#073642"  # Solarized base02 (== Osaka's own "black")
+    assert dark["bg"] == "#2c3640"  # bluish-gray Slate Dark, 2026-08-01/02 reconciliation
+    assert dark["button_bg"] == "#414f5a"  # same pass, moved with bg
     assert dark["fg"] == "#839496"  # Solarized base0 (== Osaka's own "foreground")
     assert dark["muted_fg"] == "#657b83"  # Solarized base00 (--text-muted, not --text-faint)
     assert dark["select_bg"] == "#699d43"  # Slate's own moss accent, not Solarized's blue
