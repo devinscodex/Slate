@@ -151,6 +151,7 @@ class SlateApp:
         # content (a categorical-color-coded diagram, a photo) where
         # color IS the information. Per-session toggle.
         self.colorize_pages = _saved["colorize_pages"]
+        self.check_updates_on_start = _saved["check_updates_on_start"]
         # One shared crop rect (viewer.detect_content_bbox) applied to
         # every page, cached per DOCUMENT (self._crop_rect, keyed by
         # self._crop_rect_doc) since sampling several pages' real
@@ -244,6 +245,7 @@ class SlateApp:
         self._doc_view_built = False
         self.home_frame = None
         self.toc_visible = tk.BooleanVar(value=_saved["toc_visible"])
+        self.check_updates_on_start_var = tk.BooleanVar(value=self.check_updates_on_start)
         self.theme_name = tk.StringVar(value=theme.load_preference())
         # Read Aloud (TTS): app-wide, not per-tab -- reading one document
         # while switching tabs isn't a supported combination in v1.
@@ -320,8 +322,10 @@ class SlateApp:
 
         # Delayed 2s so it never competes with initial doc-load/render
         # for the same event loop; silent unless there's real news (see
-        # _check_for_updates's docstring).
-        self.root.after(2000, lambda: self._check_for_updates(silent_if_current=True))
+        # _check_for_updates's docstring). Settings > "Check for updates
+        # on start" opts out of even this silent background check.
+        if self.check_updates_on_start:
+            self.root.after(2000, lambda: self._check_for_updates(silent_if_current=True))
 
     # ------------------------------------------------------------------
     # menu
@@ -499,6 +503,10 @@ class SlateApp:
             self._page_cache.invalidate_all()
             self._layout = None
             self.render()
+
+    def _on_check_updates_toggle(self):
+        self.check_updates_on_start = self.check_updates_on_start_var.get()
+        settings.save({"check_updates_on_start": self.check_updates_on_start})
 
     def _apply_native_titlebar_theme(self, window=None):
         """The window title bar itself is drawn by the OS, not Tk --
@@ -1462,7 +1470,8 @@ class SlateApp:
         for text, variable, cmd, pad in (
             ("Colorize pages to theme (F4)", self.colorize_pages_var, self._on_colorize_toggle, (6, 2)),
             ("Crop to Content", self.crop_to_content_var, self._on_crop_toggle, (2, 2)),
-            ("Show Table of Contents", self.toc_visible, self._toggle_toc_panel, (2, 6)),
+            ("Show Table of Contents", self.toc_visible, self._toggle_toc_panel, (2, 2)),
+            ("Check for updates on start", self.check_updates_on_start_var, self._on_check_updates_toggle, (2, 6)),
         ):
             btn = tk.Checkbutton(
                 display_frame, text=text, variable=variable,

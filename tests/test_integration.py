@@ -18,6 +18,7 @@ from PIL import ImageColor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import gate  # noqa: E402
+import settings  # noqa: E402
 import slate  # noqa: E402
 import sign  # noqa: E402
 import theme  # noqa: E402
@@ -611,9 +612,6 @@ def test_home_screen_shows_real_version_and_summary(tmp_path, monkeypatch):
     root = tk.Tk()
     app = slate.SlateApp(root, path=None)
     try:
-        labels = [
-            w for w in app.home_frame.winfo_children()
-        ]
         all_text = []
 
         def collect(widget):
@@ -2795,6 +2793,31 @@ def test_startup_schedules_a_silent_update_check(tmp_path, monkeypatch):
     try:
         _wait_until(lambda: len(calls) > 0, root, timeout=5)
         assert calls == [version.VERSION]
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_check_updates_on_start_setting_disables_the_startup_check(tmp_path, monkeypatch):
+    """Settings > "Check for updates on start" must actually gate the
+    2s-delayed startup check -- not just exist cosmetically."""
+    calls = []
+    monkeypatch.setattr(
+        "updatecheck.check_for_update",
+        lambda current, timeout=5.0: (calls.append(current) or
+                                       {"checked": False, "update_available": False,
+                                        "latest_version": None, "url": None, "error": "not configured"}),
+    )
+    settings.save({"check_updates_on_start": False})
+    root, app = _make_app(tmp_path)
+    try:
+        assert app.check_updates_on_start is False
+        assert app.check_updates_on_start_var.get() is False
+        root.update()
+        import time
+        time.sleep(2.3)  # past the real 2s startup delay
+        root.update()
+        assert calls == []
     finally:
         app.doc.close()
         root.destroy()

@@ -94,7 +94,10 @@ VERSION = "1.5.4"
 # 1.5.4 -- Only northern_english_male ships bundled now (alba moved to
 #          download-on-first-use, same as the other 2 optional voices)
 #          -- installer/tarball ~60MB smaller. Removed unused icon-
-#          concept draft files from branding/.
+#          concept draft files from branding/. New Settings > Display
+#          checkbox: "Check for updates on start" (default on).
+#          DESIGN.md trimmed (build-log/slice-tracking narration cut,
+#          technical content kept).
 
 SUMMARY = (
     "Slate liberates all the editing.\n"

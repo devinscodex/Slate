@@ -8,7 +8,6 @@ prevent (see theme.py's own _SLATE_DARK comment for the real instance
 this caught).
 """
 import os
-import tempfile
 
 import pytest
 
@@ -62,7 +61,7 @@ def test_resolves_rgb_var_root_reference(tmp_path):
     assert result["dark"]["is_dark"] is True
 
 
-def test_resolves_var_indirection_one_level(tmp_path):
+def test_resolves_var_indirection_one_level():
     css = """
     .theme-light {
       --color-base-00: #abcdef;
@@ -73,8 +72,6 @@ def test_resolves_var_indirection_one_level(tmp_path):
       --interactive-accent: #4a7637;
     }
     """
-    path = _write(tmp_path, css)
-    result = css_theme.parse_obsidian_css(path)
     # --color-base-00 is read directly (bg's real mapping), but this
     # proves plain var() indirection resolves correctly in general --
     # exercised here via a property this parser doesn't itself read,

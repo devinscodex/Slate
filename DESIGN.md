@@ -11,13 +11,12 @@ another free, open-source option, proof of how good FOSS can really be.
 ## Licensing posture (real, load-bearing constraint)
 
 `pymupdf` is AGPL-3.0/commercial dual-licensed (Artifex) — confirmed
-directly via its own package metadata, not assumed. Real research this
-session (sourced: FSF/Wikipedia's GPL material, opensource.com's AGPLv3
-breakdown) converges on: copyleft/source-disclosure obligations trigger
-on **distribution outside your organization** (or, AGPL-specifically,
-letting outside users interact with a *modified* copy over a network as
-a service) — not on purely private/internal use. Slate is a local
-desktop app, not a network service, and isn't modifying PyMuPDF itself.
+directly via its own package metadata, not assumed. Copyleft/source-
+disclosure obligations trigger on **distribution outside your
+organization** (or, AGPL-specifically, letting outside users interact
+with a *modified* copy over a network as a service) — not on purely
+private/internal use. Slate is a local desktop app, not a network
+service, and isn't modifying PyMuPDF itself.
 
 Slate is public on GitHub under AGPL-3.0-or-later (see LICENSE) --
 this is not a legal ruling (get real legal review before relying on
@@ -46,6 +45,7 @@ project's own "wrap the real tool, don't reimplement" doctrine.
   compatible — PyMuPDF's own signature-field support is basic/visual-only,
   not cryptographically real).
 - **Encryption / password protection:** pikepdf.
+- **Text-to-speech:** Piper (`tts.py`, `playback.py`) — see Read Aloud below.
 
 ## Redaction — the hardened save path (non-negotiable)
 
@@ -73,33 +73,27 @@ last write to a document. `io_pdf.py` must track signed-state and
 warn-or-refuse further edits to an already-signed document rather than
 silently invalidate the signature.
 
-## Forms — verified findings (slice 5, corrects the original plan)
+## Forms
 
-**Radio sibling-unset: the originally-cited gotcha is stale.** The plan
-assumed PyMuPDF doesn't auto-unset sibling radio buttons and that
-`forms.py` would need to do it manually. Verified directly against the
-installed version (PyMuPDF 1.28.0): `Widget._checker()` already handles
-this correctly — setting one radio button's `field_value` to its own ON
-state and calling `.update()` automatically forces every sibling in the
-same field-name group back to `Off`. `forms.py` does nothing special;
-`tests/test_forms.py::test_radio_sibling_auto_unset` pins this behavior
-so a future PyMuPDF upgrade that regresses it gets caught immediately.
+**Radio sibling-unset** is handled by PyMuPDF itself: `Widget._checker()`
+(verified against 1.28.0) auto-unsets every sibling in the same
+field-name group on update. `forms.py` does nothing special;
+`tests/test_forms.py::test_radio_sibling_auto_unset` pins this so a
+future PyMuPDF upgrade that regresses it gets caught immediately.
 
-**Real gotcha instead: radio GROUP creation, and widget page-lifetime.**
-PyMuPDF cannot currently *create* a new interlinked radio group — adding
-two `Widget()` objects with a shared `field_name` via `add_widget()`
-raises `ValueError: bad xref` (confirmed, and matches PyMuPDF GitHub
-discussion #2333: group creation isn't supported, only filling an
-existing group's values is). Not a blocker for v1 — Slate fills
-received forms, it doesn't author new ones from scratch — but the test
+**Radio GROUP creation** is NOT supported by PyMuPDF — adding two
+`Widget()` objects with a shared `field_name` via `add_widget()` raises
+`ValueError: bad xref` (matches PyMuPDF GitHub discussion #2333: only
+filling an existing group's values is supported). Not a blocker --
+Slate fills received forms, it doesn't author new ones -- but the test
 fixture's radio group had to be built at the raw PDF-object level via
-pikepdf instead. Separately: a `Widget` holds only a *weak* reference to
+pikepdf instead.
+
+**Widget page-lifetime:** a `Widget` holds only a *weak* reference to
 its parent page; letting that page object go out of scope while still
-holding widgets (e.g. `forms.widgets_by_name(doc[0])` called inline,
-with nothing keeping `doc[0]`'s page object alive) turns a later
-sibling-unset into a raw `ReferenceError`, not a clean update. Always
-keep the page bound to a named variable for as long as any of its
-widgets are being read or written.
+holding widgets turns a later sibling-unset into a raw `ReferenceError`.
+Always keep the page bound to a named variable for as long as any of
+its widgets are being read or written.
 
 ## Build order (each slice has its own standalone pass/fail check)
 
@@ -136,12 +130,6 @@ signing cert exists.
 
 ## Scan for sensitive content (`scan.py`)
 
-Started as a one-off scratch audit script for scanning a real Downloads
-folder for anything needing redaction, promoted to a real feature after
-it found genuine sensitive content in a real file (a bank account +
-routing number in an actual bank account-verification letter) and,
-separately, had a real false-negative during its own development.
-
 **Scope:** number-shaped financial/PII patterns only — SSN
 (`123-45-6789`), ABA routing numbers, labeled account numbers, and
 Luhn-valid credit card numbers. Does NOT catch general PII (a resume's
@@ -149,147 +137,87 @@ phone/address with no account-shaped context), business-confidential
 content, or anything on an image-only/scanned page — same OCR gap
 already named out-of-v1 for redaction itself. A page with 0 extractable
 characters is reported as its own `unscannable` finding rather than
-silently folded into "nothing found" — those are different claims, and
-conflating them is exactly the bug this project caught in itself (next
-paragraph).
+silently folded into "nothing found" — those are different claims.
 
-**Real bug, caught auditing a real Downloads folder, not a
-hypothetical:** the first version matched a label and its value on the
-*same line* (`Account Number:\s*(\d+)`). Real PDFs routinely don't lay
-text out that way — the bank letter's own extracted text put `Account
-Number:`, a blank line, and `9825039777` as three separate lines. The
-same-line version silently reported the real file clean. Fixed by
-scanning forward a few non-blank lines after a label match instead of
-requiring the value on the same line; pinned as its own named regression
-test (`test_label_and_value_on_separate_lines_regression`) building that
-exact three-line layout, not folded into a general-case test.
+**Gotcha:** real PDFs routinely put a label and its value on different
+lines (e.g. `Account Number:`, a blank line, then the digits, as three
+separate lines) -- a same-line regex (`Account Number:\s*(\d+)`)
+silently reports these files clean. Fixed by scanning forward a few
+non-blank lines after a label match; pinned by
+`test_label_and_value_on_separate_lines_regression`.
 
 **UI wiring:** Edit → "Scan this document..." runs `scan.scan_document`
 against the open file and offers to mark every hit with a resolvable
 rect as a pending redaction in one click — scan and redact are meant to
 chain together, not be two disconnected features. File → "Scan folder
 for sensitive PDFs..." reuses `scan.scan_directory` for the batch-audit
-case (the actual real-world use this started from).
+case.
 
-**Real bug found wiring this into the UI, unrelated to scan.py itself:**
-`_on_release`'s redact-mode branch called a blocking `messagebox.showinfo`
-on *every single drag* — meant as "region marked" feedback, but it made
-a multi-region redaction pass annoying (a modal popup per mark) and,
-worse, made this exact code path hang in an automated test once nothing
-was there to dismiss the dialog. Fixed by removing the popup entirely —
-the status bar (`render()`) already shows the pending-redaction count
-for the current page, which is the correct non-blocking feedback.
+## Text editing — gated feature
 
-## Text editing — real v2 feature, gated by design (in progress)
+Editing existing body-paragraph text sits behind a passphrase gate,
+off by default -- a deliberate scope call: the rest of v1 stays open
+to everyone, but text editing doesn't ship enabled by default on a
+document meant to stay in its "final form" for most users.
 
-Editing existing body-paragraph text was missed in the first pass of
-this plan (view/annotate/merge-split/redact/sign/form-fill/scan only).
-Deliberate scope call once this gap was identified: ship it as a
-**separate, gated capability**, not a plain menu item everyone gets --
-so text editing doesn't ship enabled by default on a document meant to
-stay in its "final form" for most users. The rest of v1 stays open to
-everyone; text editing sits behind a passphrase gate, off by default.
+Editing existing PDF body text means re-flowing text runs and matching
+the original font/kerning exactly — PDF is page-fixed glyph positions,
+not a reflow format. Even Adobe/Foxit's own "Edit Text" is imperfect at
+this. Approach: redact-then-reinsert (`add_redact_annot` +
+`apply_redactions()` + `insert_text` at the same spot) — **with the
+redaction fill set to white/transparent, not black** (`fill=(1, 1, 1)`,
+not `redact.py`'s `mark_region()`, which is correctly black-fill for
+actual redaction).
 
-Why this is genuinely a separate feature: editing existing PDF body text
-means re-flowing text runs and matching the original font/kerning
-exactly — PDF is page-fixed glyph positions, not a reflow format. Even
-Adobe/Foxit's own "Edit Text" is imperfect at this. Real approach:
-redact-then-reinsert (`add_redact_annot` + `apply_redactions()` +
-`insert_text` at the same spot) — **with the redaction fill set to
-white/transparent, not black**. Reusing `redact.py`'s `mark_region()`
-as-is produces a
-solid black bar instead of new text, because that function is correctly
-built for actual redaction (black fill on purpose) — wrong default for
-this feature. Text-editing's own redact call uses `fill=(1, 1, 1)`.
-
-**Three-tier font-safety approach (refined from the original two-tier
-plan):** before falling to a crude Base-14 substitute,
-check whether the same font is already installed as a real system font
-first — most business PDFs use Calibri/Arial/Times New Roman/Segoe UI,
-already sitting on the same Office-standardized Windows machines that
-would run Slate. Real, non-approximated glyphs for the common case, zero
-bundled fonts, zero new dependencies.
+**Three-tier font-safety approach:** before falling to a crude Base-14
+substitute, check whether the same font is already installed as a real
+system font first — most business PDFs use Calibri/Arial/Times New
+Roman/Segoe UI, already sitting on the same Office-standardized
+Windows machines that would run Slate.
 1. **reusable** — font fully embedded, not subsetted (`page.get_fonts()`,
    no `ABCDEF+` prefix) → reuse via `extract_font`/`insert_font`.
-2. **system-font** — `fontmatch.find_system_font()` (new module,
-   Windows via stdlib `winreg` checking HKCU then HKLM with name
-   normalization, verified via `fitz.Font(fontfile=...).name`; Linux via
-   `fc-match` for dev, with a **real, live-confirmed pitfall**:
-   `fc-match` never fails, it always substitutes a "closest" font —
-   `fc-match "Calibri"` on this dev box, which has no Calibri, returned
-   `DejaVu Sans` silently. Must compare the *returned* family against
-   what was asked for, reject a mismatch as "not really installed.")
+2. **system-font** — `fontmatch.find_system_font()`: Windows via stdlib
+   `winreg` checking HKCU then HKLM with name normalization, verified
+   via `fitz.Font(fontfile=...).name`; Linux via `fc-match` for dev,
+   with a real pitfall: `fc-match` never fails, it always substitutes
+   a "closest" font (`fc-match "Calibri"` on a box with no Calibri
+   silently returns `DejaVu Sans`) -- must compare the *returned*
+   family against what was asked for, reject a mismatch as "not really
+   installed."
 3. **substitute-needed** — Base-14 mapped from the font's flags bitfield
-   (serif/bold/italic/monospace), same as the original plan. Only this
-   tier needs an up-front warning in the UI — 1 and 2 are both real
-   fonts.
+   (serif/bold/italic/monospace). Only this tier needs an up-front
+   warning in the UI — 1 and 2 are both real fonts.
 
-**Slice 0 (the font-fidelity experiment) — done, real images, not a
-prediction anymore.** Built a fixture with a genuinely embedded,
-non-subsetted font (confirmed via `get_fonts()`: `ext='ttf'`,
-`basefont='DejaVu Serif Book'`, no subset prefix), then rendered all
-three tiers after a redact+reinsert cycle:
-- **Reuse:** visually identical to the original — same serif shapes,
-  same weight, same spacing, as expected for literally the same font
-  program.
-- **System-font:** clean, correct glyph rendering — a real typeface,
-  not a wrong-shaped approximation (rendered a different real font in
-  this demo to make the point: a genuine font file always renders
-  correctly, regardless of which one it is).
-- **Substitute:** renders, but visibly different letterforms (serif
-  style, spacing, descenders) from the original — confirms the
-  predicted degradation is real, not alarmist.
+Verified against a genuinely embedded, non-subsetted font
+(`ext='ttf'`, `basefont='DejaVu Serif Book'`, no subset prefix): tier 1
+renders visually identical to the original; tier 2 renders a real
+typeface with correct glyph shapes; tier 3 renders but with visibly
+different letterforms (serif style, spacing, descenders) -- confirming
+the predicted degradation is real, not alarmist.
 
 **Gate mechanism:** `hashlib.pbkdf2_hmac("sha256", ..., 600_000)`, local
 salted hash (not plaintext) at `~/.slate/unlock.json` (same convention
 as `recent.py`), stdlib-only. First-run: clicking "Edit Text" with none
 set yet prompts to set one right there, no separate admin step. Unlock
-is session-only. Stated plainly: a local UX gate, not real access control.
+is session-only, re-locks on restart. Stated plainly: a local UX gate,
+not real access control.
 
-**Slice 1 (`fontmatch.py`) — done, 6/6 tests, real fc-match substitution
-pitfall confirmed and guarded against.**
-
-**Slice 2 (`textedit.py` core) — done, 9/9 tests. Two real bugs caught
-writing these tests, not before:**
-- `font_safety`'s original match compared `page.get_fonts()`'s `name`
-  field against `span["font"]` — but `name` is the page's font-
-  *resource* alias (e.g. `"F1"`, whatever key insert_font/the PDF
-  producer picked), while `span["font"]` (from `get_text("dict")`) is
-  the font's own internal name. Confirmed live: these are different
-  strings even for a font this exact code just embedded itself
-  (`"F1"` vs `"DejaVuSerif"`). This would have made tier 1 (reuse)
-  silently never fire on *any* real document — every edit would have
-  fallen to tier 2/3 even when the exact original font was genuinely
-  reusable. Fixed: compare `span["font"]` against `basefont` (the
+Two real bugs caught building this:
+- `font_safety`'s match compared `page.get_fonts()`'s `name` field
+  (the page's font-*resource* alias, e.g. `"F1"`) against `span["font"]`
+  (the font's own internal name, e.g. `"DejaVuSerif"`) -- different
+  strings even for a font this exact code just embedded itself. This
+  would have made tier 1 (reuse) silently never fire on *any* real
+  document. Fixed: compare `span["font"]` against `basefont` (the
   font's real reported name, subset-prefix stripped), normalized with
-  `fontmatch`'s existing `_normalize_font_name` (already built, already
-  tested) — reused rather than duplicated, and it already handles the
-  registry-vs-PostScript-style naming mismatch this needed too
-  (`"DejaVu Serif Book"` vs `"DejaVuSerif"`).
+  `fontmatch`'s existing `_normalize_font_name` (already built,
+  already tested).
 - `edit_text` called `page.insert_font()` for the reusable/system-font
   tiers *before* `apply_redactions()`. `apply_redactions()` rebuilds
   page resources and drops any font not yet referenced by the content
-  stream — so the just-registered font vanished before `insert_text`
-  could use it (`Exception: need font file or buffer`). Fixed by
-  moving font registration to *after* the redaction call, immediately
-  before the actual `insert_text`.
-
-**Slice 3 (`gate.py`) — done, 6/6 tests.** `hashlib.pbkdf2_hmac`,
-600k iterations, random salt, stored at `~/.slate/unlock.json`.
-Covers correct unlock, wrong passphrase, re-set invalidating the old
-one, fail-closed when nothing's set yet, and plaintext never touching
-disk.
-
-**Slice 4 (UI wiring in `slate.py`) — done, 5/5 tests. Feature
-complete, all 4 slices built and tested (79/79 total suite).**
-"Edit Text (locked, click)..." on the Edit menu: first click ever
-prompts to set a passphrase right there (no separate admin step);
-set-but-locked prompts to unlock; unlocked routes straight into
-textedit mode. Unlock is session-only, re-locks on restart -- a local
-UX gate, not real access control, stated plainly in the code. A canvas
-click in textedit mode runs `detect_span` + `font_safety`, surfaces
-the tier-3 substitute-font warning in the edit dialog when relevant,
-and catches `TextFitError` as a real message instead of a crash.
+  stream -- so the just-registered font vanished before `insert_text`
+  could use it. Fixed by moving font registration to *after* the
+  redaction call, immediately before the actual `insert_text`.
 
 ## Fixtures
 
@@ -298,36 +226,31 @@ programmatically, never real documents. One fixture must include
 pre-existing incremental-update history (to catch the redaction/history
 gap above) and one must include a pre-existing tag tree (to confirm
 redact/merge/annotate don't silently strip it, even though authoring
-tagged PDF is out of v1). Same discipline applies to the one synthetic
-epub fixture used below — built at test time via `zipfile`, never
-committed as a binary.
+tagged PDF is out of v1). Same discipline applies to the synthetic epub
+fixture used below — built at test time via `zipfile`, never committed
+as a binary.
 
-Honest exception, found during a no-bloat-pass audit: `basic3page.pdf`
-itself IS committed as a small (1.5KB) static binary, not generated at
-test time like the epub fixture is — an inconsistency between the
-stated convention and practice. It still satisfies the actual intent
-("never a real document" — it's fully synthetic, 3 pages of
-`insert_text`), and converting it to a generate-at-test-time fixture
-would mean rewiring ~30 call sites across `test_integration.py` for a
-purely cosmetic gain. Left as-is deliberately rather than churned for
-consistency's own sake — that tradeoff would itself be unnecessary bloat.
+Exception: `basic3page.pdf` itself IS committed as a small (1.5KB)
+static binary rather than generated at test time. It still satisfies
+the actual intent ("never a real document" -- it's fully synthetic, 3
+pages of `insert_text`); converting it to generate-at-test-time would
+mean rewiring ~30 call sites in `test_integration.py` for a purely
+cosmetic gain.
 
-## Sumatra-parity backlog — done (v3)
+## Sumatra-parity backlog
 
 SumatraPDF's TOC/recent-files panel is this project's own UX reference;
-three concrete slices peeled from it, in cheapest-to-most-structural
-order:
+three concrete slices peeled from it:
 
 1. **`search.py` + keyboard nav** — in-document Find (`/` or View >
    Find...), `Return`/`Shift-Return`/`n`/`N` step through matches with
    wraparound, current match highlighted red vs. yellow for the rest
    (canvas overlay, redrawn every `render()`, not real annotations).
    `j`/`k` page nav, `g`/`G` jump to first/last page. Reuses PyMuPDF's
-   own `page.search_for()` (already case-insensitive, confirmed live).
-   Real gotcha: `search_for("")` returns `None`, not `[]` — guarded
-   explicitly. All single-letter bindings are guarded on "is an Entry
-   currently focused" so they don't hijack literal search text (`n`,
-   `g` etc. are all valid characters to search for).
+   own `page.search_for()` (already case-insensitive). Gotcha:
+   `search_for("")` returns `None`, not `[]` — guarded explicitly. All
+   single-letter bindings are guarded on "is an Entry currently
+   focused" so they don't hijack literal search text.
 2. **Tabs** — `tab.py`'s `Tab` is a plain per-document state container
    (path/doc/viewer/page/mode/pending_redactions/search_state).
    `ttk.Notebook` is used purely as a tab-*selector strip* — each "tab"
@@ -336,29 +259,21 @@ order:
    rendering, unchanged. On switch, the outgoing tab's mutable fields
    save back into its `Tab`, the incoming tab's fields load into the
    same flat `self.doc`/`self.path`/etc. attributes every pre-existing
-   method already reads — so none of those ~30 methods needed touching,
-   and all 94 pre-tabs tests kept passing unchanged (a single open
-   document is just the one-tab case). Real bug: selecting a
-   `Notebook` tab only fires `<<NotebookTabChanged>>` on the next
-   idle-loop pass, not synchronously — fixed via a `_select_tab()`
-   helper that calls the handler directly (idempotent alongside the
-   real event, for actual interactive clicks).
-3. **Ebook formats** (EPUB/MOBI/FB2/CBZ/TXT/MD) — confirmed via
-   PyMuPDF's own docs feature matrix *and* hands-on (a real synthetic
-   epub through the unmodified `viewer.py`): PyMuPDF/MuPDF already
-   opens all of these natively. Zero new dependency, almost no new
-   code — mostly widening `open_file()`'s dialog filter. CHM is *not*
-   supported (not in the matrix; would need PyMuPDF Pro) — left out.
-   PDF-only Edit/File menu items (redact, sign, forms,
-   encrypt, merge/split, save) are disabled whenever the active tab's
-   document isn't a real PDF (`doc.is_pdf`), via
-   `_update_pdf_only_menu_state()` hooked into the tab-switch path —
-   automatically correct across tab switches, no extra wiring. Real
-   bug caught writing this slice's epub test: `_title()` unconditionally
+   method already reads. Gotcha: selecting a `Notebook` tab only fires
+   `<<NotebookTabChanged>>` on the next idle-loop pass, not
+   synchronously -- fixed via a `_select_tab()` helper that calls the
+   handler directly.
+3. **Ebook formats** (EPUB/MOBI/FB2/CBZ/TXT/MD) — PyMuPDF/MuPDF already
+   opens all of these natively (confirmed via its own docs feature
+   matrix and hands-on with a real synthetic epub). Zero new
+   dependency, mostly widening `open_file()`'s dialog filter. CHM is
+   *not* supported (would need PyMuPDF Pro) — left out. PDF-only
+   Edit/File menu items are disabled whenever the active tab's document
+   isn't a real PDF (`doc.is_pdf`), via `_update_pdf_only_menu_state()`
+   hooked into the tab-switch path. Gotcha: `_title()` unconditionally
    ran `sign.is_signed()` (pyHanko) against `self.path`, which crashed
-   with "Illegal PDF header" the instant a non-PDF path was opened —
-   fixed by gating that check on `doc.is_pdf` too (signing is itself a
-   PDF-only action; a non-PDF is never "signed" by definition).
+   with "Illegal PDF header" the instant a non-PDF path was opened --
+   fixed by gating that check on `doc.is_pdf` too.
 
 **Explicitly still out of scope:** adjustable reflow for epub (font
 size is covered by the global UI Font Size setting, but true reflow
@@ -368,125 +283,101 @@ each with a dark variant).
 
 ## Convert — office document utilities (`convert.py`)
 
-New "Convert" menu: PDF -> Markdown, PDF -> plain text, PDF -> page images (PNG, chosen DPI), and
-images -> PDF (combine scans/photos into one file, in order). All
-read-only exports work on any open document type (PDF or ebook), same
-as Scan — not gated by the PDF-only menu logic. Zero new dependencies:
-everything reuses PyMuPDF, already installed.
+New "Convert" menu: PDF -> Markdown, PDF -> plain text, PDF -> page images
+(PNG, chosen DPI), and images -> PDF. All read-only exports work on any
+open document type (PDF or ebook), same as Scan. Zero new dependencies:
+everything reuses PyMuPDF.
 
-**Real finding, not assumed:** `pymupdf4llm` looked like the obvious
-off-the-shelf PDF->Markdown choice — PyPI describes it as "minimal
-core: PyMuPDF and PyMuPDF Layout." Actually installing it (not just
-reading the page) pulled `pymupdf-layout` (a 41MB wheel) plus a full
-ONNX Runtime, numpy, protobuf, networkx — 80MB+ of transitive weight
-for a layout-detection ML model. Too much weight for what this needs.
-Installed it, inspected what actually landed, uninstalled it.
-`pdf_to_markdown` is hand-rolled instead, reusing the same span-level
-size/flags data `textedit.py` already parses for font info: heading
-level is inferred from font size *relative to the document's own
-body-text size* (not a fixed threshold, since "normal" size varies
-doc to doc), whole-line-bold text becomes `**bold**`, bullet-prefixed
-lines normalize to real `- ` markdown list items.
+`pymupdf4llm` looked like the obvious off-the-shelf PDF->Markdown
+choice, but actually installing it pulls `pymupdf-layout` (a 41MB
+wheel) plus a full ONNX Runtime, numpy, protobuf, networkx — 80MB+ of
+transitive weight for a layout-detection ML model. `pdf_to_markdown`
+is hand-rolled instead, reusing the same span-level size/flags data
+`textedit.py` already parses for font info: heading level is inferred
+from font size *relative to the document's own body-text size* (not a
+fixed threshold), whole-line-bold text becomes `**bold**`,
+bullet-prefixed lines normalize to real `- ` markdown list items.
 
-**Real bug, caught by the UI integration test, not `convert.py`'s own
-unit tests:** the body-size heuristic originally picked the size with
-the most *lines* — which ties when a one-line title and a one-line
-body have equal line counts (a real single-paragraph document hit this
-immediately; every unit-test fixture happened to have multiple body
-lines, masking it). Fixed by weighting by total *character volume*
-instead of line count, a much more reliable "which size is actually
-the body text" signal.
+Gotcha: the body-size heuristic originally picked the size with the
+most *lines*, which ties when a one-line title and a one-line body
+have equal line counts. Fixed by weighting by total *character volume*
+instead -- a much more reliable "which size is actually the body text"
+signal.
 
 `images_to_pdf` uses PyMuPDF's own documented technique
-(`Document.convert_to_pdf()` per image, confirmed live before writing
-any code), one full page per image, in the given order.
+(`Document.convert_to_pdf()` per image), one full page per image, in
+the given order.
 
-**Explicitly out of scope, flagged for later, not built:** DOCX/XLSX
-<-> PDF conversion. Genuinely useful for any Office-standardized
-workplace, but the only real options are heavy/platform-specific
-(headless LibreOffice as an external process dependency, or MS Office
-COM automation via `pywin32` — Windows-only, needs Word/Excel actually
-installed on the machine). Given this session's live-confirmed lesson
-above about assuming a library is lightweight, this needs its own
-research pass before committing to an approach, not a quick add.
+**Explicitly out of scope, flagged for later:** DOCX/XLSX <-> PDF
+conversion. Genuinely useful, but the only real options are
+heavy/platform-specific (headless LibreOffice as an external process
+dependency, or MS Office COM automation via `pywin32` — Windows-only,
+needs Word/Excel installed). Needs its own research pass, not a quick
+add.
 
 ## Read Aloud — text-to-speech (`tts.py`, `playback.py`)
 
 A ~250MB size budget for "quality (limited), voices of choice" is
 workable. Piper TTS: engine is GPL-3.0-or-later, voices are
-MIT-licensed, both confirmed live via HuggingFace's own package/model
-metadata, not assumed. Zero-cost, FOSS, own-forever — no paid
-alternative was needed.
+MIT-licensed, both confirmed via HuggingFace's own package/model
+metadata. Zero-cost, FOSS, own-forever.
 
-**Voice selection was a real listening test, not a guess** — 3 rounds,
-each testing something different:
-1. A plain sentence, across 25 real named voices (multi-speaker corpora
-   like arctic/libritts/vctk excluded — those bundle dozens of speakers
-   per model, not a single named voice).
-2. A numbers/punctuation/date/currency stress-test passage, sorted into
-   real `like`/`no-like` piles. Found a real, non-obvious pattern:
-   quality tier (low vs medium) wasn't the deciding factor at all (2 of
-   the "like" picks were low-tier) — British-accented voices had a much
-   higher like-rate (4/5) than American ones (3/9) in this voice set,
-   and a "robotic"/"choppy" character explained most rejects.
-3. A public-domain narrative passage (opening of *Pride and Prejudice*)
-   across the finalists, to test sustained reading, not just a single
-   line.
+**Voice selection was a real listening test, not a guess** — 3 rounds:
+a plain sentence across 25 real named voices (multi-speaker corpora
+like arctic/libritts/vctk excluded -- those bundle dozens of speakers
+per model, not a single named voice); a numbers/punctuation/date/
+currency stress-test passage sorted into `like`/`no-like` piles (found
+a non-obvious pattern: quality tier wasn't the deciding factor at all,
+British-accented voices had a much higher like-rate (4/5) than
+American ones (3/9) in this set, and a "robotic"/"choppy" character
+explained most rejects); and a public-domain narrative passage
+(opening of *Pride and Prejudice*) across the finalists, to test
+sustained reading.
 
-Final four: **northern_english_male** (GB male, medium, 22kHz — the
-bundled default), **alba** (GB female, medium, 22kHz), **southern_english_female**
-(GB female, low, 16kHz), **danny** (US male, low, 16kHz). The two
-low-tier voices both hit a real "missing phoneme from id map" warning
-on round 2's harder passage (a stress-mark symbol) — not disqualifying,
-but a real, live-confirmed quality wrinkle those two specifically carry.
+Final four: **northern_english_male** (GB male, medium, 22kHz -- the
+bundled default), **alba** (GB female, medium, 22kHz),
+**southern_english_female** (GB female, low, 16kHz), **danny** (US
+male, low, 16kHz). The two low-tier voices both hit a "missing phoneme
+from id map" warning on the harder stress-test passage (a stress-mark
+symbol) -- not disqualifying, but a real quality wrinkle those two
+specifically carry.
 
-**Distribution:** only `northern_english_male` (~60.3MB, `medium`
-quality, 22050Hz) ships bundled in the repo (`voices/`) as the
-zero-setup default. `alba`, `southern_english_female`, and `danny`
-all download on first use into `~/.slate/tts-voices/` (same config
-convention as `recent.py`/`gate.py`/`theme.py`) rather than
-permanently carrying every voice's weight in the repo/installer --
-bundling only one voice instead of two keeps the installer/tarball
-roughly 60MB (~30%) smaller. Small real preview clips for all four
-(`voices/previews/`, a few hundred KB each, same passage across all
-four) ship bundled so a voice can be sampled before committing to its
-full download.
+**Distribution:** only `northern_english_male` ships bundled in the
+repo (`voices/`) as the zero-setup default. The other three download
+on first use into `~/.slate/tts-voices/` (same config convention as
+`recent.py`/`gate.py`/`theme.py`) rather than permanently carrying
+every voice's weight in the installer. Small preview clips for all
+four (`voices/previews/`) ship bundled so a voice can be sampled
+before committing to its full download.
 
-**Playback, a real gap Piper itself doesn't solve:** Piper only
-*synthesizes* audio, it doesn't play it. `sounddevice`+`soundfile` add
-almost no new weight — numpy (already required by `onnxruntime`, which
-`piper-tts` itself needs) means the actual new footprint is a few
-hundred KB plus a small native audio library. `sounddevice` has no
-built-in pause/resume (only start/stop of a stream) — `playback.py`'s
-`Player` implements real pause (holds position, resumes from exactly
-there) via a streaming callback tracking position + a paused flag
-directly.
+**Playback:** Piper only *synthesizes* audio, it doesn't play it.
+`sounddevice`+`soundfile` add almost no new weight (numpy is already
+required by `onnxruntime`, which `piper-tts` itself needs).
+`sounddevice` has no built-in pause/resume (only start/stop of a
+stream) -- `playback.py`'s `Player` implements real pause (holds
+position, resumes from exactly there) via a streaming callback
+tracking position + a paused flag directly.
 
 **Speed control** reuses Piper's own real `length_scale` synthesis
-parameter (confirmed via `SynthesisConfig`'s actual signature, not
-assumed) rather than needing separate audio time-stretching — the
+parameter rather than needing separate audio time-stretching -- the
 UI's speed multiplier maps to `length_scale = 1 / speed`.
 
-**Thread-safety gotcha:** the download
-progress callback originally called `self.root.after(...)` directly
-from the background download thread — Tkinter is not thread-safe, and
-this raised `main thread is not in main loop` the first time an actual
-download ran through the real UI path (not caught by `tts.py`'s own
-unit tests, which mock the network entirely and never exercise real
-threading). Fixed by having the worker thread only ever write to a
-plain shared dict; `poll()` — scheduled via `self.root.after()`, so it
-always runs on the main thread — is the only thing that touches real
-widgets.
+**Thread-safety gotcha:** the download progress callback originally
+called `self.root.after(...)` directly from the background download
+thread -- Tkinter is not thread-safe, raising `main thread is not in
+main loop` the first time a real download ran through the UI (not
+caught by `tts.py`'s own unit tests, which mock the network and never
+exercise real threading). Fixed by having the worker thread only ever
+write to a plain shared dict; `poll()` -- scheduled via
+`self.root.after()`, always on the main thread -- is the only thing
+that touches real widgets.
 
-**NOT live-verified against real audio hardware:** this dev environment
+**Not verified against real audio hardware:** this dev environment
 (WSL2) exposes zero audio output devices even with `libportaudio2`
-installed (confirmed live: `sd.query_devices()` returns empty) — a WSL
-passthrough gap, not a defect in this code. The real Windows deployment
-has no such issue (`sounddevice`'s wheel bundles PortAudio with normal
-native device access). The playback callback's own position/pause LOGIC
-is still fully real-tested, by calling it directly with synthetic
-buffers — same technique already used for the Windows-only font-
-registry and DWM-titlebar code that can't be exercised on this box
-either. `do_read_page()`'s real synthesis path IS fully exercised
-end-to-end against the actual bundled model; only the final "make
-sound come out of speakers" step is the untestable part here.
+installed -- a WSL passthrough gap, not a defect in this code. The
+real Windows deployment has no such issue (`sounddevice`'s wheel
+bundles PortAudio with normal native device access). The playback
+callback's own position/pause logic is still fully tested by calling
+it directly with synthetic buffers. `do_read_page()`'s synthesis path
+is fully exercised end-to-end against the actual bundled model; only
+the final "make sound come out of speakers" step is untestable here.
