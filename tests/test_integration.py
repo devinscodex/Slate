@@ -297,20 +297,32 @@ def test_toggling_theme_persists_and_a_fresh_launch_starts_dark_no_flash(tmp_pat
 
 
 def test_mode_indicator_turns_red_in_redact_mode_and_resets_after(tmp_path):
+    """Restyled 2026-08-02 (Devin: "'mode: view' looks unprofessional") --
+    "view" is ~99% of a reading session, so the label now UNPACKS
+    entirely for it instead of just recoloring to a neutral tone (real
+    always-visible text read as a leftover debug artifact). redact's
+    real safety-nudge red badge (DESIGN.md: the one mode where a
+    mis-drag is irreversible) is unchanged -- still loud, still resets
+    on leaving the mode, just to "hidden" now instead of "neutral
+    blue text" for the common view case."""
     root, app = _make_app(tmp_path)
     try:
-        neutral_bg = app.mode_label.cget("bg")
+        assert not app.mode_label.winfo_ismapped()  # starts hidden (view)
 
         app._set_mode("redact")
+        root.update_idletasks()
         assert app.mode_label.cget("bg") == "#c0392b"
         assert app.mode_label.cget("fg") == "white"
+        assert app.mode_label.winfo_ismapped()
 
         app._set_mode("view")
-        assert app.mode_label.cget("bg") == neutral_bg
-        assert app.mode_label.cget("fg") == "blue"
+        root.update_idletasks()
+        assert not app.mode_label.winfo_ismapped()  # unpacked, not just recolored
 
         app._set_mode("annotate:highlight")
-        assert app.mode_label.cget("bg") == neutral_bg  # only redact gets the warning color
+        root.update_idletasks()
+        assert app.mode_label.winfo_ismapped()
+        assert app.mode_label.cget("bg") != "#c0392b"  # only redact gets the warning color
     finally:
         app.doc.close()
         root.destroy()
@@ -921,10 +933,15 @@ def test_search_highlights_use_theme_colors_not_hardcoded_yellow_red(tmp_path):
     it has less colors" report: _draw_search_highlights_for_page's
     outline was hardcoded plain "yellow"/"red", ignoring the active
     theme entirely -- true in every theme, not just the one Devin
-    compared. Fixed: ordinary matches use colors["select_bg"] (the same
-    accent tabs/toggles already use), the CURRENT match uses
-    colors["accent2"] (a real second accent per family, see theme.py's
-    own comments for where each value came from)."""
+    compared. First fix used a thin theme-colored OUTLINE -- Devin,
+    live: "use a highlight" (not an outline), "the lavender rectangle
+    for searching looks weak AF." Rebuilt as a real filled translucent
+    overlay (same RGBA-PhotoImage technique _draw_text_selection_for_page
+    already uses): ordinary matches at colors["select_bg"], the CURRENT
+    match at colors["accent2"] PLUS a solid accent2 outline on top for
+    extra emphasis. Checks the actual PhotoImage pixel color (canvas
+    image items have no itemcget("outline") the way a rectangle does),
+    not just the current match's outline rectangle."""
     path = str(tmp_path / "search_colors.pdf")
     doc = fitz.open()
     page = doc.new_page()
@@ -944,10 +961,28 @@ def test_search_highlights_use_theme_colors_not_hardcoded_yellow_red(tmp_path):
         root.update()
 
         colors = theme.get_palette("bonepaper_dark")
+
+        def rgb(hexval):
+            h = hexval.lstrip("#")
+            return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+        # Tagged "search_highlight" specifically -- canvas.find_all()
+        # also includes the page's own rendered PDF image (also type
+        # "image"), which would over-count otherwise.
+        search_image_items = app.canvas.find_withtag("search_highlight")
+        photos = app._search_highlight_photos
+        assert len(photos) == 2  # both matches got a real fill overlay
+        assert len(search_image_items) == 2
+        # ImageTk.PhotoImage has no .get() of its own -- the underlying
+        # object IS a real Tk photo image though, so Tk's own "get"
+        # command works directly (returns a clean (r, g, b) tuple).
+        pixel_rgbs = {photo.tk.call(photo, "get", 0, 0) for photo in photos}
+        assert rgb(colors["accent2"]) in pixel_rgbs  # the current match's fill
+        assert rgb(colors["select_bg"]) in pixel_rgbs  # the other match's fill
+
         outlines = [app.canvas.itemcget(i, "outline") for i in app.canvas.find_all()
                     if app.canvas.type(i) == "rectangle" and app.canvas.itemcget(i, "outline")]
-        assert colors["accent2"] in outlines  # the current match
-        assert colors["select_bg"] in outlines  # the other, non-current match
+        assert outlines == [colors["accent2"]]  # only the current match gets an outline
         assert "yellow" not in outlines
         assert "red" not in outlines
     finally:
@@ -1877,6 +1912,37 @@ def test_theme_switch_refreshes_native_titlebar_for_every_open_dialog(tmp_path):
         assert None in calls  # self.root, via the no-arg default path
         assert app._settings_window in calls
         assert app._about_window in calls
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_dialog_border_is_theme_tinted_and_updates_live(tmp_path):
+    """Devin, 2026-08-02: "i want to capture that same look" (webUI's
+    Bonepaper Dark, using a translucent version of its own accent for
+    every border) -- Settings/About/Sample Voices all used ONE fixed
+    universal gray (#6b6b6b) for their visible border, regardless of
+    theme. Real regression test: the border must actually be
+    colors["dialog_border"] (a real fg-toward-select_bg blend, see
+    theme.py's own comment for why fg-anchored not bg-anchored), must
+    differ between two themes with different accents, and must update
+    live in an already-open dialog on a theme switch (same convention
+    as the native-titlebar refresh right above this test)."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.theme_name.set("slate_dark")
+        app._apply_theme()
+        app._show_settings()
+        top = app._settings_window
+        colors = theme.get_palette("slate_dark")
+        assert top.cget("highlightbackground") == colors["dialog_border"]
+        assert top.cget("highlightbackground") != "#6b6b6b"
+
+        app.theme_name.set("bonepaper_dark")
+        app._on_theme_changed()
+        bonepaper_colors = theme.get_palette("bonepaper_dark")
+        assert top.cget("highlightbackground") == bonepaper_colors["dialog_border"]
+        assert bonepaper_colors["dialog_border"] != colors["dialog_border"]
     finally:
         app.doc.close()
         root.destroy()

@@ -144,6 +144,23 @@ def _with_chrome_cascade(palette: dict) -> dict:
     palette["toolbar_bg"] = _lerp_toward_fg(bg, fg, 0.16)
     palette["toolbar_fg"] = fg
     palette["active_tab_bg"] = _lerp_toward_fg(palette["button_bg"], palette["select_bg"], 0.35)
+    # dialog_border added 2026-08-02 (Devin: "i want to capture that
+    # same look" -- webUI's Bonepaper Dark uses a translucent version
+    # of the theme's OWN accent for every border/edge, rgba(180,228,
+    # 188,0.35), instead of a plain unrelated gray -- real signature
+    # look Devin called out as "one of the coolest dark themes out
+    # there... so unique." Settings/About/Sample Voices dialogs were
+    # all using one fixed universal gray (#6b6b6b) regardless of theme.
+    # Tk's highlightbackground has no real alpha, so this approximates
+    # the same effect with a real blend instead: fg toward select_bg at
+    # 35% (NOT bg toward select_bg -- checked via the same
+    # _wcag_contrast_ratio helper the toggle-buttons already use: a
+    # bg-anchored blend only cleared ~3:1 in slate_dark and sat under
+    # 5:1 in most light themes, real risk of the border reading as
+    # near-invisible against its own dialog fill, the exact "can't tell
+    # where the window is" bug this border exists to prevent; fg-
+    # anchored clears 3.7:1+ everywhere, most themes well past 5:1).
+    palette["dialog_border"] = _lerp_toward_fg(fg, palette["select_bg"], 0.35)
     return palette
 
 
@@ -403,17 +420,20 @@ _BONEPAPER_LIGHT = _load_base("bonepaper", "light") | {
 #     --meg-primary/--meg-secondary, same source as everything else in
 #     this family -- still exactly "green," per Devin's own answer.
 _MARTIN_LIGHT = _load_base("martin", "light") | {
-    # Martin is the ONE family that already had a real second accent
-    # before this 2026-08-02 pass -- highlight_bg (#4a7637) is Runestone's
-    # own "mt-green2, secondary MEG green, both modes", already distinct
-    # from select_bg's brighter primary green. Reused here rather than
-    # picking a new color: Martin already reads richer than the other 3
-    # families for exactly this reason (Devin's own "less colors"
-    # complaint was about Bonepaper, not Martin).
-    "accent2": "#4a7637",
+    # Real gap caught 2026-08-02 (Devin: "no theme should have any repeat
+    # colors!"): first pick reused highlight_bg's own value (#4a7637)
+    # outright -- distinct from select_bg, but IDENTICAL to highlight_bg,
+    # just moving which duplicate pair existed rather than removing one.
+    # martin.css has no 4th distinct hue at all (Martin is deliberately
+    # single-hue-family -- real MEG brand green, "green team all the
+    # way," per its own Pantone-collision history) -- its own real
+    # link-color-hover (#3d5f2c light / #7cc25a dark) is a genuinely
+    # different shade of the same green, not invented, and not equal to
+    # either select_bg or highlight_bg.
+    "accent2": "#3d5f2c",
 }
 _MARTIN_DARK = _load_base("martin", "dark") | {
-    "accent2": "#4a7637",  # same real mt-green2, both modes per its own source
+    "accent2": "#7cc25a",  # martin.css's own dark-mode link-color-hover
 }
 
 THEMES = {

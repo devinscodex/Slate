@@ -250,13 +250,29 @@ def test_every_theme_has_a_real_second_accent_distinct_from_the_primary():
     distinct greens). accent2 is a genuine second color per family,
     used for search-match emphasis (see _draw_search_highlights_for_page
     in slate.py) -- every family's own comment in theme.py documents
-    where its specific value came from (never invented). The real point
-    of this test: accent2 must not just exist, it must actually DIFFER
-    from select_bg -- an accent2 that silently duplicated select_bg
-    again would be the exact flatness this whole feature exists to fix."""
+    where its specific value came from (never invented).
+
+    Widened same day -- Devin, real correction: "no theme should have
+    any repeat colors!" First accent2 pass for Martin reused
+    highlight_bg's own value outright (distinct from select_bg, but
+    now IDENTICAL to highlight_bg -- just relocated the duplicate
+    instead of removing it). accent2 must be pairwise distinct from
+    BOTH other accent roles, not just select_bg.
+
+    select_bg == highlight_bg still holds for Bonepaper/Standard/Slate
+    (only Martin ever had two distinct greens) -- deliberately NOT
+    changed here. That pairing is a real, documented, already-shipped
+    design choice for those 3 families (theme.py's own history: "carries
+    through selection highlight/checked-toggle-fill/TOC-highlight
+    everywhere this theme is active, not a one-off") and highlight_bg
+    also drives live text-selection + saved-PDF-highlight-annotation
+    color, tested behavior this pass isn't touching. Whether Devin's
+    "no repeat colors" also means reversing THAT pairing is a real open
+    question for him to answer, not a call to make silently here."""
     for name, colors in theme.THEMES.items():
         assert "accent2" in colors, name
-        assert colors["accent2"] != colors["select_bg"], name
+        assert colors["select_bg"] != colors["accent2"], f"{name}: select_bg == accent2"
+        assert colors["highlight_bg"] != colors["accent2"], f"{name}: highlight_bg == accent2"
 
 
 def test_chrome_cascade_is_a_real_three_step_gradient():

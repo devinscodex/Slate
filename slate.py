@@ -198,6 +198,7 @@ class SlateApp:
         # correctly ordered without re-sorting by geometry.
         self._selected_words = []  # (page_num, word) pairs -- Devin, 2026-07-26: cross-page selection
         self._selection_highlight_photos = []  # PhotoImage refs for the current selection overlay -- see _draw_text_selection_for_page
+        self._search_highlight_photos = []  # PhotoImage refs for the current search-match overlay -- see _draw_search_highlights_for_page
         # Slice 4 (Fable design review, 2026-07-25): two INDEPENDENT
         # axes, not one mode string -- Devin: "side by side option
         # (both can be turned on, checkbox in menu)", matching how
@@ -823,6 +824,24 @@ class SlateApp:
                         # dialog automatically, not just the ones
                         # someone remembered to hand-wire.
                         self._apply_native_titlebar_theme(widget)
+                        # dialog_border re-assertion added 2026-08-02:
+                        # this border used to be one universal fixed
+                        # gray (#6b6b6b, same in every theme), so no
+                        # repaint was ever needed. Now it's theme-
+                        # tinted (colors["dialog_border"] -- see
+                        # theme.py's own comment), so a live theme
+                        # switch with Settings/About/Sample Voices
+                        # already open needs this reasserted same as
+                        # the titlebar above. Only touches a Toplevel
+                        # that already opted into the bordered-dialog
+                        # style (highlightthickness > 0) -- a bare
+                        # Toplevel with no border set (if one exists)
+                        # is left alone, not forced into this style.
+                        if int(widget.cget("highlightthickness")) > 0:
+                            widget.configure(
+                                highlightbackground=colors["dialog_border"],
+                                highlightcolor=colors["dialog_border"],
+                            )
                 elif cls == "Frame":
                     # Real bug caught live (Devin's screenshot,
                     # 2026-07-25 -- the home screen never themed
@@ -1340,7 +1359,7 @@ class SlateApp:
         # extremes. Fixed, not theme-variable -- _paint_widget's Toplevel
         # branch only ever touches bg, never highlight options, so this
         # needs no re-assertion after the repaint pass runs.
-        top.configure(highlightthickness=2, highlightbackground="#6b6b6b", highlightcolor="#6b6b6b")
+        top.configure(highlightthickness=2, highlightbackground=colors["dialog_border"], highlightcolor=colors["dialog_border"])
 
         header = tk.Frame(top)
         header.pack(padx=24, pady=(18, 6), anchor="w")
@@ -1433,7 +1452,7 @@ class SlateApp:
         top.title("Sample Voices")
         top.resizable(False, False)
         top.bind("<Escape>", lambda e: top.destroy())
-        top.configure(highlightthickness=2, highlightbackground="#6b6b6b", highlightcolor="#6b6b6b")
+        top.configure(highlightthickness=2, highlightbackground=colors["dialog_border"], highlightcolor=colors["dialog_border"])
 
         header = tk.Frame(top)
         header.pack(padx=24, pady=(18, 6), anchor="w")
@@ -1532,7 +1551,7 @@ class SlateApp:
         # why it's mid-gray and not the plain dark that was first asked
         # for (invisible against dark themes), and why it needs no
         # re-assertion after repaint.
-        top.configure(highlightthickness=2, highlightbackground="#6b6b6b", highlightcolor="#6b6b6b")
+        top.configure(highlightthickness=2, highlightbackground=colors["dialog_border"], highlightcolor=colors["dialog_border"])
 
         header = tk.Frame(top)
         header.pack(padx=24, pady=(18, 6), anchor="w")
@@ -2107,7 +2126,17 @@ class SlateApp:
         self.mode = mode
         if hasattr(self, "canvas"):
             self.canvas.config(cursor=self._cursor_for_mode(mode))
-        if mode == "redact":
+        if not hasattr(self, "mode_label"):
+            return  # called before the toolbar exists yet (early init path)
+        if mode == "view":
+            # Restyled 2026-08-02 (Devin: "'mode: view' looks
+            # unprofessional") -- "view" is the mode a reading session
+            # is in ~99% of the time, so an always-visible label just
+            # read as leftover debug text. Unpacked entirely (not just
+            # blanked) rather than shown empty -- the toolbar shows
+            # nothing here at all in the common case.
+            self.mode_label.pack_forget()
+        elif mode == "redact":
             # Real safety nudge, not just cosmetics: redact is the one
             # mode where a mis-drag has irreversible consequences
             # (DESIGN.md's redaction section) -- the mode indicator
@@ -2115,10 +2144,12 @@ class SlateApp:
             self.mode_label.config(
                 text=f"mode: {mode}", fg="white", bg="#c0392b", padx=6
             )
+            self.mode_label.pack(side=tk.LEFT, padx=12)
         else:
             self.mode_label.config(
                 text=f"mode: {mode}", fg="blue", bg=self._mode_label_default_bg, padx=0
             )
+            self.mode_label.pack(side=tk.LEFT, padx=12)
 
     def _require_doc(self) -> bool:
         if self.doc is None:
@@ -2375,15 +2406,47 @@ class SlateApp:
         toolbar.grid_columnconfigure(0, weight=1)
         toolbar.grid_columnconfigure(2, weight=1)
 
+        # Simplified 2026-08-02 (Devin): "< Prev"/"Next >" removed --
+        # real duplicates of the ◀/▶ glyph buttons already flanking the
+        # page-number box in toolbar_center below (same self.prev/next
+        # commands), not a lost capability. "Zoom -"/"Zoom +" removed --
+        # still reachable via Settings' own Zoom row -/+ buttons and
+        # Ctrl+scroll; this toolbar keeps only the one zoom-ish action
+        # that's genuinely a one-click "fix my view" command, not a
+        # repeated fine-adjustment. Columns -/+ added next to Fit Width
+        # (same real manual-pin control Settings' Zoom section has,
+        # duplicated here since it's a frequent action reading a
+        # multi-column document) -- both call fit_width() after
+        # changing num_columns, same "re-fit zoom on column change"
+        # fix as Settings' own controls.
         toolbar_left = tk.Frame(toolbar)
         toolbar_left.grid(row=0, column=0, sticky="w")
-        tk.Button(toolbar_left, text="< Prev", command=self.prev).pack(side=tk.LEFT)
-        tk.Button(toolbar_left, text="Next >", command=self.next).pack(side=tk.LEFT)
-        tk.Button(toolbar_left, text="Zoom -", command=self.zoom_out).pack(side=tk.LEFT)
-        tk.Button(toolbar_left, text="Zoom +", command=self.zoom_in).pack(side=tk.LEFT)
         tk.Button(toolbar_left, text="Fit Width", command=self.fit_width).pack(side=tk.LEFT)
-        self.mode_label = tk.Label(toolbar_left, text="mode: view", fg="blue")
-        self.mode_label.pack(side=tk.LEFT, padx=12)
+        tk.Label(toolbar_left, text="Columns:").pack(side=tk.LEFT, padx=(12, 4))
+
+        def _toolbar_columns_dec():
+            self._columns_pinned = True
+            self.num_columns = max(1, self.num_columns - 1)
+            self.fit_width()
+
+        def _toolbar_columns_inc():
+            self._columns_pinned = True
+            self.num_columns = min(6, self.num_columns + 1)
+            self.fit_width()
+
+        tk.Button(toolbar_left, text="-", width=2, command=_toolbar_columns_dec).pack(side=tk.LEFT)
+        tk.Button(toolbar_left, text="+", width=2, command=_toolbar_columns_inc).pack(side=tk.LEFT, padx=(2, 0))
+        # mode_label restyled 2026-08-02 (Devin: "'mode: view' looks
+        # unprofessional") -- plain always-visible "mode: view" text in
+        # raw blue read like a debug artifact left in, especially since
+        # "view" is the mode 99% of a reading session is actually in.
+        # Real safety function preserved (DESIGN.md: redact is the one
+        # mode where a mis-drag is irreversible, the red badge must stay
+        # loud) -- see _set_mode below: the label now only PACKS itself
+        # into the toolbar for a non-view mode, and unpacks (not just
+        # blanks its text) back to view, so the common case shows
+        # nothing here at all instead of an idle placeholder.
+        self.mode_label = tk.Label(toolbar_left, text="", fg="blue")
         self._mode_label_default_bg = self.mode_label.cget("bg")
 
         toolbar_center = tk.Frame(toolbar)
@@ -3414,6 +3477,7 @@ class SlateApp:
         self._page_canvas_items = {}
         self._page_placeholder_items = {}
         self._selection_highlight_photos = []  # once per render pass -- see _draw_text_selection_for_page
+        self._search_highlight_photos = []  # once per render pass -- see _draw_search_highlights_for_page
         max_x1 = max_y1 = 0.0
         for page_num in row_pages:
             x0, y0, _x1, _y1 = self._layout.rect_of(page_num)
@@ -3582,6 +3646,7 @@ class SlateApp:
         self._page_canvas_items = {}
         self._page_placeholder_items = {}
         self._selection_highlight_photos = []  # once per render pass -- see _draw_text_selection_for_page
+        self._search_highlight_photos = []  # once per render pass -- see _draw_search_highlights_for_page
         # Anchored to viewer.page_num (the page we KNOW should be
         # visible), not canvas.yview() -- the scrollregion for THIS
         # layout hasn't been set yet at this point in the call, so any
@@ -3674,29 +3739,45 @@ class SlateApp:
         like it has less colors compared to... webUI and the obsidian
         version"): outline was hardcoded plain "yellow"/"red", ignoring
         the active theme entirely -- true in every theme, not just
-        Bonepaper. Runestone's own themes already carry a real second
-        accent (Martin's mt-green2, Bonepaper's coral H3/code-keyword)
-        used for exactly this kind of "distinct but not the primary
-        accent" emphasis role; Slate never had a place to use it. Ordinary
-        matches now use the theme's own select_bg (same accent tabs/
-        toggles already use); the CURRENT match uses accent2 -- a real,
-        sourced secondary accent (see theme.py's own per-family comments
-        for where each value came from), same "second color for
-        emphasis" pattern Runestone already established, not invented
-        here."""
+        Bonepaper. First fix used a thin theme-colored OUTLINE rectangle
+        (select_bg for ordinary matches, accent2 for the current one) --
+        Devin, live: "use a highlight" (not an outline) -- "the lavender
+        rectangle for searching looks weak AF." A 2px outline just isn't
+        enough visual weight for something meant to draw the eye, no
+        matter the hue. Rebuilt as a real filled translucent overlay,
+        same technique _draw_text_selection_for_page already uses (RGBA
+        PhotoImage, not a stippled/outlined canvas primitive) -- ordinary
+        matches at the same ~35% opacity live selection uses, the
+        CURRENT match bumped to ~55% opacity PLUS a solid accent2 border
+        on top, so it reads as unambiguously "this one" even sitting
+        right next to other matches on the same page."""
         if not self.search_state.matches:
             return
         colors = theme.get_palette(self.theme_name.get())
         z = self.viewer.zoom
         current = self.search_state.current()
+
+        def _rgb(hexval):
+            h = hexval.lstrip("#")
+            return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+        select_rgb = _rgb(colors["select_bg"])
+        accent2_rgb = _rgb(colors["accent2"])
         for rect in self.search_state.matches_on_page(page_num):
             is_current = current is not None and current[0] == page_num and current[1] == rect
-            outline = colors["accent2"] if is_current else colors["select_bg"]
-            width = 3 if is_current else 2
-            self.canvas.create_rectangle(
-                ox + rect.x0 * z, oy + rect.y0 * z, ox + rect.x1 * z, oy + rect.y1 * z,
-                outline=outline, width=width,
-            )
+            px0, py0 = ox + rect.x0 * z, oy + rect.y0 * z
+            px1, py1 = ox + rect.x1 * z, oy + rect.y1 * z
+            pw, ph = max(1, round(px1 - px0)), max(1, round(py1 - py0))
+            rgb = accent2_rgb if is_current else select_rgb
+            alpha = 140 if is_current else 90  # ~55% current, ~35% others (matches selection's own opacity)
+            overlay = Image.new("RGBA", (pw, ph), rgb + (alpha,))
+            photo = ImageTk.PhotoImage(overlay)
+            self._search_highlight_photos.append(photo)  # keep ref, Tk drops GC'd images
+            self.canvas.create_image(px0, py0, anchor="nw", image=photo, tags=("search_highlight",))
+            if is_current:
+                self.canvas.create_rectangle(
+                    px0, py0, px1, py1, outline=colors["accent2"], width=2,
+                )
 
     def _draw_text_selection_for_page(self, page_num, ox, oy):
         """Canvas-only overlay, same convention as
