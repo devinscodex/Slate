@@ -173,25 +173,20 @@ class SlateApp:
         self._selected_words = []  # (page_num, word) pairs, can span multiple pages
         self._selection_highlight_photos = []  # PhotoImage refs for the current selection overlay -- see _draw_text_selection_for_page
         self._search_highlight_photos = []  # PhotoImage refs for the current search-match overlay -- see _draw_search_highlights_for_page
-        # Slice 4 (Fable design review, 2026-07-25): two INDEPENDENT
-        # axes, not one mode string -- Devin: "side by side option
-        # (both can be turned on, checkbox in menu)", matching how
+        # Two INDEPENDENT axes, not one mode string -- matches how
         # Adobe/Foxit's own "Two Page View" + "Scroll Continuously"
-        # checkboxes actually combine. continuous_scroll=True (Devin:
-        # "default to 'continuous scroll' please") is the "does the
-        # canvas scroll through every row" axis; side_by_side is the
-        # "how many pages per row" axis (cols=2 vs 1). self._layout
-        # (layout.PageLayout) exists in ALL FOUR combinations now --
-        # every coordinate-resolution call site generalizes to "does
+        # checkboxes combine. continuous_scroll is the "does the canvas
+        # scroll through every row" axis; side_by_side is the "how many
+        # pages per row" axis (cols=2 vs 1). self._layout
+        # (layout.PageLayout) exists in ALL FOUR combinations -- every
+        # coordinate-resolution call site generalizes to "does
         # self._layout exist" rather than a mode check.
         self.continuous_scroll = _saved["continuous_scroll"]
         self.side_by_side = _saved["side_by_side"]
-        # Devin, 2026-07-31, live on a 3440x1440 ultrawide: "can we do
-        # more than 2 columns automatically... based on how wide your
-        # viewport is." side_by_side stays a plain bool (2 columns vs 1,
-        # what the View menu's "Side by Side" checkbox + settings.json
-        # persistence still mean) for backward compat; num_columns is
-        # the real render-time column count, auto-recomputed from the
+        # side_by_side stays a plain bool (2 columns vs 1, what the View
+        # menu's "Side by Side" checkbox + settings.json persistence
+        # still mean) for backward compat; num_columns is the real
+        # render-time column count, auto-recomputed from the
         # live viewport width by _apply_width_based_side_by_side below
         # (every old "2 if self.side_by_side else 1" call site now
         # reads this instead). Seeded from the persisted bool so the
@@ -343,12 +338,9 @@ class SlateApp:
         mechanism -- iconbitmap(default=...) with a real multi-
         resolution .ico (branding/slate.ico, generated from
         icon_b_redaction_bar.png via Pillow's ICO writer) is what
-        Windows actually reads for the taskbar/Alt-Tab icon. Devin,
-        2026-07-25: "make the icon(s) official in the taskbar/
-        titlebar." NOT live-verified against a real Windows box from
-        here -- same "built against the documented mechanism, needs a
-        real machine to fully confirm" caveat as
-        _apply_native_titlebar_theme.
+        Windows actually reads for the taskbar/Alt-Tab icon. NOT
+        live-verified against a real Windows box (same caveat as
+        _apply_native_titlebar_theme).
         """
         branding_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "branding")
         try:
@@ -369,8 +361,7 @@ class SlateApp:
         if self.doc is not None:
             # Colorize happens once at cache-fill time (baked into the
             # stored PhotoImage), not reapplied per-draw -- a theme
-            # switch is a full cache bust, same cost as a zoom change
-            # (Fable design review, 2026-07-25, Slice 3 perf consult).
+            # switch is a full cache bust, same cost as a zoom change.
             self._page_cache.invalidate_all()
             self.render()  # re-invert the currently-visible page immediately, not on next nav
 
@@ -436,19 +427,17 @@ class SlateApp:
             return variable.get() == value if value is not None else bool(variable.get())
         def _refresh(*_a):
             cur_colors = theme.get_palette(fixed_theme_name or self.theme_name.get())
-            # Real bug caught live (Devin's screenshot, 2026-07-29,
-            # Slate Dark Settings): selectcolor was only ever set ONCE
-            # at construction time, under whatever theme was active when
-            # this singleton dialog was first built. Switching themes
-            # later (in the same still-open dialog session) repainted
-            # bg/fg everywhere via _paint_widget, but selectcolor itself
-            # -- a separate Tk widget option _paint_widget never
-            # touches -- stayed frozen on the OLD theme's accent. Mode/
-            # Display/Voice/Speed must track whichever theme is
-            # CURRENTLY active (fixed_theme_name is None for all of
-            # them); only the Theme grid's own per-swatch buttons
-            # (fixed_theme_name set) are deliberately exempt -- their
-            # selectcolor is supposed to stay pinned to that swatch's
+            # selectcolor was only ever set ONCE at construction time,
+            # under whatever theme was active when this singleton dialog
+            # was first built -- switching themes later (in the same
+            # still-open dialog session) repainted bg/fg everywhere via
+            # _paint_widget, but selectcolor itself (a separate Tk
+            # widget option _paint_widget never touches) stayed frozen
+            # on the OLD theme's accent. Mode/Display/Voice/Speed must
+            # track whichever theme is CURRENTLY active (fixed_theme_name
+            # is None for all of them); only the Theme grid's own
+            # per-swatch buttons (fixed_theme_name set) are deliberately
+            # exempt -- their selectcolor stays pinned to that swatch's
             # own theme forever, never the active one.
             if fixed_theme_name is None:
                 widget.configure(selectcolor=cur_colors["select_bg"])
@@ -1194,9 +1183,9 @@ class SlateApp:
         tk.Button(button_row, text="Close", command=_close_about).pack(side=tk.LEFT)
         self._paint_widget(top, colors)
 
-        # Center over the main window, not the top-left corner (Devin,
-        # 2026-07-25) -- real geometry only exists after the widgets
-        # above are actually laid out, hence update_idletasks() first.
+        # Center over the main window, not the top-left corner -- real
+        # geometry only exists after the widgets above are actually laid
+        # out, hence update_idletasks() first.
         top.update_idletasks()
         root_x, root_y = self.root.winfo_rootx(), self.root.winfo_rooty()
         root_w, root_h = self.root.winfo_width(), self.root.winfo_height()
@@ -1206,10 +1195,8 @@ class SlateApp:
         top.geometry(f"+{x}+{y}")
 
     def _show_voice_sampler(self):
-        """Read Aloud > Sample Voices... (Devin, 2026-07-29: "leave the
-        2 defaults there, but make a page that has a sampler with all
-        the voices"). Lists ALL 4 voices (not just the 2 bundled
-        defaults the Voice picker itself now offers -- see
+        """Read Aloud > Sample Voices... Lists ALL 4 voices (not just
+        the 2 bundled defaults the Voice picker itself offers -- see
         _build_menu's own comment on why those 2 were dropped from the
         picker) with a Play button each, playing that voice's bundled
         preview clip (tts.load_preview_audio) -- every voice can be
@@ -1818,12 +1805,10 @@ class SlateApp:
         if not hasattr(self, "mode_label"):
             return  # called before the toolbar exists yet (early init path)
         if mode == "view":
-            # Restyled 2026-08-02 (Devin: "'mode: view' looks
-            # unprofessional") -- "view" is the mode a reading session
-            # is in ~99% of the time, so an always-visible label just
-            # read as leftover debug text. Unpacked entirely (not just
-            # blanked) rather than shown empty -- the toolbar shows
-            # nothing here at all in the common case.
+            # "view" is the mode a reading session is in ~99% of the
+            # time -- unpacked entirely (not just blanked) rather than
+            # shown empty, so the toolbar shows nothing here at all in
+            # the common case.
             self.mode_label.pack_forget()
         elif mode == "redact":
             # Real safety nudge, not just cosmetics: redact is the one
@@ -2062,29 +2047,23 @@ class SlateApp:
         # of how wide the left/right clusters are. Equal weight on
         # columns 0 and 2 makes them absorb any extra window width
         # equally, which keeps column 1 (the page indicator) sitting
-        # mathematically centered. Devin, 2026-07-25: "move the current
-        # page / total page UI element to the top-center... mimic
-        # Foxit's UI as much as possible" -- Foxit/Acrobat-convention
-        # editable page-number box + "of N" (type a number, Enter
-        # jumps there), not just relocated static text.
+        # mathematically centered. Foxit/Acrobat-convention editable
+        # page-number box + "of N" (type a number, Enter jumps there),
+        # not just static text.
         toolbar = self.toolbar = tk.Frame(self.body_frame)
         toolbar.pack(side=tk.TOP, fill=tk.X)
         toolbar.grid_columnconfigure(0, weight=1)
         toolbar.grid_columnconfigure(2, weight=1)
 
-        # Simplified 2026-08-02 (Devin): "< Prev"/"Next >" removed --
-        # real duplicates of the ◀/▶ glyph buttons already flanking the
-        # page-number box in toolbar_center below (same self.prev/next
-        # commands), not a lost capability. "Zoom -"/"Zoom +" removed --
+        # "< Prev"/"Next >" removed -- duplicates of the ◀/▶ glyph buttons
+        # already flanking the page-number box in toolbar_center below
+        # (same self.prev/next commands). "Zoom -"/"Zoom +" removed --
         # still reachable via Settings' own Zoom row -/+ buttons and
-        # Ctrl+scroll; this toolbar keeps only the one zoom-ish action
-        # that's genuinely a one-click "fix my view" command, not a
-        # repeated fine-adjustment. Columns -/+ added next to Fit Width
-        # (same real manual-pin control Settings' Zoom section has,
-        # duplicated here since it's a frequent action reading a
-        # multi-column document) -- both call fit_width() after
-        # changing num_columns, same "re-fit zoom on column change"
-        # fix as Settings' own controls.
+        # Ctrl+scroll. Columns -/+ added next to Fit Width (same control
+        # Settings' Zoom section has, duplicated here since it's a
+        # frequent action reading a multi-column document) -- both call
+        # fit_width() after changing num_columns, same re-fit-on-column-
+        # change behavior as Settings' own controls.
         toolbar_left = tk.Frame(toolbar)
         toolbar_left.grid(row=0, column=0, sticky="w")
         tk.Button(toolbar_left, text="Fit Width", command=self.fit_width).pack(side=tk.LEFT)
@@ -2254,9 +2233,8 @@ class SlateApp:
         self.root.bind("<Down>", self._kb_next_page)
         self.root.bind("<Prior>", self._kb_prev_page)  # Page Up
         self.root.bind("<Next>", self._kb_next_page)  # Page Down
-        # Home/End = first/last page (Devin, 2026-07-26: "home/end
-        # aren't work[ing]") -- same handlers vim-style g/G already use
-        # below; Home/End is the more universal Adobe/Foxit/Sumatra
+        # Home/End = first/last page, same handlers vim-style g/G already
+        # use below -- Home/End is the more universal Adobe/Foxit/Sumatra
         # convention, this was just never bound to it.
         self.root.bind("<Home>", self._kb_first_page)
         self.root.bind("<End>", self._kb_last_page)
@@ -2265,23 +2243,21 @@ class SlateApp:
         # discrete Button-4 (up) / Button-5 (down) click events with no
         # delta at all -- both bound so this is actually testable here,
         # not just assumed to work on the real deployment target. Both
-        # now route through _wheel_up/_wheel_down (Fable design review,
-        # 2026-07-25) -- previously Button-4/5 bypassed _on_mouse_wheel
-        # entirely and called page-nav directly, a real X11/Windows
-        # parity gap that only happened to be invisible because both
-        # paths did the exact same unconditional thing.
+        # now route through _wheel_up/_wheel_down -- previously Button-4/5
+        # bypassed _on_mouse_wheel entirely and called page-nav directly, a
+        # real X11/Windows parity gap that only happened to be invisible
+        # because both paths did the exact same unconditional thing.
         self.canvas.bind("<MouseWheel>", self._on_mouse_wheel)
         self.canvas.bind("<Button-4>", self._wheel_up)
         self.canvas.bind("<Button-5>", self._wheel_down)
-        # Ctrl+scroll = zoom (Devin, 2026-07-25), same platform split as
-        # plain wheel above -- Tk's compound event names route the
-        # Control-modified wheel to a separate binding automatically,
-        # no manual event.state check needed.
+        # Ctrl+scroll = zoom, same platform split as plain wheel above --
+        # Tk's compound event names route the Control-modified wheel to a
+        # separate binding automatically, no manual event.state check needed.
         self.canvas.bind("<Control-MouseWheel>", self._on_ctrl_mouse_wheel)
         self.canvas.bind("<Control-Button-4>", lambda e: self.zoom_in())
         self.canvas.bind("<Control-Button-5>", lambda e: self.zoom_out())
-        # Shift+scroll = horizontal scroll (Devin, 2026-07-26), same
-        # platform split as Ctrl+scroll above.
+        # Shift+scroll = horizontal scroll, same platform split as
+        # Ctrl+scroll above.
         self.canvas.bind("<Shift-MouseWheel>", self._on_shift_mouse_wheel)
         self.canvas.bind("<Shift-Button-4>", self._shift_wheel_left)
         self.canvas.bind("<Shift-Button-5>", self._shift_wheel_right)
@@ -2515,12 +2491,10 @@ class SlateApp:
         self._toggle_book_view()
 
     def _on_canvas_frame_configure(self, event=None):
-        """Devin, 2026-07-25: "if the horizontal size reaches 'side by
-        side' size, Slate automatically toggles it." <Configure> fires
-        continuously during a live drag-resize (and once per render()'s
-        own canvas resize) -- debounced via after_cancel/after so the
-        real width check only runs once resizing actually settles,
-        not on every intermediate pixel."""
+        """<Configure> fires continuously during a live drag-resize (and
+        once per render()'s own canvas resize) -- debounced via
+        after_cancel/after so the real width check only runs once
+        resizing actually settles, not on every intermediate pixel."""
         if self._autolayout_after_id is not None:
             self.root.after_cancel(self._autolayout_after_id)
         self._autolayout_after_id = self.root.after(150, self._apply_width_based_side_by_side)
@@ -2528,32 +2502,19 @@ class SlateApp:
     def _apply_width_based_side_by_side(self):
         """Real width threshold, not a guess: each additional column at
         the CURRENT zoom costs one more page-width + one more inter-page
-        gap. continuous_scroll is never touched here (Devin, same
-        thread: "continuous scroll stays a default") -- only the column
-        count auto-follows width.
-
-        Extended 2026-07-31 (Devin, live, 3440x1440 ultrawide): "can we
-        do more than 2 columns automatically... based on how wide your
-        viewport is" -- was a hardcoded 2-vs-1 threshold, now computes
-        however many whole columns actually fit, same real-width-math
-        approach, just generalized from a boolean to a count. Capped at
-        6 -- past that, per-column width gets uncomfortably narrow for
-        reading regardless of how much raw pixel width is available,
-        and nothing about the rest of the rendering path has been
-        exercised past that count. self.side_by_side (plain bool) stays
+        gap. continuous_scroll is never touched here -- only the column
+        count auto-follows width. Computes however many whole columns
+        actually fit, capped at 6 -- past that, per-column width gets
+        uncomfortably narrow for reading regardless of how much raw
+        pixel width is available. self.side_by_side (plain bool) stays
         in sync as "num_columns >= 2" purely for the View menu's
         existing "Side by Side" checkbox + settings.json persistence --
         num_columns, not this bool, is what every render call site
-        actually reads now.
+        actually reads.
 
-        Devin, same day, reversing his own earlier "always auto, no
-        manual override" call: "it's easier for you to focus on that
-        when I am the one who tells you how many columns... though."
-        self._columns_pinned (Settings' own Columns -/+ control) now
+        self._columns_pinned (Settings' own Columns -/+ control)
         short-circuits this entirely while set -- a manual pick stops
-        being silently overwritten by the next resize, which was the
-        real problem with "always auto" once a real manual control
-        existed to fight with."""
+        being silently overwritten by the next resize."""
         self._autolayout_after_id = None
         if self._columns_pinned or self.viewer is None or self.doc is None:
             return
@@ -2606,9 +2567,7 @@ class SlateApp:
 
     def _kb_find_next(self, event=None):
         """Root-level "n" binding -- guarded so typing a literal 'n' into
-        the find box (or any other entry) doesn't also trigger a jump.
-        The find box's own <Return> binding calls _find_next directly,
-        unguarded, since Enter there is always a deliberate search."""
+        the find box (or any other entry) doesn't also trigger a jump."""
         if self._typing_in_entry():
             return
         self._find_next()
@@ -2721,19 +2680,15 @@ class SlateApp:
     # ------------------------------------------------------------------
     def _save_open_tabs(self):
         """Called after every tab open/close, not just on window-close,
-        so a crash or a hard kill (not just a clean Quit) still leaves
-        an accurate session to restore -- same "resumable by
-        construction" reasoning as recent.py's own self-healing list.
-
-        Also called on every page turn (_go_to_page, Devin, 2026-07-26:
-        "i want my Slate session to be restored (document position)")
-        so the saved position is never stale -- open/close alone would
-        only capture whatever page a tab happened to be on at the LAST
+        so a crash or a hard kill still leaves an accurate session to
+        restore. Also called on every page turn (_go_to_page) so the
+        saved position is never stale -- open/close alone would only
+        capture whatever page a tab happened to be on at the LAST
         add/remove, not wherever it was actually left. t.viewer is the
-        real, live Viewer object for that tab (Tab.__init__ keeps it,
-        tab.py's own docstring), the same object self.viewer points at
-        while that tab is active -- so t.viewer.page_num is always
-        current, no extra sync needed even for background tabs."""
+        real, live Viewer object for that tab (Tab.__init__ keeps it),
+        the same object self.viewer points at while that tab is active
+        -- so t.viewer.page_num is always current, no extra sync needed
+        even for background tabs."""
         settings.save({
             "open_tabs": [{"path": t.path, "page": t.viewer.page_num} for t in self._tabs]
         })
@@ -2770,11 +2725,10 @@ class SlateApp:
         # show the real filename) even when doc was actually opened
         # from a corrected temp copy.
         new_viewer = Viewer(doc)
-        # Persisted zoom (Devin, 2026-07-26 handoff): a user-chosen zoom
-        # carries across documents/launches instead of every new
-        # document silently reverting to Viewer.DEFAULT_ZOOM. None means
-        # "never explicitly set yet" (a first-ever launch, or zoom never
-        # touched) -- leaves the class's own default alone in that case.
+        # A user-chosen zoom carries across documents/launches instead
+        # of every new document silently reverting to
+        # Viewer.DEFAULT_ZOOM. None means "never explicitly set yet" --
+        # leaves the class's own default alone in that case.
         if self._saved_zoom is not None:
             new_viewer.zoom = self._saved_zoom
         new_tab = tabmodule.Tab(path, doc, new_viewer)
@@ -2796,13 +2750,11 @@ class SlateApp:
 
     def _select_tab(self, frame):
         """Selecting a Notebook tab only fires <<NotebookTabChanged>> on
-        the next idle-loop pass, not synchronously -- real bug hit live
-        writing this feature's own tests: app.doc was still None right
-        after _open_document() returned. Calling the handler directly
-        here makes tab-loading synchronous and testable; the bound
-        virtual event (real interactive tab clicks) still also fires
-        afterward, which just reloads the same already-active tab --
-        idempotent, harmless."""
+        the next idle-loop pass, not synchronously -- without calling
+        the handler directly here, app.doc would still be None right
+        after _open_document() returned. The bound virtual event (real
+        interactive tab clicks) still also fires afterward, which just
+        reloads the same already-active tab -- idempotent, harmless."""
         self.tab_strip.select(frame)
         self._on_tab_strip_changed()
 
@@ -2865,8 +2817,8 @@ class SlateApp:
         self._cycle_tab(-1)
 
     def _cycle_tab(self, direction):
-        """Ctrl+Tab/Ctrl+Shift+Tab (Devin, 2026-07-25: CUA keybinds).
-        Wraps around at either end, same convention as browser tabs."""
+        """Ctrl+Tab/Ctrl+Shift+Tab. Wraps around at either end, same
+        convention as browser tabs."""
         tabs = self.tab_strip.tabs()
         if len(tabs) < 2:
             return
@@ -2875,17 +2827,15 @@ class SlateApp:
 
     def _on_tab_strip_click(self, event):
         """Middle-click closes a tab (same convention as Chrome/Firefox).
-        Real finding while building this: ttk.Notebook.bbox() returns
-        (0,0,0,0) for every tab (confirmed across 'default'/'clam' AND,
-        2026-07-26, the real Windows 'vista' theme too -- not a
-        headless-only quirk) despite the widget being mapped with
-        real, non-zero dimensions -- breaking any "click within N px
-        of the tab's right edge" hit-test a visible per-tab (x) button
-        would need via the normal API. identify()/index() at a
-        coordinate DO work correctly, so the close action is anchored
-        to those instead. See _on_tab_strip_left_click for how the
-        visible "x" glyph now gets a real left-click hit-test too,
-        working around the same bbox() gap a different way."""
+        ttk.Notebook.bbox() returns (0,0,0,0) for every tab (confirmed
+        across 'default'/'clam'/Windows 'vista' themes) despite the
+        widget being mapped with real, non-zero dimensions -- breaking
+        any "click within N px of the tab's right edge" hit-test via the
+        normal API. identify()/index() at a coordinate DO work
+        correctly, so the close action is anchored to those instead.
+        See _on_tab_strip_left_click for how the visible "x" glyph gets
+        a real left-click hit-test too, working around the same bbox()
+        gap a different way."""
         try:
             index = self.tab_strip.index(f"@{event.x},{event.y}")
         except tk.TclError:
@@ -2893,32 +2843,25 @@ class SlateApp:
         self._close_tab_by_index(index)
 
     def _on_tab_strip_left_click(self, event):
-        """Left-click ON THE VISIBLE "x" glyph closes its tab (Devin,
-        2026-07-26: "'x' on last document tab doesn't close it and go
-        to home"). Real root cause: the "x" glyph was a visual hint
-        only -- plain left-click has no built-in close behavior at
-        all (only middle-click did, see _on_tab_strip_click), so
-        clicking the thing that LOOKS clickable just reselected the
-        tab (a no-op if it was already the active/only tab), which
-        reads exactly as "doesn't close."
+        """Left-click ON THE VISIBLE "x" glyph closes its tab. The "x"
+        glyph was a visual hint only -- plain left-click has no
+        built-in close behavior at all (only middle-click did, see
+        _on_tab_strip_click), so clicking the thing that LOOKS
+        clickable just reselected the tab.
 
         Can't fix this with a pixel-offset hit-test the obvious way --
         ttk.Notebook.bbox() is confirmed broken (see
-        _on_tab_strip_click's docstring) on both this dev box and a
-        real Windows Tk build, so there's no reliable "this tab starts
-        at x=N" to measure a close-zone against. Real workaround,
-        empirically verified live (a hidden Tk probe, 2026-07-26):
+        _on_tab_strip_click's docstring), so there's no reliable "this
+        tab starts at x=N" to measure a close-zone against. Workaround:
         tab_strip.index(f"@{x},{y}") DOES resolve correctly at any
         coordinate even though bbox() lies -- scanning it forward one
-        pixel at a time from the click point finds the real edge of
-        the clicked tab, either where the index changes to the NEXT
-        tab, or (critically, for the LAST tab -- the exact case in
-        Devin's report) where querying past the last tab's real
-        content raises a clean TclError instead of silently returning
-        a wrong answer. Treats hitting the strip's own right edge
-        (winfo_width()) as also in-bounds, matching a genuinely
-        borderless case (a tab's real content can end exactly at the
-        widget's edge with no further probing possible)."""
+        pixel at a time from the click point finds the real edge of the
+        clicked tab, either where the index changes to the NEXT tab, or
+        (critically, for the LAST tab) where querying past the last
+        tab's real content raises a clean TclError instead of silently
+        returning a wrong answer. Treats hitting the strip's own right
+        edge (winfo_width()) as also in-bounds, matching a genuinely
+        borderless case."""
         try:
             index = self.tab_strip.index(f"@{event.x},{event.y}")
         except tk.TclError:
@@ -2979,12 +2922,10 @@ class SlateApp:
         # to any page" the next time anything touched it. self.page is
         # the fix -- always use it, never re-index self.doc directly.
         self.page = self.doc[self.viewer.page_num]
-        # Slice 2 (Fable design review, 2026-07-25): genuinely branch
-        # rather than thread view_mode ifs through one render path --
-        # search-highlight/selection overlays both need "+ page offset"
-        # in continuous mode, so unifying the two paths would mean
-        # offset-plumbing every call site anyway. Two smaller, readable
-        # functions instead.
+        # Genuinely branch rather than thread view_mode ifs through one
+        # render path -- search-highlight/selection overlays both need
+        # "+ page offset" in continuous mode, so unifying the two paths
+        # would mean offset-plumbing every call site anyway.
         self._suppress_scroll_sync = True
         try:
             if self.continuous_scroll:
@@ -2994,8 +2935,8 @@ class SlateApp:
         finally:
             self._suppress_scroll_sync = False
         pending_here = sum(1 for p, _ in self._pending_redactions if p == self.viewer.page_num)
-        # Page number moved to the centered Foxit-style box (Devin,
-        # 2026-07-25) -- status now carries only zoom/pending-redaction.
+        # Page number moved to the centered Foxit-style box -- status
+        # now carries only zoom/pending-redaction.
         self.status.config(
             text=f"zoom {self.viewer.zoom:.2f}x"
             + (f"  ({pending_here} pending redaction)" if pending_here else "")
@@ -3004,39 +2945,33 @@ class SlateApp:
         self.page_total_label.config(text=f"of {self.viewer.page_count}")
 
     def _colorize_for_theme(self, img):
-        # Real gap Devin caught live: a raw invert (the first attempt)
-        # only reads right for the plain built-in "dark" theme --  it
-        # leaves every LIGHT-toned named theme's page pure white, not
-        # tinted to that theme's own paper color, so the reading
-        # surface doesn't match the chrome at all ("want document to
-        # match" a themed page, "same as text editors when using
-        # themes"). ImageOps.colorize maps the page's own light->dark
-        # tones onto the theme's canvas_bg->fg pair instead of a flat
-        # invert -- one mechanism for every theme, light or dark alike
-        # (for the plain "light" theme this is a near no-op, black->
-        # black and white->near-white). Photos/images on the page
-        # recolor too, same accepted simple tradeoff as Sumatra's own
-        # basic color-inversion feature, just via a nicer mapping.
+        # A raw invert only reads right for the plain built-in "dark"
+        # theme -- it leaves every LIGHT-toned named theme's page pure
+        # white, not tinted to that theme's own paper color, so the
+        # reading surface doesn't match the chrome at all.
+        # ImageOps.colorize maps the page's own light->dark tones onto
+        # the theme's canvas_bg->fg pair instead of a flat invert -- one
+        # mechanism for every theme, light or dark alike (for the plain
+        # "light" theme this is a near no-op, black->black and
+        # white->near-white). Photos/images on the page recolor too,
+        # same accepted simple tradeoff as Sumatra's own basic
+        # color-inversion feature, just via a nicer mapping.
         #
-        # Opt-out, then flipped to opt-IN (both same day, 2026-07-26):
-        # that tradeoff actively destroys content where color IS the
-        # payload -- first caught live on a categorical-color-coded
-        # diagram whose legend went meaningless once flattened to one
-        # tint; recurred the same day on a real blue/orange bake-off
-        # comparison diagram, which is what prompted flipping the
-        # DEFAULT to off rather than leaving it an opt-out most people
-        # would never find. self.colorize_pages now defaults False --
-        # checking "Colorize pages to theme" in the View menu is how a
-        # prose-only reader opts back into the old tinted-to-theme look.
+        # Opt-in, not opt-out: that tradeoff actively destroys content
+        # where color IS the payload -- a categorical-color-coded
+        # diagram's legend goes meaningless once flattened to one tint.
+        # self.colorize_pages defaults False -- checking "Colorize pages
+        # to theme" in the View menu is how a prose-only reader opts
+        # into the tinted-to-theme look.
         if not self.colorize_pages:
             return img
         colors = theme.get_palette(self.theme_name.get())
         return ImageOps.colorize(img.convert("L"), black=colors["fg"], white=colors["canvas_bg"])
 
     def _render_static_row(self):
-        """The "not scrolling" axis (Slice 4, Fable design review,
-        2026-07-25) -- side-by-side is an independent checkbox, not a
-        third radio option, so this replaces the old single-page-only
+        """The "not scrolling" axis -- side-by-side is an independent
+        checkbox, not a third radio option, so this replaces the old
+        single-page-only
         _render_single with a cols-aware version: cols=1 is byte-
         identical to the original (one page, canvas sized exactly to
         it, no scrollbar needed); cols=2 is a static two-page spread,
@@ -3130,17 +3065,15 @@ class SlateApp:
 
     def _compute_window(self) -> list:
         """Real page range worth keeping rendered: viewport ± one
-        screenful of slack (Fable design review, 2026-07-25, Slice 3
-        perf consult) -- self-adjusts to zoom/viewport size, no tuned
-        page-count constant.
+        screenful of slack -- self-adjusts to zoom/viewport size, no
+        tuned page-count constant.
 
         Trusts canvas.yview() -- only valid once the scrollregion
-        reflects the CURRENT layout. Real bug caught live building
-        this: calling this before a render pass updates the
-        scrollregion reads a STALE fraction (from whatever the
-        previous, differently-sized mode/layout had) against the NEW
-        total_h, producing a nonsensical window that could span nearly
-        the whole document. _render_continuous's first-ever build for
+        reflects the CURRENT layout. Calling this before a render pass
+        updates the scrollregion reads a STALE fraction (from whatever
+        the previous, differently-sized mode/layout had) against the
+        NEW total_h, producing a nonsensical window that could span
+        nearly the whole document. _render_continuous's first-ever build for
         a given layout uses _window_around_page instead, anchored to
         the page we already know should be visible rather than a
         scroll fraction that might not correspond to this layout at
@@ -3180,19 +3113,17 @@ class SlateApp:
         self._page_placeholder_items[page_num] = item
 
     def _render_continuous(self):
-        """Real perf fix (Fable design review, 2026-07-25), after Devin
-        hit a live lockup on PageUp/PageDown: the original eager-
-        render-every-page-on-every-render()-call approach re-rasterized
-        the WHOLE document on every navigation/zoom/theme change.
-        Windowed instead -- only pages near the viewport (± one
+        """Windowed rendering: an eager render-every-page-on-every-
+        render()-call approach re-rasterizes the WHOLE document on every
+        navigation/zoom/theme change, which locks up on PageUp/PageDown
+        for any nontrivial document. Only pages near the viewport (± one
         screenful of slack) get a real PhotoImage; everything else is a
         cheap colored placeholder rect, lazily upgraded as the window
         moves (see _shift_window, the pure-scroll incremental path that
         avoids even this full rebuild for ordinary scrolling)."""
         cols = self.num_columns
         zoom = self.viewer.zoom
-        # Centering (Devin, 2026-07-29 -- "current default alignment isn't
-        # centered"): continuous mode deliberately does NOT resize the
+        # Centering: continuous mode deliberately does NOT resize the
         # canvas WIDGET to content (see the scrollregion comment below),
         # so on any window wider than the document, content was pinned to
         # the left edge with a dead gap on the right. update_idletasks() +
@@ -3206,19 +3137,15 @@ class SlateApp:
         # so a repeated render at an unchanged viewport never measures its
         # OWN previous offset and compounds it.
         crop_rect = self._get_crop_rect()
-        # Real bug (Devin, 2026-08-01: "often the text doesn't render
-        # upon column change"): this comment already claimed the same
-        # update_idletasks()-then-winfo_width() pattern fit_width()/
-        # _apply_width_based_side_by_side() use, but the actual call
-        # was missing -- winfo_width() without a forced idle-tasks
-        # flush can return a stale cached width right after a column
-        # count change (Settings' -/+ buttons fire synchronously,
-        # before Tk's own event loop has processed the geometry change
-        # that triggered this render), producing a wrong content_w/
-        # center_offset_x and, in the worst case, a layout computed
-        # against a pre-resize viewport that doesn't match what
-        # actually gets drawn. Matches the reported "often," not
-        # "always" -- exactly the shape of a race, not a hard failure.
+        # update_idletasks() before winfo_width() is required here, not
+        # optional: without a forced idle-tasks flush, winfo_width() can
+        # return a stale cached width right after a column count change
+        # (Settings' -/+ buttons fire synchronously, before Tk's own
+        # event loop has processed the geometry change that triggered
+        # this render), producing a wrong content_w/center_offset_x and,
+        # in the worst case, a layout computed against a pre-resize
+        # viewport that doesn't match what actually gets drawn -- a race,
+        # not a hard failure, so it doesn't reproduce every time.
         self.canvas.update_idletasks()
         viewport_w = self.canvas.winfo_width()
         content_w = layout.PageLayout(self.doc, zoom, cols=cols, crop_rect=crop_rect).content_width
@@ -3260,10 +3187,9 @@ class SlateApp:
                 self._draw_real_page(page_num, x0, y0)
             else:
                 self._draw_placeholder(page_num, x0, y0, x1, y1, colors)
-            # Devin, 2026-07-25, live screenshot review: a page that
-            # ends with a lot of its own trailing whitespace (baked
-            # into that page's real content, not something Slate can
-            # crop without risking real content) reads as an
+            # A page that ends with a lot of its own trailing whitespace
+            # (baked into that page's real content, not something Slate
+            # can crop without risking real content) reads as an
             # unexplained blank void without this -- a subtle line at
             # the real page boundary marks it as an intentional break.
             # Row-boundary only (Slice 4: side-by-side means more than
@@ -3274,10 +3200,10 @@ class SlateApp:
             if is_last_in_row and idx < len(rects) - 1:
                 row_w, _total_h = self._layout.total_size
                 line_y = y1 + self._layout.gap / 2
-                # Starts at center_offset_x, not 0 -- with centering active
-                # (Devin, 2026-07-29), x=0 is empty left margin, not the
-                # real page edge; the line would otherwise bleed through
-                # that dead space instead of tracking the actual content.
+                # Starts at center_offset_x, not 0 -- with centering
+                # active, x=0 is empty left margin, not the real page
+                # edge; the line would otherwise bleed through that dead
+                # space instead of tracking the actual content.
                 self.canvas.create_line(
                     self._layout.center_offset_x, line_y, row_w, line_y,
                     fill=colors["muted_fg"], width=1,
@@ -3285,14 +3211,13 @@ class SlateApp:
         total_w, total_h = self._layout.total_size
         # Deliberately NOT canvas.config(width=, height=) here (unlike
         # _render_single, where the canvas SHOULD size to exactly one
-        # page) -- real bug caught live after defaulting view_mode to
-        # "continuous": sizing the canvas WIDGET itself to the full
-        # stacked document height meant that, on a fresh window with no
-        # prior smaller render to anchor a sane size, Tk let the
-        # TOPLEVEL grow to fit that huge request outright (nothing
-        # existed yet to clip it against), so canvas.yview() reported
-        # "everything fits" even for a document far taller than any
-        # real screen. scrollregion alone is correct here -- the
+        # page) -- sizing the canvas WIDGET itself to the full stacked
+        # document height means that, on a fresh window with no prior
+        # smaller render to anchor a sane size, Tk lets the TOPLEVEL grow
+        # to fit that huge request outright (nothing exists yet to clip
+        # it against), so canvas.yview() reports "everything fits" even
+        # for a document far taller than any real screen. scrollregion
+        # alone is correct here -- the
         # canvas's on-screen size should stay whatever the container
         # actually gives it; that's the entire point of a scrollable
         # viewport onto a larger virtual content area.
@@ -3333,17 +3258,13 @@ class SlateApp:
         the page's canvas-space origin -- always (0, 0) in single-page
         mode, so this is byte-identical to the pre-Slice-2 math there.
 
-        Real bug fixed 2026-08-02 (Devin: Slate's Bonepaper Dark "feels
-        like it has less colors compared to... webUI and the obsidian
-        version"): outline was hardcoded plain "yellow"/"red", ignoring
-        the active theme entirely -- true in every theme, not just
-        Bonepaper. First fix used a thin theme-colored OUTLINE rectangle
-        (select_bg for ordinary matches, accent2 for the current one) --
-        Devin, live: "use a highlight" (not an outline) -- "the lavender
-        rectangle for searching looks weak AF." A 2px outline just isn't
-        enough visual weight for something meant to draw the eye, no
-        matter the hue. Rebuilt as a real filled translucent overlay,
-        same technique _draw_text_selection_for_page already uses (RGBA
+        Outline was hardcoded plain "yellow"/"red", ignoring the active
+        theme entirely -- true in every theme, not just Bonepaper. A thin
+        theme-colored OUTLINE rectangle (select_bg for ordinary matches,
+        accent2 for the current one) isn't enough visual weight for
+        something meant to draw the eye, no matter the hue. Built instead
+        as a real filled translucent overlay, same technique
+        _draw_text_selection_for_page already uses (RGBA
         PhotoImage, not a stippled/outlined canvas primitive) -- ordinary
         matches at the same ~35% opacity live selection uses, the
         CURRENT match bumped to ~55% opacity PLUS a solid accent2 border
@@ -3383,17 +3304,15 @@ class SlateApp:
         render() alongside the page image, never a real annotation.
         Uses the active theme's highlight_bg (was a hardcoded blue
         "#3a5a7a" regardless of theme) -- for inkbone this is the one
-        place green survives as a real, minimal, pure accent (Devin,
-        2026-07-25), not select_bg (tabs, now monochrome). A selection
-        holds (page_num, word) pairs now (Devin, 2026-07-26: cross-page
-        selection) -- each page draws only its own words, filtered out
+        place green survives as a real, minimal, pure accent, not
+        select_bg (tabs, now monochrome). A selection holds (page_num,
+        word) pairs -- each page draws only its own words, filtered out
         of the whole selection here, so a selection spanning several
         pages still renders correctly, once per resident page.
 
-        Devin, 2026-07-25: "make it a true highlighter" -- this used to
-        draw one stippled rectangle PER SELECTED WORD, which read as a
-        scattered multicursor-style pattern (gaps between words, a
-        dithered fill) instead of one smooth highlighter bar. Same two
+        A real highlighter bar, not one stippled rectangle PER SELECTED
+        WORD, which read as a scattered multicursor-style pattern (gaps
+        between words, a dithered fill). Same two
         root causes as _update_tts_highlight's docstring (that fix is
         the reference pattern this one follows, code not shared since
         the TTS path stays untouched): per-word boxes instead of one
@@ -3412,19 +3331,16 @@ class SlateApp:
         of _render_continuous/_render_static_row (alongside their own
         canvas.delete("all")) -- NOT here.
 
-        Real bug caught live 2026-07-26 ("TTS highlight works, drag
-        selection doesn't"): this function runs once per VISIBLE page
-        (_draw_real_page is called for every resident page in the
-        window, and continuous mode routinely has 2+ pages resident).
-        The old version reset self._selection_highlight_photos = []
-        on EVERY non-matching page's early return -- so the correct
-        page's images got created and drawn, then wiped by the very
-        next page processed in the SAME render pass (whichever page
-        that was, matching or not), going blank before the frame was
-        even fully drawn. Fix: this function only ever APPENDS its own
-        page's images to the list (via the caller having already reset
-        it once for the whole pass); a non-matching page does a bare
-        return, touching nothing."""
+        This function runs once per VISIBLE page (_draw_real_page is
+        called for every resident page in the window, and continuous
+        mode routinely has 2+ pages resident), so resetting
+        self._selection_highlight_photos = [] on EVERY non-matching
+        page's early return would wipe the correct page's images right
+        after they're drawn, whenever a non-matching page is processed
+        later in the SAME render pass. This function only ever APPENDS
+        its own page's images to the list (the caller resets it once
+        for the whole pass); a non-matching page does a bare return,
+        touching nothing."""
         page_words = [w for pn, w in self._selected_words if pn == page_num]
         if not page_words:
             return
@@ -3465,11 +3381,9 @@ class SlateApp:
         """Group self._selected_words into one (page_num, fitz.Rect) per
         line -- same (block_no, line_no) grouping
         _draw_text_selection_for_page already uses for the highlight
-        overlay, reused here (Devin, 2026-07-26: "a good right-click
-        menu... include things users would expect") so "Highlight
-        Selection"/"Redact Selection" mark exactly what the on-screen
-        highlight visually shows, page by page across a cross-page
-        selection."""
+        overlay, reused here so "Highlight Selection"/"Redact Selection"
+        mark exactly what the on-screen highlight visually shows, page
+        by page across a cross-page selection."""
         groups = {}
         for page_num, w in self._selected_words:
             groups.setdefault((page_num, w[5], w[6]), []).append(w)
@@ -3498,10 +3412,8 @@ class SlateApp:
         """Right-click on the document canvas, view mode only (redact/
         annotate/forms/textedit have their own drag gestures -- an
         unrelated context menu popping mid-gesture there would be
-        surprising, not helpful). Devin, 2026-07-26: "a good right-click
-        menu... include things that should be there and users would
-        expect to see" -- the standard PDF-reader set this app can
-        actually back with a real feature: Copy/Highlight/Redact
+        surprising, not helpful). The standard PDF-reader menu set this
+        app can actually back with a real feature: Copy/Highlight/Redact
         (enabled only when there's a live selection), Read from here
         (today's earlier feature, moved from an instant right-click
         action into this menu), Zoom, and first/last page. Nothing here
@@ -3560,8 +3472,7 @@ class SlateApp:
         BELOW (scrolling up past the top edge) and should land at the
         new page's bottom, not its top -- asymmetric from every other
         prev-page trigger (keyboard/j/PageUp/TOC-select all keep
-        landing top-left via prev()+_reset_scroll(), unchanged, per
-        Fable's design review 2026-07-25: don't touch those paths)."""
+        landing top-left via prev()+_reset_scroll(), unchanged)."""
         if self.viewer is None:
             return
         self.viewer.prev_page()
@@ -3579,17 +3490,16 @@ class SlateApp:
         return (last - first) >= 0.999
 
     def _wheel_up(self, event=None):
-        """Rubber-band wheel (Fable design review, 2026-07-25): page-
-        turn only when the page already fits the viewport OR the view
-        is scrolled to the very top edge; otherwise real scroll.
-        Direction-only -- X11 Button-4 and Windows/Mac MouseWheel(up)
-        both call this, neither needs delta magnitude for this logic
-        (a real gap Fable flagged: those two platforms went through
-        DIFFERENT code paths before this fix, which happened to agree
-        only because both did the same unconditional thing).
+        """Rubber-band wheel: page-turn only when the page already fits
+        the viewport OR the view is scrolled to the very top edge;
+        otherwise real scroll. Direction-only -- X11 Button-4 and
+        Windows/Mac MouseWheel(up) both call this, neither needs delta
+        magnitude for this logic (previously the two platforms went
+        through DIFFERENT code paths, which happened to agree only
+        because both did the same unconditional thing).
 
-        Continuous mode (Slice 2, Fable design review): page
-        boundaries are a soft concept once every page is stacked in
+        Continuous mode: page boundaries are a soft concept once every
+        page is stacked in
         one scrollable canvas -- no edge-landing logic, just real
         scroll or a no-op at the very top. _wheel_fits_viewport()
         needs no change for this: it already means "does content
@@ -3601,10 +3511,10 @@ class SlateApp:
             if not self._wheel_fits_viewport():
                 self.canvas.yview_scroll(-1, "units")
                 # yview_scroll's own yscrollcommand callback isn't a
-                # reliable trigger in every environment (confirmed live:
-                # plain yview_moveto()/scrollbar-drag didn't fire it
-                # under this dev box's headless Xvfb, even after
-                # root.update()) -- called explicitly so the page-number
+                # reliable trigger in every environment (plain
+                # yview_moveto()/scrollbar-drag doesn't fire it under a
+                # headless Xvfb, even after root.update()) -- called
+                # explicitly so the page-number
                 # box can't silently freeze while wheel-scrolling.
                 self._sync_page_num_from_scroll()
             return
@@ -3646,16 +3556,16 @@ class SlateApp:
             self._wheel_down()
 
     def _on_ctrl_mouse_wheel(self, event):
-        """Ctrl+scroll = zoom (Devin, 2026-07-25), same signed-delta
-        convention as _on_mouse_wheel above."""
+        """Ctrl+scroll = zoom, same signed-delta convention as
+        _on_mouse_wheel above."""
         if event.delta > 0:
             self.zoom_in()
         else:
             self.zoom_out()
 
     def _on_shift_mouse_wheel(self, event):
-        """Shift+scroll = horizontal scroll (Devin, 2026-07-26). Windows/Mac
-        deliver a signed event.delta same as plain wheel; X11 has no
+        """Shift+scroll = horizontal scroll. Windows/Mac deliver a signed
+        event.delta same as plain wheel; X11 has no
         <Shift-MouseWheel>, bound separately via Shift-Button-4/5 below."""
         if self._typing_in_entry() or self.viewer is None:
             return
@@ -3682,38 +3592,32 @@ class SlateApp:
         settings.save({"zoom": self.viewer.zoom})
 
     def fit_width(self):
-        # Manual command, not an auto-apply-on-open default (Devin,
-        # 2026-07-26): a genuinely oversized page (a landscape diagram
-        # PDF) opening at literal 1:1-ish DEFAULT_ZOOM and running
-        # off-screen is a real bug, but auto-fitting on every open was
-        # tried first and reverted -- it broke 131 existing tests that
-        # hardcode DEFAULT_ZOOM as document-open's fixed, predictable
-        # starting point (zoom_in/out deltas, cache-invalidation checks,
+        # Manual command, not an auto-apply-on-open default: auto-fitting
+        # on every open broke 131 existing tests that hardcode
+        # DEFAULT_ZOOM as document-open's fixed, predictable starting
+        # point (zoom_in/out deltas, cache-invalidation checks,
         # wheel-scroll page-fit math). Same update_idletasks() timing
         # fix still applies here (Tk's next idle-loop pass otherwise
         # reports a stale canvas width).
         #
-        # Real bug fixed 2026-07-29 (Devin: "'fit width' should center
-        # bookview, not the left half of bookview"): this always fit ONE
-        # page's width to the FULL viewport, ignoring side_by_side --
-        # in Book View (2 columns) that zoomed the page spread to twice
-        # the width that actually fits, so only the left page's left
-        # portion ever showed without horizontal scrolling. Divide the
-        # viewport across however many columns are actually showing
-        # (matching layout.PageLayout's own cols/gap math exactly, not a
-        # separate guess at it) before fitting.
+        # Fitting ONE page's width to the FULL viewport ignores
+        # side_by_side -- in Book View (2 columns) that zooms the page
+        # spread to twice the width that actually fits, so only the left
+        # page's left portion ever shows without horizontal scrolling.
+        # Divide the viewport across however many columns are actually
+        # showing (matching layout.PageLayout's own cols/gap math
+        # exactly, not a separate guess at it) before fitting.
         self.canvas.update_idletasks()
         viewport_w = self.canvas.winfo_width()
         if viewport_w > 1:
             cols = self.num_columns
             gap = 2  # matches layout.PageLayout's own default gap= exactly
             per_page_w = (viewport_w - gap * (cols - 1)) / cols
-            # Real bug fixed 2026-07-29 (Devin: "crop to content doesn't
-            # seem to do anything"): without this, Fit Width always
-            # measured the FULL native page width even with crop on, so
-            # the margin space crop frees up never got handed back to
-            # the reader as extra zoom -- see viewer.fit_width's own
-            # content_width comment for the full story.
+            # Without this, Fit Width always measures the FULL native
+            # page width even with crop on, so the margin space crop
+            # frees up never gets handed back to the reader as extra
+            # zoom -- see viewer.fit_width's own content_width comment
+            # for the full story.
             crop_rect = self._get_crop_rect()
             content_width = crop_rect.width if crop_rect is not None else None
             self.viewer.fit_width(per_page_w, content_width=content_width)
@@ -3726,8 +3630,8 @@ class SlateApp:
     def _page_offset(self, page_num):
         """(x0, y0) canvas-space origin of this page, exactly matching
         wherever it was actually drawn. Generalizes to "does
-        self._layout exist" (Fable design review, Slice 4) rather than
-        a mode check -- self._layout exists in all four continuous_
+        self._layout exist" rather than a mode check -- self._layout
+        exists in all four continuous_
         scroll/side_by_side combinations now. self._static_row_offset
         is (0, 0) in continuous mode (rect_of()'s true absolute
         position is exactly what was drawn there) and the current
@@ -3756,7 +3660,7 @@ class SlateApp:
         Used by _on_drag to turn an anchor+cursor pair into a
         continuous reading-order selection range -- see its own
         docstring for why this replaced a plain rectangle-intersection
-        test (Devin, 2026-07-26)."""
+        test."""
         for i, w in enumerate(words):
             if w[0] <= x <= w[2] and w[1] <= y <= w[3]:
                 return i
@@ -3782,8 +3686,7 @@ class SlateApp:
         """event.x/event.y are VIEWPORT-relative, not true canvas-space
         coordinates -- identical the whole time the canvas was never
         scrollable, which is exactly why this bug was invisible until
-        now. Adding real scrollbars (Devin, 2026-07-25: "and a h/v
-        scrollbar") means every click/drag handler needs this
+        now. Real scrollbars mean every click/drag handler needs this
         conversion or redaction/annotate/text-select/forms/textedit
         all silently misplace by the current scroll offset the moment
         the view isn't sitting at the top-left origin."""
@@ -3821,10 +3724,8 @@ class SlateApp:
         # self.page until the next render() call.
         self.page = self.doc[page_num]
         self._drag_start = (cx, cy)
-        # Anchor point for a real text-flow selection (Devin, 2026-07-26:
-        # "mouse down should be point of highlight start... continuous
-        # highlight like you'd expect a highlight tool to do") -- fixed
-        # for the whole gesture, in PDF space so it survives scrolling.
+        # Anchor point for a real text-flow selection -- fixed for the
+        # whole gesture, in PDF space so it survives scrolling.
         rect = self._canvas_to_pdf_rect(cx, cy, cx, cy, page_num)
         self._drag_anchor_pdf = (rect.x0, rect.y0)
         if self.mode == "forms":
@@ -3846,28 +3747,21 @@ class SlateApp:
         x0, y0 = self._drag_start
         cx, cy = self._event_canvas_xy(event)
         if self.mode == "view":
-            # Real text-FLOW selection (Devin, 2026-07-26: "mouse down
-            # should be point of highlight start, dragging direction
-            # determines which direction and how long highlight goes...
-            # continuous highlight like you'd expect a highlight tool
-            # to do") -- not a geometric rectangle-intersection test.
+            # Real text-FLOW selection, not a geometric rectangle-
+            # intersection test. Plain rect-intersection against every
+            # word on the page selects every line the drag's bounding
+            # box happens to cross, even lines/paragraphs only partly
+            # overlapped -- reads as several disconnected lines
+            # highlighting at once. Restricting to whichever single
+            # line sits nearest the CURRENT cursor position fixes that,
+            # but makes the highlight jump from line to line as the
+            # mouse moves instead of accumulating a continuous run --
+            # not how a real highlighter/text selection works.
             #
-            # History of two wrong approaches this replaces, both real
-            # bugs caught live the same day: (1) plain rect-intersection
-            # against every word on the page selected every line the
-            # drag's bounding box happened to cross, even lines/
-            # paragraphs only partly overlapped -- looked like several
-            # disconnected lines highlighting at once. (2) restricting
-            # to whichever single line sits nearest the CURRENT cursor
-            # position fixed that, but made the highlight jump from
-            # line to line as the mouse moved instead of accumulating
-            # a continuous run -- not how a real highlighter/text
-            # selection works.
-            #
-            # Real fix: PyMuPDF's get_text("words") is already in
-            # natural reading order (top-to-bottom, left-to-right) --
-            # find the word index nearest the drag's ANCHOR (mouse-down
-            # point, pinned in self._drag_anchor_pdf) and the word index
+            # Fix: PyMuPDF's get_text("words") is already in natural
+            # reading order (top-to-bottom, left-to-right) -- find the
+            # word index nearest the drag's ANCHOR (mouse-down point,
+            # pinned in self._drag_anchor_pdf) and the word index
             # nearest the CURRENT cursor, then select every word between
             # those two indices in reading order, regardless of which
             # one is temporally first (dragging upward just swaps which
@@ -3882,13 +3776,11 @@ class SlateApp:
             # at the end of this same method, every mouse-move) unconditionally
             # resyncs self.page to self.viewer.page_num, which in continuous
             # mode is very often a DIFFERENT page than the one being dragged
-            # on. Real bug caught live 2026-07-26 ("highlighter doesn't do
-            # anything"), not a rendering/compositing problem.
-            # Cross-page extension (Devin, 2026-07-26: "i want the
-            # highlight feature to not be restricted to a single page")
-            # -- self._selected_words now holds (page_num, word) pairs
-            # instead of bare words, so a selection can span every page
-            # it visually crosses in continuous scroll, not just the one
+            # on.
+            #
+            # self._selected_words holds (page_num, word) pairs instead
+            # of bare words, so a selection can span every page it
+            # visually crosses in continuous scroll, not just the one
             # the drag started on. cursor_page is which page the mouse
             # is CURRENTLY over (None in the inter-page gap, or in
             # static/single-page mode where there's nothing else to drag
@@ -3965,15 +3857,15 @@ class SlateApp:
         if self.mode == "redact":
             # No modal popup here on purpose: this fires on every single
             # drag, and a blocking messagebox per mark is bad flow for a
-            # multi-region redaction pass (and made this exact code path
-            # fragile to test/automate -- a real hang was hit live during
-            # development from a dialog nothing was there to dismiss).
-            # render()'s own status bar already shows the pending count
-            # for the current page; that's the real, non-blocking feedback.
-            # self.page.number (not self.viewer.page_num): a latent bug
-            # Fable flagged in design review -- invisible in single-page
-            # mode where they're always equal, real the moment a drag
-            # can land on any visible page (continuous mode).
+            # multi-region redaction pass (and makes this code path
+            # fragile to test/automate -- a blocking dialog with nothing
+            # there to dismiss it hangs headless runs). render()'s own
+            # status bar already shows the pending count for the current
+            # page; that's the real, non-blocking feedback.
+            # self.page.number (not self.viewer.page_num): a latent bug,
+            # invisible in single-page mode where they're always equal,
+            # real the moment a drag can land on any visible page
+            # (continuous mode).
             self._pending_redactions.append((self.page.number, rect))
         elif self.mode == "annotate:highlight":
             annotate.add_highlight(page, rect)
@@ -4051,9 +3943,8 @@ class SlateApp:
         if not self._require_doc():
             return
         if not self.path.lower().endswith(".pdf"):
-            # Real, serious bug caught live 2026-07-25 wiring the
-            # HTML/image-open feature: self.path is the ORIGINAL path
-            # (tab convention) even when the actual open document is a
+            # self.path is the ORIGINAL path (tab convention) even when
+            # the actual open document is a
             # converted temp PDF (convert.path_to_pdf) -- a plain Save
             # on an HTML-sourced tab would silently overwrite the
             # original .html source file with PDF binary content.
@@ -4280,10 +4171,9 @@ class SlateApp:
         self._paint_widget(progress_top, theme.get_palette(self.theme_name.get()))
 
         result = {"done": False, "error": None}
-        # Real bug caught live: Tkinter is not thread-safe -- calling
-        # self.root.after(...) FROM the worker thread (as the progress
-        # callback originally did) raised "main thread is not in main
-        # loop". The worker now only ever writes to this plain dict
+        # Tkinter is not thread-safe -- calling self.root.after(...)
+        # FROM the worker thread raises "main thread is not in main
+        # loop". The worker only ever writes to this plain dict
         # (simple attribute assignment, safe enough for a single-
         # producer/single-consumer read); poll(), scheduled via
         # self.root.after() and therefore always running on the MAIN
@@ -4328,9 +4218,8 @@ class SlateApp:
         self._read_current_page()
 
     def do_read_document(self):
-        """Devin, 2026-07-25: "TTS: read entire document, not just
-        current page." Reads from the current page onward, auto-
-        advancing (page nav + the reading-position highlight both
+        """Reads from the current page onward, not just the current
+        page, auto-advancing (page nav + the reading-position highlight both
         follow, via _go_to_page) as each page's audio naturally
         finishes -- until the end of the document or Stop. Blank
         pages encountered while auto-advancing are skipped silently
@@ -4345,10 +4234,9 @@ class SlateApp:
         """Real perf finding: synthesis alone (even with a warm, cached
         voice -- see tts.py's _voice_cache) takes on the order of a
         second or more for a normal page of text. Running that
-        synchronously on the main thread, as this originally did,
-        froze the whole UI for the duration -- likely the real source
-        of Devin's 'kinda choppy sometimes' report. Synthesis now runs
-        on a background thread; poll() (scheduled via self.root.after(),
+        synchronously on the main thread freezes the whole UI for the
+        duration. Synthesis instead runs on a background thread; poll()
+        (scheduled via self.root.after(),
         so it always runs on the main thread -- same real bug already
         fixed once for the download flow) picks up the result and does
         the actual playback."""
@@ -4361,8 +4249,7 @@ class SlateApp:
         self._speak_text(words, self.page, self.viewer.page_num)
 
     def _read_from_word_click(self, event):
-        """Right-click a word in view mode -> "Read from here" (Devin,
-        2026-07-26: "a way to tell TTS where to start reading"), same
+        """Right-click a word in view mode -> "Read from here", same
         right-click-picks-the-item-under-the-cursor convention as the
         home screen's recent-files context menu. Reuses
         _word_index_near_point (the same nearest-word lookup drag-
@@ -4394,13 +4281,11 @@ class SlateApp:
         page" is identical between the two. Takes the real word-tuple
         list actually being spoken (not a page number's worth of
         already-known-good text) so _update_tts_highlight can track
-        progress against the SAME words that were actually synthesized
-        -- real bug fixed here (Devin, 2026-07-26: "'read from here'
-        starts at the top of the page, not the point of my mouse"): the
-        highlight used to always re-derive the FULL page's words from
-        scratch, oblivious to a "read from here" click trimming the
-        start, so its progress estimate raced through words that were
-        never even sent to the synthesizer."""
+        progress against the SAME words that were actually synthesized:
+        re-deriving the FULL page's words from scratch would be
+        oblivious to a "read from here" click trimming the start, so
+        the progress estimate would race through words that were never
+        even sent to the synthesizer."""
         if getattr(self, "_tts_synthesizing", False):
             return  # a previous read is still being synthesized
         text = " ".join(w[4] for w in words)
@@ -4417,9 +4302,8 @@ class SlateApp:
             return
 
         # tts.speed_to_length_scale (not a plain 1.0/speed inverse):
-        # Devin, 2026-07-25, "make the default... voice slower, more
-        # natural pace... base other speeds around that" -- "1.0x" is
-        # now a calibrated natural default, not Piper's raw native rate.
+        # "1.0x" is a calibrated natural default, not Piper's raw
+        # native rate.
         length_scale = tts.speed_to_length_scale(self.tts_speed.get())
         self._tts_synthesizing = True
         self.status.config(text="Synthesizing speech...")
@@ -4450,18 +4334,15 @@ class SlateApp:
                 messagebox.showinfo("Playback failed", str(e))
             self._poll_tts_playback_state()
 
-        # Real crash caught live building Slice 3 (after defaulting
-        # view_mode to "continuous" made every test do more Tk work
-        # sooner after doc-open, widening a pre-existing race window):
-        # tests only polled the _tts_synthesizing FLAG, not this actual
-        # thread object -- there's a razor-thin gap between the flag
-        # flipping False (inside worker(), just before it returns) and
-        # the OS thread genuinely finishing. A test that only trusts
-        # the flag can proceed (and tear down, letting the NEXT test's
+        # Tests polling only the _tts_synthesizing FLAG, not this actual
+        # thread object, hit a razor-thin gap between the flag flipping
+        # False (inside worker(), just before it returns) and the OS
+        # thread genuinely finishing -- a test that only trusts the flag
+        # can proceed (and tear down, letting the NEXT test's
         # main-thread Tk calls run) while this thread is still mid-
-        # teardown after its first-ever `import piper` -- a real
-        # cross-test race that segfaulted. self._tts_thread is kept so
-        # tests can .join() it for a real guarantee, not just the flag.
+        # teardown after its first-ever `import piper`, a cross-test
+        # race that segfaults. self._tts_thread is kept so tests can
+        # .join() it for a real guarantee, not just the flag.
         self._tts_thread = threading.Thread(target=worker, daemon=True)
         self._tts_thread.start()
         poll()
@@ -4489,33 +4370,30 @@ class SlateApp:
         self._update_tts_ui()
 
     def do_tts_toggle_play(self):
-        """Toolbar quick-access button (Devin, 2026-07-25: "easier
-        audio readback controls, preferably also available on the
-        main toolbar") -- one button that does whichever action makes
-        sense right now instead of making the user pick the right menu
-        command: starts reading the current page if nothing's loaded
-        yet, otherwise toggles pause/resume of what's already loaded."""
+        """Toolbar quick-access button -- one button that does whichever
+        action makes sense right now instead of making the user pick
+        the right menu command: starts reading the current page if
+        nothing's loaded yet, otherwise toggles pause/resume of what's
+        already loaded."""
         if self.tts_player.has_audio():
             self.do_tts_pause_resume()
         else:
             self.do_read_page()
 
     def _on_tts_voice_changed(self):
-        """Real bug report (Devin, 2026-07-25): "changing voices
-        mid-read is not working." Root cause: the Voice menu's
-        radiobuttons had no command callback at all -- selecting a
-        different voice only updated the tts_voice StringVar, with
-        nothing to actually apply it. Whatever was already loaded (or
-        mid-synthesis) just kept playing in the OLD voice with no way
-        to hear the new selection short of manually stopping and
-        clicking "Read this page" again. Real fix: if something is
+        """The Voice menu's radiobuttons had no command callback at
+        all -- selecting a different voice only updated the tts_voice
+        StringVar, with nothing to actually apply it. Whatever was
+        already loaded (or mid-synthesis) just kept playing in the OLD
+        voice with no way to hear the new selection short of manually
+        stopping and clicking "Read this page" again. If something is
         already loaded, selecting a voice restarts the CURRENT page
         fresh in the new one -- do_read_page() already stops old
         playback itself (Player.load()'s own stop() call). Mid-
         synthesis (audio not loaded yet) is a real, accepted gap left
         for later: do_read_page()'s own _tts_synthesizing guard would
         block a same-instant re-trigger, and synthesis is fast enough
-        (~1s) that this is a narrow window, not the reported bug."""
+        (~1s) that this is a narrow window."""
         settings.save({"tts_voice": self.tts_voice.get()})
         if self.tts_player.has_audio():
             self.do_read_page()
@@ -4536,10 +4414,7 @@ class SlateApp:
         self.tts_play_button.config(text="⏸" if self.tts_player.is_playing() else "▶")
 
     def _tts_status_text(self) -> str:
-        """Devin, 2026-07-25: "is there a way to tell what is the
-        current voice/speed is on readback? that might be a good
-        application for our green accent." Real, minimal answer:
-        voice name + speed multiplier, shown only while something is
+        """Voice name + speed multiplier, shown only while something is
         actually loaded (empty otherwise, so it doesn't clutter the
         toolbar the rest of the time)."""
         if not self.tts_player.has_audio():
@@ -4548,8 +4423,7 @@ class SlateApp:
         return f"\U0001F50A {voice_label} · {self.tts_speed.get():g}x"
 
     def _update_tts_highlight(self):
-        """Devin, 2026-07-25, same message as the status text ask: a
-        real "follow along" highlight for what's currently being read,
+        """A "follow along" highlight for what's currently being read,
         using the house green accent (the one other place, besides
         text selection, green is allowed to appear per the manga-
         essence minimal-accent rule).
@@ -4560,35 +4434,29 @@ class SlateApp:
         playing at any instant. Estimated as a fraction of the page's
         text proportional to Player.progress (0.0-1.0 through the
         audio), weighted by CHARACTER count rather than plain word
-        count (Devin, 2026-07-25, real feedback: "the indicator is
-        off") -- a 12-letter word takes noticeably longer to speak
-        than "a", so a per-word index alone drifted visibly out of
+        count -- a 12-letter word takes noticeably longer to speak
+        than "a", so a per-word index alone drifts visibly out of
         sync over a page; a character-weighted cumulative position is
         still an estimate (no true audio alignment exists to check
         against) but tracks materially better.
 
         Drawn as ONE merged rectangle over words sharing the current
-        line (Devin, same message: "it also looks weird...
-        rasterized... not a natural highlight") -- the earlier version
-        drew 2-3 SEPARATE small stippled boxes, which visibly
-        fragmented (and could jump to the start of the NEXT line
+        line, not 2-3 separate small stippled boxes -- separate boxes
+        visibly fragment (and can jump to the start of the NEXT line
         mid-window, drawing two disconnected boxes) instead of reading
         as one smooth highlight. Constraining the window to one line
         (PyMuPDF's own line_no field) and merging into a single
         rectangle fixes the fragmentation.
 
-        STILL rasterized after that fix (Devin, 2026-07-26, same
-        complaint recurring: "coloring in between letters instead of
-        true highlight") -- root cause was `stipple`, not the box
-        count. Tk canvas fill colors have no alpha channel; `stipple`
-        is Tk's only built-in fake-transparency trick, and it works by
-        literally not painting ~75% of the pixels in a fixed dot
-        pattern, which reads exactly as "rasterized" because it is.
-        Real fix: build a genuinely translucent RGBA PhotoImage (Tk
-        8.6+ canvas images DO alpha-composite for real against
-        whatever's already drawn underneath) and draw that instead of
-        a stippled rectangle -- a true semi-transparent highlighter
-        color over the text, not a dither pattern.
+        Built as a genuinely translucent RGBA PhotoImage rather than a
+        stippled rectangle. Tk canvas fill colors have no alpha
+        channel; `stipple` is Tk's only built-in fake-transparency
+        trick, and it works by literally not painting ~75% of the
+        pixels in a fixed dot pattern, which reads as rasterized
+        because it is. Tk 8.6+ canvas images DO alpha-composite for
+        real against whatever's already drawn underneath, giving a
+        true semi-transparent highlighter color over the text instead
+        of a dither pattern.
 
         Cleared (canvas.delete by tag) whenever nothing's loaded, or
         when the page being read isn't part of what's currently drawn
@@ -4599,29 +4467,26 @@ class SlateApp:
             return
         if self._layout is not None and page_num not in self._last_window:
             return  # not currently drawn -- nothing to overlay onto
-        # self._tts_reading_words (Devin, 2026-07-26 fix), NOT a fresh
-        # self._tts_reading_page.get_text("words") -- that used to
+        # self._tts_reading_words, NOT a fresh
+        # self._tts_reading_page.get_text("words") -- the latter would
         # silently ignore a "read from here" start offset, estimating
         # progress against every word on the page instead of only the
         # ones actually sent to the synthesizer.
         words = self._tts_reading_words
         if not words:
             return
-        # Real mechanism behind "TTS indicator is too fast" (Devin,
-        # 2026-07-26). Piper inserts a genuine pause at sentence ends
-        # and a much smaller one at clause breaks -- real elapsed audio
-        # time producing zero new characters of speech; a flat +1-per-
-        # word model charges punctuation the same time-cost as any
-        # letter, implicitly assuming pauses take no time. Weights below
-        # are MEASURED, not guessed: headless A/B synthesis via this
-        # exact voice/length_scale (northern_english_male, 1.0x),
-        # holding word content fixed and comparing a sentence-final
-        # period against a mid-sentence comma at the identical
-        # position, then solving for the extra pause time in character-
-        # equivalents. Real result: a period costs ~9.3 char-equivalents
-        # of pause; a comma costs only ~0.7 (my first guess of +8/+3 had
-        # the comma 4x too high -- wrong direction for "too fast," and
-        # negligible either way).
+        # Piper inserts a genuine pause at sentence ends and a much
+        # smaller one at clause breaks -- real elapsed audio time
+        # producing zero new characters of speech; a flat +1-per-word
+        # model charges punctuation the same time-cost as any letter,
+        # implicitly assuming pauses take no time. Weights below are
+        # MEASURED, not guessed: headless A/B synthesis via this exact
+        # voice/length_scale (northern_english_male, 1.0x), holding word
+        # content fixed and comparing a sentence-final period against a
+        # mid-sentence comma at the identical position, then solving
+        # for the extra pause time in character-equivalents. Result: a
+        # period costs ~9.3 char-equivalents of pause; a comma costs
+        # only ~0.7.
         def _char_weight(word_text):
             n = len(word_text) + 1  # +1 for the trailing space/gap
             if word_text.endswith((".", "!", "?")):
@@ -4647,36 +4512,29 @@ class SlateApp:
                 seen += n
             return len(word_list) - 1
 
-        # Per-SENTENCE calibration (Devin, 2026-07-26: "build the real
-        # alignment version"). True per-phoneme alignment was
-        # investigated and ruled out: confirmed live that these voice
-        # models' ONNX sessions return only one output tensor (audio),
-        # so `include_alignments=True` yields nothing to use --
-        # tts.synthesize() was never built with the duration-output
-        # branch this needs. What IS real and available: Piper still
-        # synthesizes one audio chunk per SENTENCE, and
-        # tts.synthesize() now returns each chunk's real sample count
-        # (self._tts_chunk_sample_counts, set in _read_current_page).
-        # Grouping `words` into sentences (splitting after any word
-        # ending in .!?) and pairing each group 1:1 with a real chunk
-        # duration turns "one uniform character-rate guess across the
-        # WHOLE PAGE" into "one uniform rate per SENTENCE, with real
-        # measured pauses between them" -- a much smaller, more honest
-        # approximation window, without needing model-level alignment
-        # support that doesn't exist here.
+        # Per-SENTENCE calibration. True per-phoneme alignment isn't
+        # available: these voice models' ONNX sessions return only one
+        # output tensor (audio), so `include_alignments=True` yields
+        # nothing to use -- tts.synthesize() has no duration-output
+        # branch for it. What IS available: Piper synthesizes one audio
+        # chunk per SENTENCE, and tts.synthesize() returns each chunk's
+        # real sample count (self._tts_chunk_sample_counts, set in
+        # _read_current_page). Grouping `words` into sentences
+        # (splitting after any word ending in .!?) and pairing each
+        # group 1:1 with a real chunk duration turns "one uniform
+        # character-rate guess across the WHOLE PAGE" into "one uniform
+        # rate per SENTENCE, with real measured pauses between them" --
+        # a much smaller, more honest approximation window.
         #
-        # Real risk, handled rather than ignored: my sentence split is
-        # a simple heuristic and won't always match Piper/espeak's own
-        # internal sentence boundaries -- an abbreviation like "vv." or
-        # "Jer." (both real strings in Devin's own sermon-note PDFs)
-        # can fool it into splitting where espeak didn't. Rather than
-        # silently mismatching chunk N to the wrong sentence, the
-        # sentence COUNT is checked against the real chunk count first;
-        # any mismatch falls back to the same whole-page weighted
-        # estimate this function already used (still real, still
-        # correctly calibrated punctuation weights -- just without
-        # per-sentence pause precision), never a guess dressed as a
-        # confident per-sentence position.
+        # The sentence split is a simple heuristic and won't always
+        # match Piper/espeak's own internal sentence boundaries -- an
+        # abbreviation like "vv." or "Jer." can fool it into splitting
+        # where espeak didn't. Rather than silently mismatching chunk N
+        # to the wrong sentence, the sentence COUNT is checked against
+        # the real chunk count first; any mismatch falls back to the
+        # same whole-page weighted estimate this function already used
+        # (still real, still correctly calibrated punctuation weights --
+        # just without per-sentence pause precision).
         chunk_counts = self._tts_chunk_sample_counts
         sentence_groups = None
         if chunk_counts:
@@ -4713,12 +4571,10 @@ class SlateApp:
         anchor_block, anchor_line = anchor[5], anchor[6]
         # Same line only, TRAILING up to 5 words ending AT idx (not
         # leading from idx) -- a handful of words never spilling onto
-        # the PREVIOUS line. Real bug caught live 2026-07-26 ("TTS
-        # indicator is too fast"): this used to take words[idx:idx+6],
-        # i.e. the current word PLUS the next 5 -- so the highlight's
-        # leading edge always showed 5 words not yet spoken, which
-        # reads exactly as "racing ahead of the audio." A trailing
-        # window (already-spoken words ending at the current estimate)
+        # the PREVIOUS line. words[idx:idx+6] (the current word PLUS
+        # the next 5) makes the highlight's leading edge always show 5
+        # words not yet spoken, reading as "racing ahead of the audio."
+        # A trailing window (already-spoken words ending at the current estimate)
         # keeps the same "one merged rectangle, not a choppy single
         # word" goal without visually promising unspoken content.
         window = []
@@ -4758,9 +4614,9 @@ class SlateApp:
         on sd.CallbackStop()), and the highlight's own estimated
         position, which needs to keep advancing while nothing else is
         triggering a redraw. Self-cancels once playback stops instead
-        of polling forever -- except mid "read entire document"
-        (Devin, 2026-07-25), where reaching a real natural end (was
-        playing, now isn't, and NOT because of an explicit pause --
+        of polling forever -- except mid "read entire document",
+        where reaching a real natural end (was playing, now isn't, and
+        NOT because of an explicit pause --
         Player.is_paused() is the real distinguishing check) triggers
         _advance_to_next_page_and_continue_reading instead of just
         stopping. That call itself re-triggers a fresh poll loop once
@@ -4861,10 +4717,9 @@ def _set_windows_app_user_model_id():
     groups a python.exe-hosted Tk app under python.exe's own taskbar
     identity (and often shows python's icon, not this app's, in that
     grouped view) instead of giving Slate its own distinct taskbar
-    entry. Devin, 2026-07-25: "make the icon(s) official in the
-    taskbar/titlebar" -- iconbitmap() alone (_set_window_icon) doesn't
-    fix the grouping half of that ask, only the icon-image half.
-    Best-effort, same fail-soft pattern as _apply_native_titlebar_theme.
+    entry. iconbitmap() alone (_set_window_icon) doesn't fix the
+    grouping half, only the icon-image half. Best-effort, same
+    fail-soft pattern as _apply_native_titlebar_theme.
     """
     if platform.system() != "Windows":
         return
@@ -4879,7 +4734,7 @@ def main():
     _set_windows_app_user_model_id()
     path = sys.argv[1] if len(sys.argv) > 1 else None
 
-    # Single-instance (Devin, 2026-07-25): if a Slate window is already
+    # Single-instance: if a Slate window is already
     # running, hand this path to it as a new tab instead of opening a
     # second window. Only meaningful when a path was actually given --
     # a bare `slate.py` with nothing to open has nothing to hand off.
@@ -4889,15 +4744,13 @@ def main():
     root = tk.Tk()
     app = SlateApp(root, path)
 
-    # Restore window size+position (Devin, 2026-07-26: "remember window
-    # size, location, etc"). A saved geometry wins outright -- it
+    # Restore window size+position. A saved geometry wins outright -- it
     # already encodes both size and position together, nothing left for
     # the centering logic below to add. Only a genuine first-ever launch
     # (or a corrupt/missing settings file, load()'s own fallback) has no
-    # saved value, in which case centering (Devin, 2026-07-25: "Slate is
-    # still opening in top left of screen, can you make that center load
-    # plz?") is still the right first-run default. update_idletasks()
-    # first either way -- real geometry only exists once the home
+    # saved value, in which case centering is still the right first-run
+    # default. update_idletasks() first either way -- real geometry only
+    # exists once the home
     # screen/document widgets above are actually laid out, same pattern
     # as _show_about's own centering.
     root.update_idletasks()
@@ -4913,7 +4766,7 @@ def main():
         # winfo_geometry() returns "WxHX+Y" in exactly the format
         # geometry() itself accepts -- a direct round-trip, no parsing.
         settings.save({"window_geometry": root.winfo_geometry()})
-        # Final position checkpoint (Devin, 2026-07-26) -- _go_to_page's
+        # Final position checkpoint -- _go_to_page's
         # own checkpoints cover explicit navigation, but plain scrolling
         # in continuous mode isn't saved on every tick (real I/O cost);
         # this catches wherever that actually left things before the
@@ -4923,19 +4776,17 @@ def main():
 
     root.protocol("WM_DELETE_WINDOW", _on_close)
 
-    # Real bug, Devin 2026-07-30: "settings/about still are 'children'
-    # windows as i believe they should be if possible" -- transient()+
-    # -topmost (see _show_settings/_show_about) ties these dialogs to
-    # Slate visually and keeps them grouped under Slate's own taskbar
-    # entry, but neither one makes Windows actually MINIMIZE a child
-    # when its owner minimizes -- topmost specifically fights that,
-    # since Windows treats "stay above everything" and "hide when the
-    # owner hides" as two independent, unrelated states. Without this,
-    # minimizing Slate left Settings/About floating alone on the real
-    # desktop, exactly the "not contained" behavior Devin flagged live.
-    # Fix: watch root's own iconic state directly (<Unmap>/<Map> fire on
-    # more than just minimize, so check root.state() rather than trust
-    # the event alone) and drive every tracked single-instance dialog's
+    # transient()+-topmost (see _show_settings/_show_about) ties these
+    # dialogs to Slate visually and keeps them grouped under Slate's own
+    # taskbar entry, but neither one makes Windows actually MINIMIZE a
+    # child when its owner minimizes -- topmost specifically fights
+    # that, since Windows treats "stay above everything" and "hide when
+    # the owner hides" as two independent, unrelated states. Without
+    # this, minimizing Slate leaves Settings/About floating alone on the
+    # real desktop. Watch root's own iconic state directly (<Unmap>/
+    # <Map> fire on more than just minimize, so check root.state()
+    # rather than trust the event alone) and drive every tracked
+    # single-instance dialog's
     # iconify/deiconify in lockstep -- winfo_exists() guards each one
     # since any of them may not be open, or may have been closed
     # (destroyed) independently of a minimize/restore cycle.
@@ -4949,19 +4800,15 @@ def main():
             win = getattr(app, attr, None)
             if win is not None and win.winfo_exists():
                 if iconic:
-                    # Real gap, Devin live 2026-07-31: "when Slate is
-                    # minimized, Settings/About remain and have 'on top'
-                    # priority over other apps that i drag over it." The
-                    # iconify() call above was already right, but -topmost
-                    # is a WINDOW-MANAGER attribute independent of Tk's
-                    # iconic state -- exactly the tension this code's own
-                    # comment already named ("Windows treats 'stay above
-                    # everything' and 'hide when the owner hides' as two
-                    # independent, unrelated states"), just not carried far
-                    # enough: a still-topmost window can keep rendering
-                    # above whatever the user drags over it even once
-                    # iconified, on top of every other app, not just Slate.
-                    # Clear -topmost before iconifying so a minimized
+                    # iconify() alone isn't enough: -topmost is a
+                    # WINDOW-MANAGER attribute independent of Tk's iconic
+                    # state -- the same tension the module comment above
+                    # names ("Windows treats 'stay above everything' and
+                    # 'hide when the owner hides' as two independent,
+                    # unrelated states"). A still-topmost window keeps
+                    # rendering above whatever the user drags over it
+                    # even once iconified, on top of every other app, not
+                    # just Slate. Clear -topmost before iconifying so a minimized
                     # Settings/About behaves like any other minimized
                     # window -- restored on the way back out below.
                     win.attributes("-topmost", False)
