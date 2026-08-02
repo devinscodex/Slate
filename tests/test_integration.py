@@ -1733,18 +1733,24 @@ def test_settings_and_about_are_modal_transient_and_topmost(tmp_path):
     for this (Settings releases, About takes it, hands it back on
     close) -- superseded by the policy below.
 
-    Grab policy REVISED 2026-08-01 (Devin, live): "when About opens
-    from Settings, I cannot change colors/settings at all" -- modal
-    About-from-Settings, even with a clean handoff, still meant
-    Settings was frozen the whole time About stayed open, which turned
-    out to be the wrong behavior for the real workflow (comparing the
-    Theme picker against About's new live accent swatch needs BOTH
-    open and interactive at once). Real fix: About opened FROM Settings
-    no longer grabs at all -- Settings keeps its own grab and stays
-    fully live, About is a non-modal floating reference panel (still
-    transient+topmost). About opened standalone (Help menu, no Settings
-    open) is UNCHANGED -- still real modal, matching the original
-    2026-07-29 ask for that case."""
+    Grab policy REVISED 2026-08-01 (Devin, live, 1st report): "when
+    About opens from Settings, I cannot change colors/settings at all"
+    -- modal About-from-Settings, even with a clean handoff, still
+    meant Settings was frozen the whole time About stayed open. First
+    revision: About stopped grabbing when opened from Settings, left
+    Settings' own pre-existing grab standing.
+
+    REVISED AGAIN same day (2nd report): that first revision forgot Tk's
+    grab is local to the whole APPLICATION, not just the widget that set
+    it -- Settings' still-active grab silently blocked ABOUT's input
+    instead, reappearing as "I can no longer close About without closing
+    Settings again" (the ORIGINAL 2026-07-30 bug, just flipped back).
+    Real fix: while About is open FROM Settings, NEITHER window holds
+    the grab -- Settings releases its own, About never takes one either,
+    both stay fully interactive at once. Settings' grab is restored the
+    moment About closes. About opened standalone (Help menu, no Settings
+    open) is UNCHANGED -- still real modal against root, matching the
+    original 2026-07-29 ask for that case."""
     root, app = _make_app(tmp_path)
     try:
         app._show_settings()
@@ -1755,9 +1761,9 @@ def test_settings_and_about_are_modal_transient_and_topmost(tmp_path):
         assert settings_win.master == root
 
         # Opened FROM Settings (the common real path, its own "About
-        # Slate..." button) -- true parent nesting under Settings, but
-        # NO grab at all: Settings must stay fully interactive with
-        # About open alongside it.
+        # Slate..." button) -- true parent nesting under Settings, and
+        # NEITHER window holds the grab: both must stay fully
+        # interactive with the other open alongside it.
         app._show_about()
         about_win = app._about_window
         root.update()
@@ -1768,14 +1774,14 @@ def test_settings_and_about_are_modal_transient_and_topmost(tmp_path):
         # is the WM transient() hint, queried back the same way, not
         # assumed from the transient() call we made.
         assert str(about_win.transient()) == str(settings_win)
-        assert settings_win.grab_status() == "local"  # never released -- Settings stays live
+        assert settings_win.grab_status() is None  # released, not left standing to starve About
 
         about_win.focus_force()  # <Escape> binding only fires on the focused widget
         root.update()
         about_win.event_generate("<Escape>")
         root.update()
         assert not about_win.winfo_exists()
-        assert settings_win.grab_status() == "local"  # untouched by About's whole lifecycle
+        assert settings_win.grab_status() == "local"  # restored on About's close
 
         settings_win.destroy()
         app._settings_window = None
@@ -3242,7 +3248,14 @@ def test_about_dialog_has_a_fixed_green_accent_regardless_of_theme(tmp_path, mon
     """Devin, 2026-07-25: "please add a permanent, clever hint of
     inkbone green on the about page please" -- must stay green even
     under a non-green theme (Slate Dark's real accent is moss,
-    #699d43, not the fixed #62a945 accent bar checked here)."""
+    #699d43, not the fixed #62a945 accent bar checked here).
+
+    Split into two halves 2026-08-01 (Devin: "I meant add it naturally/
+    clever someplace (even the line between Slate and the about
+    text)") -- left half stays this fixed house green (real assertion
+    here, now nested one level deeper in accent_bar_row), right half
+    shows the live theme accent instead of a separate labeled swatch
+    (see test_about_dialog_shows_the_live_theme_accent_color below)."""
     monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
     root, app = _make_app(tmp_path)
     try:
@@ -3250,12 +3263,57 @@ def test_about_dialog_has_a_fixed_green_accent_regardless_of_theme(tmp_path, mon
         app._apply_theme()
         app._show_about()
         about = root.winfo_children()[-1]  # the just-opened Toplevel
-        accent_bars = [
-            w for w in about.winfo_children()
-            if w.winfo_class() == "Frame" and str(w.cget("bg")) == "#62a945"
-        ]
+
+        def find_frames(w, out):
+            if w.winfo_class() == "Frame":
+                out.append(w)
+            for c in w.winfo_children():
+                find_frames(c, out)
+        frames = []
+        find_frames(about, frames)
+        accent_bars = [w for w in frames if str(w.cget("bg")) == "#62a945"]
         assert len(accent_bars) == 1
         about.destroy()
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_about_dialog_shows_the_live_theme_accent_color(tmp_path, monkeypatch):
+    """Devin, 2026-08-01: "I want about to have theme's accent color
+    displayed" -- then, revising an earlier separate labeled-swatch
+    build: "I meant add it naturally/clever someplace (even the line
+    between Slate and the about text)." Real regression test for the
+    live half of that split line: shows the ACTIVE theme's own
+    select_bg, not the fixed house green, and updates if the theme
+    changes while About stays open (real now that About-from-Settings
+    is non-modal -- see the grab-policy tests)."""
+    monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
+    root, app = _make_app(tmp_path)
+    try:
+        app.theme_name.set("slate_dark")
+        app._apply_theme()
+        app._show_about()
+        about = app._about_window
+
+        def find_accent_swatch():
+            def walk(w):
+                if getattr(w, "slate_accent_swatch", False):
+                    return w
+                for c in w.winfo_children():
+                    found = walk(c)
+                    if found is not None:
+                        return found
+                return None
+            return walk(about)
+
+        swatch = find_accent_swatch()
+        assert swatch is not None
+        assert str(swatch.cget("bg")) == theme.THEMES["slate_dark"]["select_bg"]
+
+        app.theme_name.set("martin_light")
+        app._on_theme_changed()
+        assert str(swatch.cget("bg")) == theme.THEMES["martin_light"]["select_bg"]
     finally:
         app.doc.close()
         root.destroy()

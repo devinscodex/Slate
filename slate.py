@@ -1273,12 +1273,13 @@ class SlateApp:
         top.resizable(False, False)
 
         def _close_about():
-            # No grab hand-back needed either way: standalone About (its
-            # own grab, settings_open is None) simply releases its grab
-            # on destroy, same as any other modal Tk dialog; About opened
-            # from Settings never took a grab in the first place (see
-            # below), so Settings' own grab was never disturbed.
             top.destroy()
+            # Hand Settings' grab back if THIS About instance released it
+            # on open (settings_open is not None -- see below). Standalone
+            # About (settings_open is None) never touched anyone else's
+            # grab, so there's nothing to restore in that case.
+            if settings_open is not None and settings_open.winfo_exists():
+                settings_open.grab_set()
 
         top.bind("<Escape>", lambda e: _close_about())
         top.protocol("WM_DELETE_WINDOW", _close_about)
@@ -1292,22 +1293,35 @@ class SlateApp:
         # those two" ask); -topmost keeps it above every other window.
         top.transient(settings_open if settings_open is not None else self.root)
         top.attributes("-topmost", True)
-        # Grab policy REVISED 2026-08-01 (Devin, live): "when About opens
-        # from Settings, I cannot change colors/settings at all" -- the
-        # 2026-07-30 fix (grab-handoff: Settings releases, About takes
-        # it, hands it back on close) technically worked as designed,
-        # but "modal About blocks Settings entirely" turns out to be the
-        # wrong behavior for the actual workflow Devin wants: he asked
-        # in the SAME breath for About to show the theme's accent color,
-        # which only matters if he can flip themes in Settings while
-        # About stays open to compare. Real fix: About opened FROM
-        # Settings is no longer modal at all -- no grab_set(), Settings
-        # keeps its own grab and stays fully live underneath, About is
-        # just a floating reference panel (still transient+topmost, so
-        # it stays visually attached and on top). About opened standalone
-        # (Help menu, no Settings open) is UNCHANGED -- still real modal,
-        # matching the original 2026-07-29 ask for that case.
-        if settings_open is None:
+        # Grab policy REVISED 2026-08-01 (Devin, live, 1st report): "when
+        # About opens from Settings, I cannot change colors/settings at
+        # all" -- the 2026-07-30 handoff fix (Settings releases, About
+        # takes the grab) worked as designed, but modal About blocking
+        # Settings entirely is the wrong behavior for the real workflow
+        # (comparing the Theme picker against About's live accent color
+        # needs BOTH open and interactive at once).
+        #
+        # REVISED AGAIN same day (2nd report): the first revision above
+        # only stopped About from grabbing -- it forgot that Settings'
+        # OWN pre-existing grab was still standing, and Tk's grab is
+        # local to the whole APPLICATION, not the widget that set it, so
+        # Settings' still-active grab silently blocked ABOUT's input
+        # instead ("I can no longer close About without closing Settings
+        # again" -- textbook reappearance of the ORIGINAL 2026-07-30 bug,
+        # just with which window gets starved flipped back). Neither a
+        # headless `.invoke()` test nor a code-reading pass catches this
+        # -- it only shows up under real Tk event routing.
+        # Real fix: while About is open FROM Settings, NEITHER window
+        # holds the grab -- Settings releases its own (so About can
+        # receive input/close normally), About never takes one either (so
+        # Settings stays fully clickable too). _close_about above hands
+        # Settings' grab back the moment About closes, restoring its
+        # normal modal-against-root behavior. About opened standalone
+        # (Help menu, no Settings open) is UNCHANGED -- still real modal
+        # against root, matching the original 2026-07-29 ask for that case.
+        if settings_open is not None:
+            settings_open.grab_release()
+        else:
             top.grab_set()
         # Titlebar theme handled generically by _paint_widget's own
         # Toplevel branch (see its comment) via the self._paint_widget(
@@ -1344,35 +1358,31 @@ class SlateApp:
         # Permanent green accent (Devin, 2026-07-25: "could we add a
         # clever accent of green on the 'about' as well?" then "please
         # add a permanent, clever hint of inkbone green on the about
-        # page please"). FIXED hex, not colors["highlight_bg"] -- that
-        # field is theme-variable (Flexoki's real accent is blue again
-        # as of 2026-07-30, on purpose -- see theme.py), but this mark
-        # is meant to read as Slate's own house color on the About page
-        # specifically, regardless of which theme is active.
+        # page please"). Left half FIXED hex -- Slate's own house color
+        # on the About page, regardless of which theme is active.
         # slate_fixed_bg (not a direct bg=) so _paint_widget's own
         # generic walk leaves it alone -- see its comment.
-        accent_bar = tk.Frame(top, bg="#62a945", height=2)
-        accent_bar.slate_fixed_bg = "#62a945"
-        accent_bar.pack(fill=tk.X, padx=24, pady=(0, 10))
+        #
+        # Right half shows the ACTIVE theme's own accent, live, via
+        # slate_accent_swatch (see _paint_widget's own branch for it).
+        # Devin, 2026-08-01, revising an earlier explicit "Theme accent:"
+        # labeled swatch row: "I meant add it naturally/clever someplace
+        # (even the line between Slate and the about text)" -- this IS
+        # that line, split in two rather than bolting on a separate
+        # labeled section. Most useful precisely because About-from-
+        # Settings is non-modal (see the grab policy above) -- flip
+        # themes in Settings, watch this half update live.
+        accent_bar_row = tk.Frame(top)
+        accent_bar_row.pack(fill=tk.X, padx=24, pady=(0, 10))
+        house_accent = tk.Frame(accent_bar_row, bg="#62a945", height=2)
+        house_accent.slate_fixed_bg = "#62a945"
+        house_accent.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        theme_accent = tk.Frame(accent_bar_row, height=2)
+        theme_accent.slate_accent_swatch = True
+        theme_accent.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 0))
         tk.Label(
             top, text=version.SUMMARY, wraplength=360, justify="left"
         ).pack(padx=24, pady=(0, 12))
-
-        # Theme accent swatch (Devin, 2026-08-01: "I want about to have
-        # theme's accent color displayed") -- distinct from the fixed
-        # green house accent_bar above (that one is Slate's own brand
-        # mark, never changes); this one shows whichever theme is
-        # ACTIVE right now, live, via slate_accent_swatch (see
-        # _paint_widget's own branch for it). Most useful precisely
-        # because About-from-Settings is no longer modal (see the grab
-        # policy above) -- flip themes in Settings, watch this update.
-        accent_row = tk.Frame(top)
-        accent_row.pack(fill=tk.X, padx=24, pady=(0, 12), anchor="w")
-        tk.Label(accent_row, text="Theme accent:").pack(side=tk.LEFT, padx=(0, 8))
-        accent_swatch = tk.Frame(accent_row, width=22, height=16, highlightthickness=1)
-        accent_swatch.pack_propagate(False)
-        accent_swatch.slate_accent_swatch = True
-        accent_swatch.pack(side=tk.LEFT)
         author_label = tk.Label(top, text=f"© 2026 {version.AUTHOR}", fg="gray40")
         author_label.slate_muted = True
         author_label.pack(padx=24, pady=(0, 18))
