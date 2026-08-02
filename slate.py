@@ -3668,14 +3668,30 @@ class SlateApp:
         """Canvas-only overlay, not real annotations -- cleared and
         redrawn every render() same as the page image itself. ox/oy is
         the page's canvas-space origin -- always (0, 0) in single-page
-        mode, so this is byte-identical to the pre-Slice-2 math there."""
+        mode, so this is byte-identical to the pre-Slice-2 math there.
+
+        Real bug fixed 2026-08-02 (Devin: Slate's Bonepaper Dark "feels
+        like it has less colors compared to... webUI and the obsidian
+        version"): outline was hardcoded plain "yellow"/"red", ignoring
+        the active theme entirely -- true in every theme, not just
+        Bonepaper. Runestone's own themes already carry a real second
+        accent (Martin's mt-green2, Bonepaper's coral H3/code-keyword)
+        used for exactly this kind of "distinct but not the primary
+        accent" emphasis role; Slate never had a place to use it. Ordinary
+        matches now use the theme's own select_bg (same accent tabs/
+        toggles already use); the CURRENT match uses accent2 -- a real,
+        sourced secondary accent (see theme.py's own per-family comments
+        for where each value came from), same "second color for
+        emphasis" pattern Runestone already established, not invented
+        here."""
         if not self.search_state.matches:
             return
+        colors = theme.get_palette(self.theme_name.get())
         z = self.viewer.zoom
         current = self.search_state.current()
         for rect in self.search_state.matches_on_page(page_num):
             is_current = current is not None and current[0] == page_num and current[1] == rect
-            outline = "red" if is_current else "yellow"
+            outline = colors["accent2"] if is_current else colors["select_bg"]
             width = 3 if is_current else 2
             self.canvas.create_rectangle(
                 ox + rect.x0 * z, oy + rect.y0 * z, ox + rect.x1 * z, oy + rect.y1 * z,

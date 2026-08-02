@@ -191,7 +191,20 @@ def _with_chrome_cascade(palette: dict) -> dict:
 # Bonepaper/MEG) uses -- the 2026-07-25 green swap is undone here
 # specifically so Flexoki reads as actually Flexoki again, not a
 # 4th green reskin.
-_STANDARD_DARK = _load_base("flexoki", "dark")
+_STANDARD_DARK = _load_base("flexoki", "dark") | {
+    # accent2 added 2026-08-02 (Devin: search highlighting was hardcoded
+    # plain yellow/red, ignoring theme entirely -- real gap found
+    # investigating "Slate feels like it has less colors than webUI/
+    # Runestone"). First pick was Flexoki's real orange (#da702c,
+    # stephango.com/flexoki, mirrors Runestone's flexoki.css --color-
+    # orange) -- caught by this file's OWN test_no_dark_theme_has_
+    # brown_tones (Devin, 2026-07-25/29, standing rule: no brown/tan/
+    # rust hues in ANY dark theme, ever). Orange, red, and yellow all
+    # trip that same rule (they're all warm R>G>B hues, exactly the
+    # category the rule bans) -- purple is Flexoki's real, own
+    # published hue that ISN'T warm: --color-purple under .theme-dark.
+    "accent2": "#8b7ec8",
+}
 # bg/fg/button_bg/muted_fg were already exact real Flexoki spec
 # (paper/black/base-50/base-300, verified live via stephango.com/
 # flexoki) -- never drifted, only Dark's neutrals did.
@@ -203,7 +216,15 @@ _STANDARD_DARK = _load_base("flexoki", "dark")
 # standard is to use inkbone green instead of blue") -- undone now
 # that green is Slate/Bonepaper/MEG's shared identity and Flexoki
 # needs its own.
-_STANDARD_LIGHT = _load_base("flexoki", "light")
+_STANDARD_LIGHT = _load_base("flexoki", "light") | {
+    # Real Flexoki purple-600, same source/reasoning as Dark's accent2
+    # above (stephango.com/flexoki, Runestone's flexoki.css --color-
+    # purple under .theme-light) -- the brown-tone rule only applies to
+    # dark themes, but using the same HUE family in both modes (not
+    # orange-in-light/purple-in-dark) keeps accent2 recognizable as
+    # "the same second accent" across a light/dark toggle.
+    "accent2": "#5e409d",
+}
 
 # Solarized -- RETIRED 2026-07-29 (Devin: "Solarized can go away") --
 # superseded by Slate's own dark variant below, which already carries
@@ -235,7 +256,22 @@ _STANDARD_LIGHT = _load_base("flexoki", "light")
 # resolves Slate's muted_fg from the CSS's own --text-muted property
 # (base00, #657b83). test_css_theme.py's live-file check (skipped if
 # Runestone isn't present) guards against this recurring silently.
-_SLATE_DARK = _load_base("slate", "dark")
+_SLATE_DARK = _load_base("slate", "dark") | {
+    # accent2 added 2026-08-02, same "second color for emphasis" gap as
+    # Standard's own accent2 above. Slate's own Runestone lineage
+    # (slate.css/solarized-osaka.css) never defined a distinct second
+    # accent the way Bonepaper/Martin do -- rather than invent a color,
+    # this pulls from the SAME real published Solarized spec Slate's
+    # own primary neutrals already come from (ethanschoonover.com/
+    # solarized). First pick was Solarized's real orange (#cb4b16) --
+    # caught by test_no_dark_theme_has_brown_tones (Devin's standing
+    # no-brown-in-dark-themes rule; orange/red/yellow are all warm
+    # R>G>B hues that trip it). Solarized's real magenta (#d33682)
+    # isn't warm in that sense and passes clean. Solarized's accent
+    # hues are identical across light and dark by the spec's own
+    # design, so light/dark share this same value.
+    "accent2": "#d33682",
+}
 # Darkened a smidge + de-tanned 2026-07-29 per Devin's direct live
 # feedback -- re-derived from slate.css's real current light block.
 #
@@ -244,7 +280,9 @@ _SLATE_DARK = _load_base("slate", "dark")
 # than the teal on slate light." Reused the exact same #33762d
 # (not just a similar shift) -- direct preference for that specific
 # tone, not a generic de-tealing pass.
-_SLATE_LIGHT = _load_base("slate", "light")
+_SLATE_LIGHT = _load_base("slate", "light") | {
+    "accent2": "#d33682",  # same real Solarized magenta as Dark above
+}
 
 # Bonepaper -- merged 2026-07-29 (Devin: "make inkrain the dark mode for
 # Boneink... just 3 core themes still... update boneink to 'inkrain'"),
@@ -274,7 +312,22 @@ _SLATE_LIGHT = _load_base("slate", "light")
 # "-paper" collision to avoid, so no reason to move off the name Devin
 # already has real attachment to ("i prefer bonepaper..."). History kept
 # for provenance:
-_BONEPAPER_DARK = _load_base("bonepaper", "dark")
+_BONEPAPER_DARK = _load_base("bonepaper", "dark") | {
+    # accent2 added 2026-08-02 (the specific theme Devin compared against
+    # webUI/Runestone and found flat). First pick was Runestone's own
+    # bonepaper.css H3-header/code-keyword coral (#d98f7a) -- real,
+    # sourced, but caught by test_no_dark_theme_has_brown_tones (Devin's
+    # standing no-brown-in-dark-themes rule; a warm coral is exactly what
+    # it bans, even though Runestone's own Obsidian theme uses it fine --
+    # different app, Slate has its own explicit, already-shipped rule to
+    # respect here). bonepaper.json already carries a second real color
+    # Slate never loaded: external_link (#9d8cf0 dark / #5b3fa6 light,
+    # Runestone's own hyperlink color for this family) -- a genuine
+    # lavender/violet, not warm, passes clean, and it's the SAME "second
+    # distinct color already used elsewhere in this exact family" role
+    # coral would have filled, just sourced from a different real field.
+    "accent2": "#9d8cf0",
+}
 # select_bg/highlight_bg re-hued 2026-07-30 -- Devin, live feedback:
 # "too teal, less green like in the branding." Old #2d765b (h:158,
 # jade) had B(0x5b=91) higher than R(0x2d=45), a real cyan/teal cast;
@@ -297,7 +350,11 @@ _BONEPAPER_DARK = _load_base("bonepaper", "dark")
 # picked by eye), near-black pixels as the "ink" candidate (#020202).
 # Blended 50% from the PREVIOUS values toward these real samples --
 # "a smidge," not a wholesale swap -- landing here:
-_BONEPAPER_LIGHT = _load_base("bonepaper", "light")
+_BONEPAPER_LIGHT = _load_base("bonepaper", "light") | {
+    # bonepaper.json's real external_link value for light mode -- same
+    # reasoning as Dark's accent2 above.
+    "accent2": "#5b3fa6",
+}
 
 # MEG -- new 2026-07-30 (Devin: "whatever you wanna name our Martin
 # Energy Group one"). Named "MEG", not "Martin" -- Devin, same session,
@@ -345,8 +402,19 @@ _BONEPAPER_LIGHT = _load_base("bonepaper", "light")
 #     Both colors are straight off presentation/meg-theme.css's real
 #     --meg-primary/--meg-secondary, same source as everything else in
 #     this family -- still exactly "green," per Devin's own answer.
-_MARTIN_LIGHT = _load_base("martin", "light")
-_MARTIN_DARK = _load_base("martin", "dark")
+_MARTIN_LIGHT = _load_base("martin", "light") | {
+    # Martin is the ONE family that already had a real second accent
+    # before this 2026-08-02 pass -- highlight_bg (#4a7637) is Runestone's
+    # own "mt-green2, secondary MEG green, both modes", already distinct
+    # from select_bg's brighter primary green. Reused here rather than
+    # picking a new color: Martin already reads richer than the other 3
+    # families for exactly this reason (Devin's own "less colors"
+    # complaint was about Bonepaper, not Martin).
+    "accent2": "#4a7637",
+}
+_MARTIN_DARK = _load_base("martin", "dark") | {
+    "accent2": "#4a7637",  # same real mt-green2, both modes per its own source
+}
 
 THEMES = {
     "light": _with_chrome_cascade(_STANDARD_LIGHT),

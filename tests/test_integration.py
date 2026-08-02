@@ -916,6 +916,45 @@ def test_find_next_jumps_to_match_across_pages(tmp_path):
         root.destroy()
 
 
+def test_search_highlights_use_theme_colors_not_hardcoded_yellow_red(tmp_path):
+    """Real gap found 2026-08-02 investigating Devin's "Slate feels like
+    it has less colors" report: _draw_search_highlights_for_page's
+    outline was hardcoded plain "yellow"/"red", ignoring the active
+    theme entirely -- true in every theme, not just the one Devin
+    compared. Fixed: ordinary matches use colors["select_bg"] (the same
+    accent tabs/toggles already use), the CURRENT match uses
+    colors["accent2"] (a real second accent per family, see theme.py's
+    own comments for where each value came from)."""
+    path = str(tmp_path / "search_colors.pdf")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "alpha", fontsize=14)
+    page.insert_text((72, 120), "alpha", fontsize=14)
+    doc.save(path)
+    doc.close()
+
+    root = tk.Tk()
+    app = slate.SlateApp(root, path)
+    try:
+        app.theme_name.set("bonepaper_dark")
+        app._apply_theme()
+        app._show_find_bar()
+        app.find_var.set("alpha")
+        app._find_next()
+        root.update()
+
+        colors = theme.get_palette("bonepaper_dark")
+        outlines = [app.canvas.itemcget(i, "outline") for i in app.canvas.find_all()
+                    if app.canvas.type(i) == "rectangle" and app.canvas.itemcget(i, "outline")]
+        assert colors["accent2"] in outlines  # the current match
+        assert colors["select_bg"] in outlines  # the other, non-current match
+        assert "yellow" not in outlines
+        assert "red" not in outlines
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_find_next_wraps_around_multiple_matches(tmp_path):
     path = str(tmp_path / "findme2.pdf")
     doc = fitz.open()

@@ -243,6 +243,22 @@ def test_no_dark_theme_has_brown_tones():
             assert not is_brownish, f"{name}.{key}={hexval} reads as a brown/tan tone, not allowed in a dark theme"
 
 
+def test_every_theme_has_a_real_second_accent_distinct_from_the_primary():
+    """Devin, 2026-08-02: Slate "feels like it has less colors compared
+    to... webUI and the obsidian version" -- traced to select_bg ==
+    highlight_bg in 3 of 4 families (only Martin already had two real
+    distinct greens). accent2 is a genuine second color per family,
+    used for search-match emphasis (see _draw_search_highlights_for_page
+    in slate.py) -- every family's own comment in theme.py documents
+    where its specific value came from (never invented). The real point
+    of this test: accent2 must not just exist, it must actually DIFFER
+    from select_bg -- an accent2 that silently duplicated select_bg
+    again would be the exact flatness this whole feature exists to fix."""
+    for name, colors in theme.THEMES.items():
+        assert "accent2" in colors, name
+        assert colors["accent2"] != colors["select_bg"], name
+
+
 def test_chrome_cascade_is_a_real_three_step_gradient():
     """Devin, 2026-07-25: "make menu bar cascade down in color from
     window bar down to tabs, to toolbar making it aesthetic... same
