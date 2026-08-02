@@ -15,7 +15,7 @@ AUTHOR = "devinscodex"
 # a split-license codebase. See LICENSE for full text.
 LICENSE = "AGPL-3.0-or-later"
 
-VERSION = "1.5.3"
+VERSION = "1.5.4"
 # 1.0.0 -- core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (Flexoki/Bonepaper/Slate, default Slate
@@ -91,6 +91,10 @@ VERSION = "1.5.3"
 #          (bg/button_bg/select_bg). Active tabs get a subtle accent
 #          tint (active_tab_bg, 35% toward select_bg from button_bg).
 #          Bonepaper Dark's button_bg synced to match the webUI value.
+# 1.5.4 -- Only northern_english_male ships bundled now (alba moved to
+#          download-on-first-use, same as the other 2 optional voices)
+#          -- installer/tarball ~60MB smaller. Removed unused icon-
+#          concept draft files from branding/.
 
 SUMMARY = (
     "Slate liberates all the editing.\n"

@@ -1,14 +1,18 @@
 # Slate
 
+<img src="branding/icon_b_redaction_bar.png" width="96" alt="Slate icon">
+
 *Slate liberates a trapped ecosystem.*
 
-A small, no-bloat PDF editor. View, annotate, merge/split, redact, sign, fill forms —
-composed from proven libraries (PyMuPDF, pikepdf, pyHanko), we're not reinventing the wheel. Built to replace Adobe Pro and other licensed editors for daily use.
+A small, capable PDF editor.
+View, annotate, merge/split, redact, sign, and fill forms.
 
-Built to be the document reader/editor we always wanted.
+Built from proven libraries (PyMuPDF, pikepdf, pyHanko), not reinvented.
+Made to replace Adobe Pro and other licensed tools for daily use.
 
-Design rationale, library choices, and the build/verification order: see
-`DESIGN.md`.
+The document reader and editor we always wanted.
+
+Design rationale, library choices, and build/verification order: see [`DESIGN.md`](DESIGN.md).
 
 ## Download
 
@@ -18,4 +22,4 @@ Prebuilt binaries (Windows installer, Linux tarball): see
 
 ## Author
 
-Copyright © 2026 devinscodex.
+Copyright © 2026 devinscodex

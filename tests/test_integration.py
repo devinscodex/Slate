@@ -1606,7 +1606,7 @@ def test_read_page_synthesizes_with_the_bundled_voice_and_handles_playback_for_r
         app.tts_voice.set("northern_english_male")  # bundled, no download needed
         app.do_read_page()  # synthesis now runs on a background thread
         _wait_until(lambda: not getattr(app, "_tts_synthesizing", False), root)
-        # Real crash fixed live building Slice 3: the flag alone can
+        # The flag alone can
         # flip False microseconds before the OS thread genuinely
         # finishes tearing down (still mid its first-ever `import
         # piper`) -- joining the real thread object guarantees it
@@ -1644,16 +1644,12 @@ def test_read_page_offers_to_download_a_non_bundled_voice(tmp_path, monkeypatch)
 
     root, app = _make_app(tmp_path)
     try:
-        # southern_english_female, not alba -- alba is bundled now
-        # (two bundled voices, male+female same tier), so it's no
-        # longer a genuine "not yet downloaded" example for this
-        # test's premise.
         assert tts_module.is_available("southern_english_female") is False
         app.tts_voice.set("southern_english_female")
         app.do_read_page()  # will still fail at the real play() call (no device) -- that's fine
         assert tts_module.is_available("southern_english_female") is True  # but the download itself really happened
         _wait_until(lambda: not getattr(app, "_tts_synthesizing", False), root)
-        # Real crash fixed live building Slice 3: the flag alone can
+        # The flag alone can
         # flip False microseconds before the OS thread genuinely
         # finishes tearing down (still mid its first-ever `import
         # piper`) -- joining the real thread object guarantees it
@@ -1680,11 +1676,11 @@ def test_declining_the_download_prompt_does_not_download_or_crash(tmp_path, monk
 
 
 def test_voice_picker_only_offers_bundled_voices(tmp_path):
-    """The 2 non-bundled readback voices that require a download are
-    removed from the normal pickers, leaving just the 2 bundled
-    defaults. Applies to BOTH voice-choosing surfaces (the Read Aloud
+    """The 3 non-bundled readback voices that require a download are
+    removed from the normal pickers, leaving just the 1 bundled
+    default. Applies to BOTH voice-choosing surfaces (the Read Aloud
     menu's own Voice submenu, and Settings' Voice radio group) --
-    southern_english_female/danny still exist in tts.VOICES (their
+    alba/southern_english_female/danny still exist in tts.VOICES (their
     preview clips still ship bundled, sampleable from the Sample Voices
     dialog) but must not be offered as a pickable default in either
     picker."""
@@ -1704,7 +1700,7 @@ def test_voice_picker_only_offers_bundled_voices(tmp_path):
                 break
         assert voice_menu is not None
         menu_labels = {voice_menu.entrycget(i, "label") for i in range(voice_menu.index("end") + 1)}
-        assert menu_labels == {"Northern English Male", "Alba (GB Female)"}
+        assert menu_labels == {"Northern English Male"}
 
         app._show_settings()
         top = app._settings_window
@@ -1720,7 +1716,7 @@ def test_voice_picker_only_offers_bundled_voices(tmp_path):
             walk(top)
             return set(results)
 
-        assert find_voice_radiobutton_texts() == {"Northern English Male", "Alba (GB Female)"}
+        assert find_voice_radiobutton_texts() == {"Northern English Male"}
     finally:
         app.doc.close()
         root.destroy()
@@ -1728,7 +1724,7 @@ def test_voice_picker_only_offers_bundled_voices(tmp_path):
 
 def test_sample_voices_dialog_lists_all_four_voices_with_play_buttons(tmp_path):
     """The sampler is the one place ALL 4 voices stay visible/sampleable,
-    including the 2 dropped from the normal pickers, since their
+    including the 3 dropped from the normal pickers, since their
     preview clips ship bundled either way."""
     root, app = _make_app(tmp_path)
     try:

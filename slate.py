@@ -1196,9 +1196,9 @@ class SlateApp:
 
     def _show_voice_sampler(self):
         """Read Aloud > Sample Voices... Lists ALL 4 voices (not just
-        the 2 bundled defaults the Voice picker itself offers -- see
-        _build_menu's own comment on why those 2 were dropped from the
-        picker) with a Play button each, playing that voice's bundled
+        the bundled default the Voice picker itself offers -- see
+        _build_menu's own comment on why the non-bundled ones were
+        dropped from the picker) with a Play button each, playing that voice's bundled
         preview clip (tts.load_preview_audio) -- every voice can be
         sampled without downloading anything, since preview WAVs ship
         bundled regardless of whether the full ~60MB model is

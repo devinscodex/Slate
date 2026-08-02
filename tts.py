@@ -1,13 +1,13 @@
 """Text-to-speech reading (Read Aloud). Piper TTS -- engine is
 GPL-3.0-or-later, voices are MIT-licensed.
 
-northern_english_male and alba are bundled (voices/, ships with Slate,
-zero setup). southern_english_female and danny are real but optional --
-downloaded on first use into ~/.slate/tts-voices/, keeping the repo
-from permanently carrying ~180MB of binaries for voices most installs
-never touch. Small preview clips for all four (voices/previews/) ship
-bundled so a voice can be sampled before committing to its ~60MB
-download.
+northern_english_male is bundled (voices/, ships with Slate, zero
+setup). alba, southern_english_female, and danny are real but
+optional -- downloaded on first use into ~/.slate/tts-voices/, keeping
+the repo from permanently carrying ~180MB of binaries for voices most
+installs never touch. Small preview clips for all four
+(voices/previews/) ship bundled so a voice can be sampled before
+committing to its ~60MB download.
 
 piper is imported lazily inside functions, not at module load -- the
 rest of Slate must keep working even if this dependency is missing.
@@ -33,7 +33,7 @@ VOICES = {
     "alba": {
         "label": "Alba (GB Female)",
         "hf_path": "en/en_GB/alba/medium/en_GB-alba-medium",
-        "bundled": True,
+        "bundled": False,
         "sample_rate": 22050,
     },
     "southern_english_female": {

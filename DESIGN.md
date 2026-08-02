@@ -440,18 +440,17 @@ low-tier voices both hit a real "missing phoneme from id map" warning
 on round 2's harder passage (a stress-mark symbol) — not disqualifying,
 but a real, live-confirmed quality wrinkle those two specifically carry.
 
-**Distribution:** `northern_english_male` (~60.3MB) AND `alba` (~60.3MB, GB
-Female) both ship bundled in the repo (`voices/`) as the zero-setup
-default -- one male, one female, deliberately the SAME Piper quality
-tier (`medium`, 22050Hz sample rate) so neither sounds worse than the
-other out of the box. `southern_english_female` and `danny` (both
-`low`, 16000Hz -- a real, different, lower quality tier) download on
-first use into `~/.slate/tts-voices/` (same config convention as
-`recent.py`/`gate.py`/`theme.py`) rather than permanently carrying the
-extra weight in the repo/installer that most installs would never
-touch. Small real preview clips for all four (`voices/previews/`, a
-few hundred KB each, same passage across all four) ship bundled so a
-voice can be sampled before committing to its full download.
+**Distribution:** only `northern_english_male` (~60.3MB, `medium`
+quality, 22050Hz) ships bundled in the repo (`voices/`) as the
+zero-setup default. `alba`, `southern_english_female`, and `danny`
+all download on first use into `~/.slate/tts-voices/` (same config
+convention as `recent.py`/`gate.py`/`theme.py`) rather than
+permanently carrying every voice's weight in the repo/installer --
+bundling only one voice instead of two keeps the installer/tarball
+roughly 60MB (~30%) smaller. Small real preview clips for all four
+(`voices/previews/`, a few hundred KB each, same passage across all
+four) ship bundled so a voice can be sampled before committing to its
+full download.
 
 **Playback, a real gap Piper itself doesn't solve:** Piper only
 *synthesizes* audio, it doesn't play it. `sounddevice`+`soundfile` add

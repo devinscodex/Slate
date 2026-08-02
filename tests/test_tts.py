@@ -16,25 +16,22 @@ def test_every_voice_has_the_same_metadata_shape():
         assert required_keys == set(info.keys()), voice_id
 
 
-def test_exactly_two_voices_are_bundled_one_male_one_female_same_tier():
-    """One male (northern_english_male) + one female (alba) voice ship
-    bundled, both real Piper "medium" quality / 22050Hz -- deliberately
-    the same tier so neither sounds like the "downgraded" option out
-    of the box, with the other two voices available as downloads."""
+def test_exactly_one_voice_is_bundled():
+    """Only northern_english_male ships bundled -- the other 3 (incl.
+    alba) are real but optional, downloaded on first use, keeping the
+    installer from permanently carrying every voice's ~60MB model."""
     bundled = {v for v, info in tts.VOICES.items() if info["bundled"]}
-    assert bundled == {"northern_english_male", "alba"}
-    assert tts.VOICES["northern_english_male"]["sample_rate"] == tts.VOICES["alba"]["sample_rate"]
+    assert bundled == {"northern_english_male"}
 
 
-def test_bundled_voices_are_actually_available_without_downloading():
-    for voice_id in ("northern_english_male", "alba"):
-        assert tts.is_available(voice_id) is True
-        assert tts.get_model_path(voice_id) is not None
-        assert os.path.exists(tts.get_model_path(voice_id))
+def test_bundled_voice_is_actually_available_without_downloading():
+    assert tts.is_available("northern_english_male") is True
+    assert tts.get_model_path("northern_english_male") is not None
+    assert os.path.exists(tts.get_model_path("northern_english_male"))
 
 
 def test_non_bundled_voices_are_not_available_until_downloaded():
-    for voice_id in ("southern_english_female", "danny"):
+    for voice_id in ("alba", "southern_english_female", "danny"):
         assert tts.is_available(voice_id) is False
         assert tts.get_model_path(voice_id) is None
 
@@ -62,9 +59,6 @@ def test_download_voice_writes_onnx_and_json_then_becomes_available(tmp_path, mo
 
     monkeypatch.setattr(tts.urllib.request, "urlretrieve", fake_urlretrieve)
 
-    # southern_english_female, not alba -- alba is bundled now (two
-    # bundled voices, male+female same tier), so it's no longer a
-    # genuine "not yet downloaded" example.
     assert tts.is_available("southern_english_female") is False
     result_path = tts.download_voice("southern_english_female")
     assert tts.is_available("southern_english_female") is True
@@ -90,7 +84,6 @@ def test_download_voice_reports_progress(monkeypatch):
 
 
 def test_synthesize_unavailable_voice_raises_clear_error():
-    # southern_english_female, not alba -- alba is bundled now.
     with pytest.raises(ValueError, match="not been downloaded"):
         tts.synthesize("hello", "southern_english_female")
 
