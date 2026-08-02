@@ -1278,9 +1278,9 @@ class SlateApp:
         Same try/except-then-"Playback failed" convention as the real
         read path (_read_current_page's own poll()) -- sounddevice's
         play() raises a real PortAudioError when no output device
-        exists (confirmed live: this dev environment has none at all),
-        and a Settings-adjacent preview button should fail soft with a
-        message, not an uncaught exception freezing the dialog."""
+        exists, and a Settings-adjacent preview button should fail soft
+        with a message, not an uncaught exception freezing the
+        dialog."""
         audio, sample_rate, channels = tts.load_preview_audio(voice_id)
         self.tts_player.load(audio, sample_rate, channels)
         try:
@@ -1289,20 +1289,19 @@ class SlateApp:
             messagebox.showinfo("Playback failed", str(e))
 
     def _show_settings(self):
-        """Settings dialog (Devin, 2026-07-26 handoff): a single place to
-        see and change every persisted preference, modeled on
-        _show_about's own Toplevel/accent-bar/centering pattern. Every
-        control here binds to the SAME Tk variable and calls the SAME
-        handler the corresponding menu item already uses (continuous_scroll_var
-        -> _set_view_mode, colorize_pages_var -> _on_colorize_toggle,
+        """Settings dialog: a single place to see and change every
+        persisted preference, modeled on _show_about's own
+        Toplevel/accent-bar/centering pattern. Every control here binds
+        to the SAME Tk variable and calls the SAME handler the
+        corresponding menu item already uses (continuous_scroll_var ->
+        _set_view_mode, colorize_pages_var -> _on_colorize_toggle,
         tts_voice/tts_speed -> their existing _on_..._changed handlers)
         -- one source of truth, so this dialog and the menus can never
-        drift out of sync with each other. This dialog is a second
-        place to reach settings that already persist via those handlers,
-        not a second mechanism that persists them independently."""
-        # Single-instance (Devin, 2026-07-29: "only have 1 instance of
-        # settings, not multiple") -- re-focus the already-open dialog
-        # instead of stacking a second one on repeated opens.
+        drift out of sync. A second place to reach settings that
+        already persist via those handlers, not a second mechanism that
+        persists them independently."""
+        # Single-instance: re-focus the already-open dialog instead of
+        # stacking a second one on repeated opens.
         existing = getattr(self, "_settings_window", None)
         if existing is not None and existing.winfo_exists():
             existing.deiconify()
@@ -1315,19 +1314,15 @@ class SlateApp:
         top.title("Settings")
         top.resizable(False, False)
         top.bind("<Escape>", lambda e: top.destroy())
-        # Devin, 2026-07-29: "settings/about should both be modal and
-        # always on top... within Slate if possible" -- see _show_about's
-        # identical block for the real reasoning behind each of these 3.
+        # See _show_about's identical block for the transient/topmost/
+        # grab reasoning.
         top.transient(self.root)
         top.attributes("-topmost", True)
         top.grab_set()
         # Titlebar theme handled generically by _paint_widget's own
         # Toplevel branch -- see _show_about's identical comment.
-        # Visible border, same ask + same mid-gray fix as _show_about's
-        # identical border (2026-07-29) -- see that dialog's comment for
-        # why it's mid-gray and not the plain dark that was first asked
-        # for (invisible against dark themes), and why it needs no
-        # re-assertion after repaint.
+        # Visible border, theme-tinted via dialog_border, no
+        # re-assertion needed here at construction time.
         top.configure(highlightthickness=2, highlightbackground=colors["dialog_border"], highlightcolor=colors["dialog_border"])
 
         header = tk.Frame(top)
@@ -1335,11 +1330,8 @@ class SlateApp:
         tk.Label(
             header, text="Settings", font=self._ui_header_font(extra=5)
         ).pack(side=tk.LEFT)
-        # Devin, 2026-07-31: "along with the current Slate version in
-        # the settings pane?" -- same muted-gray treatment as About's
-        # own version line, just inline next to the title here instead
-        # of its own row (Settings' header is a lot tighter than
-        # About's).
+        # Same muted-gray treatment as About's own version line, just
+        # inline next to the title here instead of its own row.
         version_label = tk.Label(header, text=f"v{version.VERSION}", fg="gray40")
         version_label.slate_muted = True
         version_label.pack(side=tk.LEFT, padx=(8, 0), pady=(4, 0))
@@ -1347,50 +1339,24 @@ class SlateApp:
         accent_bar.slate_fixed_bg = "#62a945"
         accent_bar.pack(fill=tk.X, padx=24, pady=(0, 10))
 
-        # -- Theme -- same THEME_LABELS/self.theme_name/_on_theme_changed
-        # the View>Theme submenu already uses, not a second theme picker.
+        # Same THEME_LABELS/self.theme_name/_on_theme_changed the
+        # View>Theme submenu already uses, not a second theme picker.
         # _on_theme_changed_and_repaint (below) runs the normal handler
-        # (repaints the main window, saves the preference, invalidates the
-        # page cache) THEN repaints this still-open dialog too -- Devin,
-        # 2026-07-26: "the settings page should fully match the theme,"
-        # not just at open time. accent_bar needs no re-assertion here
-        # (slate_fixed_bg handles it inside _paint_widget itself now).
-        # Real bug, Devin live 2026-07-31: "the green rectangle still
-        # isn't cutting it." Root cause: #62a945 (this file's own fixed
-        # house green) is IDENTICAL to Martin's own select_bg, and every
-        # OTHER family in the roster is also green or blue (checked
-        # directly: theme.THEMES[*]["select_bg"] across all 8 themes is
-        # exactly {#205ea6, #33762d, #4385be, #62a945, #699d43,
-        # #b4e4bc} -- two hue families, no red/orange anywhere) -- a
-        # green ring blends into a green-bordered swatch instead of
-        # standing apart from it, defeating the whole "move a rectangle
-        # over the selected one" point. A warm red-orange is outside
-        # both hue families roster-wide, so it can never collide with a
-        # swatch's own accent the way the house green did.
-        # Theme picker, rebuilt a 3rd time 2026-07-31 (Devin, live, after
-        # the swatch-grid+selection-ring version): "we were almost
-        # there, but the rectangle selection is not cutting it... redesign
-        # as dropdown but include the color palette somewhere in a
-        # classy way. please have radio buttons for light/dark. please
-        # use best modern/practical/suckless UX practices." Real
-        # progression this session: colored-Radiobutton-grid (2026-07-29)
-        # -> plain radio buttons (rejected, "I like the cleaner style"
-        # turned out to mean something else once seen) -> colored grid
-        # restored, per-button text moved to a shared header -> custom
-        # swatches + a moving selection ring (fixed the "internal color"
-        # complaint, but the ring itself never read as clearly
-        # "selected" even after 2 color fixes) -> this: a family
-        # dropdown + 2 plain light/dark radios (both real, standard
-        # controls -- no custom selection-indicator problem AT ALL,
-        # because ttk.Combobox and tk.Radiobutton already show their own
-        # selected state natively) + a small real palette-preview strip
-        # so the actual colors are still visible somewhere, per Devin's
-        # own ask, without needing a big swatch grid to show them.
+        # (repaints the main window, saves the preference, invalidates
+        # the page cache) THEN repaints this still-open dialog too.
+        # accent_bar needs no re-assertion here (slate_fixed_bg handles
+        # it inside _paint_widget itself).
         #
-        # Families still derived from THEME_LABELS itself (split on a
-        # trailing "Light"/"Dark" word), same reasoning as every prior
-        # version: a future theme add/remove/rename can't silently drift
-        # this out of sync with the real roster.
+        # Family dropdown + 2 plain light/dark radios: both real,
+        # standard controls -- no custom selection-indicator code,
+        # because ttk.Combobox and tk.Radiobutton already show their own
+        # selected state natively. A small palette-preview strip keeps
+        # the actual colors visible without a big swatch grid.
+        #
+        # Families derived from THEME_LABELS itself (split on a
+        # trailing "Light"/"Dark" word) so a future theme add/remove/
+        # rename can't silently drift this out of sync with the real
+        # roster.
         theme_frame = tk.LabelFrame(top, text="Theme")
         theme_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
 
@@ -1437,25 +1403,14 @@ class SlateApp:
             self.theme_name.set(modes[mode])
             _on_theme_changed_and_repaint()
 
-        # Light/Dark control, rebuilt a 4th time (Devin, live, after the
-        # plain-Radiobutton pair): "the radio buttons are not working...
-        # maybe we can use a single toggle form object, light on left,
-        # dark on right? ... please don't use another color either."
-        # Real root cause of "not working": a bare indicatoron=True
-        # Radiobutton relies on Tk's own default selectcolor for its
-        # indicator dot, which _paint_widget's generic Radiobutton
-        # branch never touches (it only ever repaints bg/fg/active* --
-        # see that branch's own comment) -- on a dark theme the tiny dot
-        # stayed whatever Tk's platform default was, unrelated to either
-        # theme color, reading as broken/invisible rather than a live
-        # control. Rebuilt using the SAME proven indicatoron=False +
+        # Light/Dark control uses the same proven indicatoron=False +
         # _wire_toggle_button_contrast pattern the Mode/Display toggles
-        # already use below (real selectcolor=colors["select_bg"], WCAG-
-        # checked checked-state text) instead of a 3rd bespoke selection
-        # mechanism -- "don't use another color" means reuse the
-        # theme's own accent here, not invent a 4th indicator color
-        # after red/orange and green both already failed to read as
-        # "selected" in the two prior swatch-grid rebuilds.
+        # use below (real selectcolor=colors["select_bg"], WCAG-checked
+        # checked-state text) rather than a plain indicatoron=True
+        # Radiobutton -- a bare Radiobutton relies on Tk's own default
+        # selectcolor for its indicator dot, which _paint_widget's
+        # generic Radiobutton branch never touches, so the dot stays
+        # unthemed against a dark background.
         # flat=True packing (no padding between the two buttons, shared
         # 1px border) reads as one segmented control, not two separate
         # buttons -- the actual "single toggle form object" ask.
@@ -1506,23 +1461,15 @@ class SlateApp:
 
         _refresh_palette_preview()  # initial state -- matches theme_name at dialog-open time
 
-        # Mode box (Continuous/Book View radio) REMOVED (Devin, 2026-08-01:
-        # "get rid of 'continuous' and 'bookview' (mode box)... just use
-        # columns"). Columns (below, under Zoom) is now the sole
-        # layout control this dialog exposes -- continuous scroll stays
-        # the permanent, only reading mode (matches Devin's own
-        # standing "continuous scroll stays a default," see
-        # _apply_width_based_side_by_side's docstring). The View menu's
-        # own Continuous Scroll/Side by Side/Book View checkboxes are
-        # UNTOUCHED -- still real, independent axes for anyone who
-        # reaches them there, this dialog just no longer surfaces a
-        # simplified radio for them.
+        # Mode box (Continuous/Book View radio) removed -- Columns
+        # (below, under Zoom) is the sole layout control this dialog
+        # exposes; continuous scroll stays the permanent, only reading
+        # mode (see _apply_width_based_side_by_side's docstring). The
+        # View menu's own Continuous Scroll/Side by Side/Book View
+        # checkboxes are UNTOUCHED -- still real, independent axes.
 
-        # -- Display -- Colorize moved to the TOP of this group (Devin,
-        # 2026-07-29: "colorize pages is so hard to find sometimes and i
-        # toggle that one the most... make that the top of the next
-        # small group") -- also now bound to F4 (see _kb_toggle_colorize)
-        # since it's the one Devin says he reaches for most.
+        # Colorize is at the TOP of this group and bound to F4 (see
+        # _kb_toggle_colorize) since it's the most frequently toggled.
         display_frame = tk.LabelFrame(top, text="Display")
         display_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
         for text, variable, cmd, pad in (
@@ -1574,26 +1521,16 @@ class SlateApp:
         tk.Button(zoom_btns, text="+", width=2, command=_zoom_in_and_refresh, state=zoom_state).pack(side=tk.LEFT, padx=4)
         tk.Button(zoom_btns, text="Fit Width", command=_fit_width_and_refresh, state=zoom_state).pack(side=tk.LEFT)
 
-        # Devin, 2026-07-31: "that should likely go in the settings pane
-        # too i think" (re: column count) -- started read-only ("you
-        # just worry about zooming nicely and rendering right based on
-        # window size"), then reversed same session: "it's easier for
-        # you to focus on that when I am the one who tells you how many
-        # columns to focus your zooming/centering efforts around
-        # though." Real manual control, same -/+ shape as Zoom above --
-        # a click PINS num_columns (self._columns_pinned), which
+        # Manual control, same -/+ shape as Zoom above -- a click PINS
+        # num_columns (self._columns_pinned), which
         # _apply_width_based_side_by_side and _set_view_mode both check
         # first and skip entirely while set, so a manual pick can't get
-        # silently overwritten by the next resize or mode toggle.
-        # "Auto" button REMOVED (Devin, 2026-08-01: "just use columns
-        # and get rid of 'auto' columns") -- manual -/+ is now the only
-        # way to change column count from here; the underlying
-        # auto-follow-on-resize still runs until the first manual click
-        # pins it (unchanged initial-sizing behavior for a fresh
-        # ultrawide window), it just has no button to revert back to
-        # from this dialog anymore.
-        # Column change now re-fits zoom to width immediately (Devin:
-        # "text zoom should fit to width upon column change") -- calling
+        # silently overwritten by the next resize or mode toggle. No
+        # "Auto" button -- manual -/+ is the only way to change column
+        # count from here; the underlying auto-follow-on-resize still
+        # runs until the first manual click pins it (unchanged
+        # initial-sizing behavior for a fresh ultrawide window).
+        # Column change re-fits zoom to width immediately -- calling
         # fit_width() instead of a plain re-render means the new column
         # count never leaves stale zoom from the OLD layout; fit_width()
         # already renders internally, so no separate render call needed.
@@ -1629,19 +1566,13 @@ class SlateApp:
             columns_btns, text="+", width=2, command=_columns_inc_and_refresh, state=zoom_state
         ).pack(side=tk.LEFT, padx=4)
 
-        # -- UI Font Size -- separate from Zoom above (Devin, 2026-07-29:
-        # "the font needs to be adjustable for the UI, not just the
-        # page... pretty small rn"): Zoom only affects the rendered PAGE;
+        # Separate from Zoom above: Zoom only affects the rendered PAGE;
         # this affects the app's own chrome -- menus, buttons, labels,
         # tabs, dialogs, TOC. See _apply_ui_font_scale's own docstring
         # for the mechanism (Tk's shared named fonts, not per-widget
         # walking). Shown as a PERCENTAGE of whatever Tk's own native
         # default happened to be on this platform, not a raw point
-        # count -- "120%" means the same relative bump whether the
-        # native baseline was small (common on Linux/X11) or already
-        # larger (Windows/HiDPI often picks a bigger native default on
-        # its own), which is the real "scales well with windows and
-        # linux" ask.
+        # count -- the same relative bump regardless of native baseline.
         font_frame = tk.LabelFrame(top, text="UI Font Size")
         font_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
         font_row = tk.Frame(font_frame)
@@ -1736,20 +1667,13 @@ class SlateApp:
         if not self.path:
             return "Slate"
         # sign.is_signed() parses the file as a PDF (pyHanko) -- calling
-        # it on an ebook format crashes with "Illegal PDF header", a real
-        # bug caught live writing this slice's own epub test. Signing is
-        # itself a PDF-only menu item (gated off elsewhere), so a non-PDF
-        # document is never "signed" by definition.
+        # it on an ebook format crashes with "Illegal PDF header".
         # self.path is the ORIGINAL path (tab convention, see
-        # _open_document) even for a tab whose actual content came
-        # from a converted temp PDF (HTML/image opens, convert.
-        # path_to_pdf). sign.is_signed() opens self.path itself via
-        # pyhanko -- for an .html/.png source that's not a PDF at all
-        # ("Illegal PDF header"), a real crash caught live 2026-07-25
-        # wiring the HTML-open feature. Guard on the path's own
-        # extension, not just self.doc.is_pdf (which reflects the
-        # loaded-in-memory format, already true for a converted HTML
-        # doc, and would NOT have caught this).
+        # _open_document) even for a tab whose actual content came from
+        # a converted temp PDF (HTML/image opens, convert.path_to_pdf).
+        # Guard on the path's own extension, not just self.doc.is_pdf
+        # (which reflects the loaded-in-memory format, already true for
+        # a converted HTML doc, and would NOT catch this).
         signed = (
             " [SIGNED]"
             if self.doc is not None
@@ -1761,11 +1685,9 @@ class SlateApp:
         return f"Slate — {os.path.basename(self.path)}{signed}"
 
     def _cursor_for_mode(self, mode: str) -> str:
-        """Devin, 2026-07-26: "please use better cursors" -- prompted
-        right after adding middle-click-drag pan (_on_pan_press/
-        _on_pan_release below swap to a "fleur" move cursor for the
-        duration of an active pan, then restore whatever this
-        returns). A distinct cursor per interaction SHAPE, not
+        """_on_pan_press/_on_pan_release swap to a "fleur" move cursor
+        for the duration of an active pan, then restore whatever this
+        returns. A distinct cursor per interaction SHAPE, not
         decoration: a drag-to-mark-a-region tool (redact, highlight,
         rect) gets crosshair, the standard convention for precise
         rectangular selection; a single-click-a-spot tool (forms,
@@ -1778,14 +1700,13 @@ class SlateApp:
         return "xterm"  # view, textedit
 
     def _on_pan_press(self, event):
-        """Devin, 2026-07-26: "extend the middle click pan to a middle
-        click 'scroll'" -- the other real middle-button convention,
-        browser-style click-to-autoscroll, alongside the drag-to-pan
-        already here. Both share ButtonPress-2; which one you get is
-        decided at RELEASE (_on_pan_release) by whether the mouse
-        actually moved before letting go -- a real drag pans (already
-        happened live via scan_dragto during the drag itself, this
-        press just arms it), a plain click starts/stops autoscroll."""
+        """Two middle-button conventions share ButtonPress-2:
+        browser-style click-to-autoscroll and drag-to-pan. Which one
+        you get is decided at RELEASE (_on_pan_release) by whether the
+        mouse actually moved before letting go -- a real drag pans
+        (already happened live via scan_dragto during the drag itself,
+        this press just arms it), a plain click starts/stops
+        autoscroll."""
         if self._autoscroll_active:
             # A click while autoscroll is already running is the
             # cancel gesture (browser convention) -- stop here, don't
@@ -1793,13 +1714,6 @@ class SlateApp:
             self._stop_autoscroll()
             return
         self._pan_press_pos = (event.x, event.y)
-        # Restored 2026-07-30 -- real regression, not an intentional
-        # disable: these two lines got commented out by accident in
-        # 6c4c60d36d (2026-07-27, an unrelated Settings-dialog commit
-        # whose own message admits it hit a tool-level wall-clock limit
-        # mid-session), silently dropping middle-click-drag pan while
-        # leaving click-to-autoscroll working -- Devin, 2026-07-30:
-        # "i seem to have lost my middle click auto-pan/scroll."
         self.canvas.scan_mark(event.x, event.y)
         self.canvas.config(cursor="fleur")
 
@@ -1874,9 +1788,7 @@ class SlateApp:
             return (extra / ramp) * max_px * (1 if delta > 0 else -1)
 
         sx, sy = speed(dx), speed(dy)
-        # Directional cursor (Devin, 2026-07-26: "change the 'scroll'
-        # cursor to an up/down arrow or left/right arrow for those
-        # autoscrolling times") -- reflects whichever axis is actually
+        # Directional cursor reflects whichever axis is actually
         # dominant right now, updated every tick so it follows the
         # cursor as it moves; "fleur" (four-way) only while sitting
         # inside the deadzone, not yet committed to a direction.
@@ -2010,22 +1922,14 @@ class SlateApp:
         self.home_frame = tk.Frame(self.root, padx=30, pady=30)
         self.home_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Devin, 2026-07-30: "keep the homepage centered even upon
-        # resizing" -- everything below used to pack directly into
-        # home_frame with anchor="w", which pins the whole block to the
-        # top-LEFT corner; on a wide/maximized window that just leaves a
-        # permanent dead zone on the right (the screenshot this was
-        # flagged from). Fixing it means the block needs to re-center
-        # itself as the window resizes, not just look centered once at
-        # open time -- Tk's pack geometry manager already recomputes
-        # anchor position on every resize automatically, so wrapping
-        # everything in one inner frame and packing THAT with
-        # anchor="n" (top-CENTER, not top-left) gets real live-resize
-        # centering for free, no <Configure> handler needed. fill=Y
-        # (vertical only, not X) + expand=True lets `content` still
-        # stretch to the window's full height, so the recent-files
-        # Listbox below keeps filling available vertical space exactly
-        # like before -- only the horizontal centering behavior changes.
+        # Wrapping everything in one inner frame and packing THAT with
+        # anchor="n" (top-CENTER, not top-left) gets live-resize
+        # centering for free -- Tk's pack geometry manager recomputes
+        # anchor position on every resize automatically, no <Configure>
+        # handler needed. fill=Y (vertical only, not X) + expand=True
+        # lets `content` still stretch to the window's full height, so
+        # the recent-files Listbox below keeps filling available
+        # vertical space.
         content = tk.Frame(self.home_frame)
         content.pack(fill=tk.Y, expand=True, anchor="n")
 
@@ -2043,14 +1947,9 @@ class SlateApp:
         tk.Label(
             title_box, text=f"Slate {version.VERSION}", font=self._ui_header_font(extra=11)
         ).pack(anchor="w")
-        # Devin, 2026-08-01: "Slate 'about text' needs to be brightened"
-        # -- was deliberately dimmed via slate_muted (real muted_fg,
-        # theme-correct but intentionally low-contrast, meant for
-        # secondary text like the copyright line) plus a hardcoded
-        # fg="gray30" fallback that never even reflected the active
-        # theme. This is the app's own pitch, the first text a new user
-        # reads -- full colors["fg"] (plain Label, no slate_muted) reads
-        # as normal-priority text instead of a de-emphasized caption.
+        # Full colors["fg"] (plain Label, no slate_muted) -- this is the
+        # app's own pitch, the first text a new user reads, so it reads
+        # as normal-priority text, not a de-emphasized caption.
         tagline = tk.Label(
             title_box, text=version.SUMMARY, wraplength=460, justify="left"
         )
@@ -2080,27 +1979,20 @@ class SlateApp:
             self._recent_listbox.pack(fill=tk.BOTH, expand=True, pady=6)
             self._recent_listbox.bind("<Double-Button-1>", self._open_recent_selected)
             self._recent_listbox.bind("<Return>", self._open_recent_selected)
-            # Delete/Backspace on the selected row + a right-click "Remove"
-            # (Devin, 2026-07-26: "delete items from the recently opened
-            # list") -- two paths to the same removal, mouse-only still
-            # works while Start's own search box is fighting keyboard
-            # input. Right-click selects the row under the cursor FIRST
-            # (a Listbox doesn't do this by default), so the removal
-            # always acts on what was actually clicked, not whatever the
-            # previous selection happened to be.
+            # Delete/Backspace on the selected row + a right-click
+            # "Remove" -- two paths to the same removal. Right-click
+            # selects the row under the cursor FIRST (a Listbox doesn't
+            # do this by default), so the removal always acts on what
+            # was actually clicked, not whatever the previous selection
+            # happened to be.
             self._recent_listbox.bind("<Delete>", self._remove_recent_selected)
             self._recent_listbox.bind("<BackSpace>", self._remove_recent_selected)
             self._recent_listbox.bind("<Button-3>", self._show_recent_context_menu)
 
-        # Real bug, caught live (Devin's screenshot, 2026-07-25): the
-        # home screen never themed itself at all -- __init__ calls
-        # _apply_theme() BEFORE _show_home_screen() ever builds
-        # home_frame (nothing to paint yet), and the tab-close-back-to-
-        # -home path (_close_tab_by_index) has the same gap, so the
-        # home screen always rendered plain default Tk light styling
-        # regardless of the active theme, no matter which of the two
-        # call sites reached it. Self-contained fix here rather than
-        # reordering __init__ -- covers both paths at once.
+        # __init__ calls _apply_theme() BEFORE _show_home_screen() ever
+        # builds home_frame (nothing to paint yet), and the tab-close-
+        # back-to-home path (_close_tab_by_index) has the same gap --
+        # self-contained repaint here covers both call sites at once.
         self._paint_widget(self.home_frame, theme.get_palette(self.theme_name.get()))
 
     def _open_recent_selected(self, event=None):
@@ -2126,12 +2018,10 @@ class SlateApp:
             self._show_home_screen()
 
     def _show_recent_context_menu(self, event):
-        """Right-click on a recent-files row -- Devin, 2026-07-26: works
-        mouse-only, no keyboard needed (relevant right now: Start's own
-        search box is fighting keyboard input on his machine). Selects
-        the row under the cursor first, since a Listbox doesn't do that
-        on a right-click by itself -- without this, a right-click far
-        from the current selection would remove the WRONG entry."""
+        """Right-click on a recent-files row. Selects the row under the
+        cursor first, since a Listbox doesn't do that on a right-click
+        by itself -- without this, a right-click far from the current
+        selection would remove the WRONG entry."""
         row = self._recent_listbox.nearest(event.y)
         self._recent_listbox.selection_clear(0, "end")
         self._recent_listbox.selection_set(row)
@@ -2162,10 +2052,9 @@ class SlateApp:
         self.tab_strip.pack(side=tk.TOP, fill=tk.X)
         self.tab_strip.bind("<<NotebookTabChanged>>", self._on_tab_strip_changed)
         self.tab_strip.bind("<Button-2>", self._on_tab_strip_click)
-        # Left-click close (Devin, 2026-07-26: "'x' on last document tab
-        # doesn't close it") -- see _on_tab_strip_left_click's own
-        # docstring for the real bbox()-is-broken finding this works
-        # around, and why the LAST tab specifically needed it.
+        # See _on_tab_strip_left_click's own docstring for the
+        # bbox()-is-broken finding this works around, and why the LAST
+        # tab specifically needed it.
         self.tab_strip.bind("<Button-1>", self._on_tab_strip_left_click)
 
         # 3-column grid, not one flat pack() row -- the only reliable
@@ -2213,27 +2102,18 @@ class SlateApp:
 
         tk.Button(toolbar_left, text="-", width=2, command=_toolbar_columns_dec).pack(side=tk.LEFT)
         tk.Button(toolbar_left, text="+", width=2, command=_toolbar_columns_inc).pack(side=tk.LEFT, padx=(2, 0))
-        # mode_label restyled 2026-08-02 (Devin: "'mode: view' looks
-        # unprofessional") -- plain always-visible "mode: view" text in
-        # raw blue read like a debug artifact left in, especially since
-        # "view" is the mode 99% of a reading session is actually in.
-        # Real safety function preserved (DESIGN.md: redact is the one
-        # mode where a mis-drag is irreversible, the red badge must stay
-        # loud) -- see _set_mode below: the label now only PACKS itself
-        # into the toolbar for a non-view mode, and unpacks (not just
-        # blanks its text) back to view, so the common case shows
-        # nothing here at all instead of an idle placeholder.
+        # See _set_mode below: only packs itself into the toolbar for a
+        # non-view mode, unpacking (not just blanking text) back to
+        # view, so the common case shows nothing here at all.
         self.mode_label = tk.Label(toolbar_left, text="", fg="blue")
         self._mode_label_default_bg = self.mode_label.cget("bg")
 
         toolbar_center = tk.Frame(toolbar)
         toolbar_center.grid(row=0, column=1)
-        # Small prev/next glyph buttons flank the page box (Devin,
-        # 2026-07-25: "easier to change pages, not just text box (which
-        # i still like the input to go straight [to] a page number)")
-        # -- the typed-number-jumps-straight-there behavior is
-        # untouched, this is purely an ADDITIONAL click path for the
-        # common "just go one page" case.
+        # Small prev/next glyph buttons flank the page box -- the
+        # typed-number-jumps-straight-there behavior is untouched, this
+        # is an ADDITIONAL click path for the common "just go one page"
+        # case.
         tk.Button(
             toolbar_center, text="◀", command=self.prev, width=2, padx=0,
         ).pack(side=tk.LEFT, padx=(0, 6))
@@ -2252,10 +2132,8 @@ class SlateApp:
         toolbar_right.grid(row=0, column=2, sticky="e")
         self.status = tk.Label(toolbar_right, text="")
         self.status.pack(side=tk.RIGHT, padx=8)
-        # Read Aloud quick-access controls (Devin, 2026-07-25: "easier
-        # 'audio readback' controls, preferably also available on the
-        # main toolbar" -- previously only reachable via the Read
-        # Aloud menu). Two buttons: one smart play/pause/resume toggle
+        # Read Aloud quick-access controls, also reachable via the Read
+        # Aloud menu. Two buttons: one smart play/pause/resume toggle
         # (do_tts_toggle_play decides which action makes sense for the
         # current state) plus a stop, same real actions the menu
         # already exposes, not a separate mechanism.
@@ -2287,8 +2165,7 @@ class SlateApp:
 
         # PanedWindow, not a plain Frame -- gives the TOC/canvas split a
         # real drag-to-resize sash for free via Tk's own built-in
-        # mechanism, rather than hand-rolling drag math (Devin's ask,
-        # 2026-07-25: "TOC should be drag resizeable too please").
+        # mechanism, rather than hand-rolling drag math.
         content = tk.PanedWindow(self.body_frame, orient=tk.HORIZONTAL, sashwidth=6, sashrelief=tk.RAISED)
         content.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self._content_frame = content
@@ -2301,13 +2178,9 @@ class SlateApp:
         # View > Table of Contents (content.add/.forget, see
         # _toggle_toc_panel -- PanedWindow's own show/hide, not pack)
 
-        # Real gap Devin caught, 2026-07-25 ("and a h/v scrollbar"): a
-        # page zoomed larger than the window had NO way to see the
-        # rest of it -- the canvas had no scrollregion/scrollbars at
-        # all, just silent clipping. canvas_frame holds canvas + both
-        # scrollbars together (grid, not pack -- the standard Tk
-        # 2x2 canvas/scrollbar layout) so the PAIR can be added to the
-        # PanedWindow as one pane.
+        # canvas_frame holds canvas + both scrollbars together (grid,
+        # not pack -- the standard Tk 2x2 canvas/scrollbar layout) so
+        # the PAIR can be added to the PanedWindow as one pane.
         canvas_frame = tk.Frame(content)
         # highlightthickness=0/bd=0: Tk's default 1px focus-highlight
         # border was silently offsetting every canvasx()/canvasy()
@@ -2315,24 +2188,14 @@ class SlateApp:
         # render() forced update_idletasks() (real geometry realization
         # made the border inset apply consistently instead of by luck).
         self.canvas = tk.Canvas(canvas_frame, bg="gray80", highlightthickness=0, bd=0)
-        # elementborderwidth (Devin, 2026-07-31, live: "i love the
-        # scrollbars that [are] in the Unixy/python/tkinter set... idk
-        # if there's a way to bring that to windows?"): real Tk quirk,
-        # not guesswork -- tk.Scrollbar's default elementborderwidth is
-        # -1 ("inherit from borderwidth"), and on that default Tk defers
-        # to Windows' own native XP-theme scrollbar renderer, which is
-        # exactly the more modern/flat look Devin is contrasting against
-        # the classic beveled Motif-style arrows he already sees running
-        # this same tk.Scrollbar code through WSLg (a real Linux Tk
-        # render, not native Win32 chrome, which is WHY it looks
-        # different at all despite being identical widget code). Setting
-        # elementborderwidth explicitly forces Tk's own portable/classic
-        # rendering path on every platform, sidestepping the native
-        # Windows theme hook entirely -- same widget, same look,
-        # regardless of OS. Needs a real Windows-desktop screenshot to
-        # confirm (same standing caveat as every other Windows-only
-        # visual fix in this project -- no real window manager in this
-        # Linux sandbox).
+        # elementborderwidth: tk.Scrollbar's default (-1, "inherit from
+        # borderwidth") defers to Windows' own native XP-theme scrollbar
+        # renderer, different from the classic beveled Motif-style
+        # arrows the same widget code renders under real Linux Tk (WSLg).
+        # Setting it explicitly forces Tk's own portable/classic
+        # rendering path on every platform -- same widget, same look,
+        # regardless of OS. Not confirmed on a real Windows desktop (no
+        # window manager in this Linux sandbox).
         self._vscroll = tk.Scrollbar(
             canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview, elementborderwidth=2
         )
@@ -2340,28 +2203,22 @@ class SlateApp:
             canvas_frame, orient=tk.HORIZONTAL, command=self.canvas.xview, elementborderwidth=2
         )
         # yscrollcommand SHOULD fire on every y-view change regardless
-        # of cause, but confirmed live (this dev box's headless Xvfb)
-        # that a plain yview_moveto()/scrollbar-drag doesn't reliably
-        # trigger it, even after root.update() -- kept as a belt-and-
-        # suspenders hook, but continuous mode's page-number sync does
-        # NOT depend on it alone (see the explicit _sync_page_num_
-        # from_scroll() calls in the wheel handlers and the scrollbar-
-        # drag bindings just below).
+        # of cause, but a plain yview_moveto()/scrollbar-drag doesn't
+        # reliably trigger it in this dev box's headless Xvfb, even
+        # after root.update() -- kept as a belt-and-suspenders hook, but
+        # continuous mode's page-number sync does NOT depend on it alone
+        # (see the explicit _sync_page_num_from_scroll() calls in the
+        # wheel handlers and the scrollbar-drag bindings just below).
         self.canvas.configure(yscrollcommand=self._on_canvas_yscroll, xscrollcommand=self._hscroll.set)
         self._vscroll.bind("<B1-Motion>", self._sync_page_num_from_scroll)
         self._vscroll.bind("<ButtonRelease-1>", self._sync_page_num_from_scroll)
         self.canvas.grid(row=0, column=0, sticky="nsew")
         self._vscroll.grid(row=0, column=1, sticky="ns")
         self._hscroll.grid(row=1, column=0, sticky="ew")
-        # Devin, 2026-07-25: "add something creative in the bottom
-        # right corner where the scrollbars collide... in the spirit
-        # of Cairn" (later swapped for a TART rune, see
-        # _draw_corner_grip) + "make the 'corner' hitbox bigger, i
-        # often just want the corner to resize both H and V" -- a real
-        # drag-to-resize grip (standard OS bottom-right window resize
-        # convention) with a bigger-than-default hitbox (22px vs a
-        # plain scrollbar's ~17px) instead of the usual bare diagonal
-        # hatch.
+        # A real drag-to-resize grip (standard OS bottom-right window
+        # resize convention) with a bigger-than-default hitbox (22px vs
+        # a plain scrollbar's ~17px) instead of the usual bare diagonal
+        # hatch -- see _draw_corner_grip for the rune icon rendered here.
         self._corner_grip = tk.Canvas(
             canvas_frame, width=22, height=22, highlightthickness=0, bd=0, cursor="bottom_right_corner",
         )
@@ -2372,30 +2229,15 @@ class SlateApp:
         canvas_frame.grid_columnconfigure(0, weight=1)
         self._canvas_frame = canvas_frame  # _toggle_toc_panel needs the PANE widget, not the bare canvas
         content.add(canvas_frame, stretch="always")
-        # Devin, 2026-07-25: "if the horizontal size reaches 'side by
-        # side' size, Slate automatically toggles it" -- real width-
-        # based auto layout on top of the manual checkbox, not a
-        # replacement for it (see _on_canvas_frame_configure).
+        # Real width-based auto layout on top of the manual checkbox,
+        # not a replacement for it (see _on_canvas_frame_configure).
         canvas_frame.bind("<Configure>", self._on_canvas_frame_configure)
         self.canvas.bind("<ButtonPress-1>", self._on_press)
         self.canvas.bind("<B1-Motion>", self._on_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
-        # Middle-click-drag-to-pan DISABLED (Devin, 2026-07-26): any tiny
-        # hand tremor during a middle-click-to-autoscroll gesture was
-        # live-panning the page via this B2-Motion binding before the
-        # click/drag distinction below even got checked at release --
-        # "defaults to pan so quickly when I try to scroll right after."
-        # Commented out, not deleted, in case pan is wanted back later --
-        # to re-enable, uncomment the B2-Motion line below (it was the
-        # only thing actually doing the panning; ButtonPress-2/
-        # ButtonRelease-2 stay bound because they're also what runs
-        # click-to-autoscroll, below).
-        # Right-click = context menu (Devin, 2026-07-26: "a good right-
-        # click menu"), view mode only -- see _show_canvas_context_menu's
-        # own docstring for why and what's in it. "Read from here"
-        # started as this binding's own instant action earlier the same
-        # day; folded into the menu once a real menu existed, same
-        # click, one more step.
+        # Right-click = context menu, view mode only -- see
+        # _show_canvas_context_menu's own docstring for why and what's
+        # in it.
         self.canvas.bind("<Button-3>", self._show_canvas_context_menu)
         self.canvas.bind("<ButtonPress-2>", self._on_pan_press)
         self.canvas.bind("<B2-Motion>", lambda e: self.canvas.scan_dragto(e.x, e.y, gain=1))
@@ -2403,12 +2245,9 @@ class SlateApp:
         self.canvas.bind("<Motion>", self._on_canvas_motion)
 
         # All routed through the same guarded _kb_prev_page/_kb_next_page
-        # as j/k below -- a real pre-existing gap fixed while adding
-        # these: Left/Right/Up/Down/PageUp/PageDown were previously
-        # bound directly to prev()/next() with NO "am I typing
-        # somewhere" guard at all, so pressing e.g. Left to move the
-        # text cursor while typing in the Find box would ALSO flip a
-        # page underneath it.
+        # as j/k below, so e.g. pressing Left to move the text cursor
+        # while typing in the Find box doesn't ALSO flip a page
+        # underneath it.
         self.root.bind("<Left>", self._kb_prev_page)
         self.root.bind("<Right>", self._kb_next_page)
         self.root.bind("<Up>", self._kb_prev_page)
@@ -2462,9 +2301,8 @@ class SlateApp:
         self.root.bind("<F8>", self._kb_toggle_book_view)
         self.root.bind("<F4>", self._kb_toggle_colorize)
 
-        # CUA keybinds (Devin, 2026-07-25: "ctrl+w close tab (and other
-        # CUA keybinds)") -- the standard Windows/Mac shortcut set,
-        # matching menu accelerators added alongside these.
+        # CUA keybinds -- the standard Windows/Mac shortcut set, matching
+        # menu accelerators added alongside these.
         self.root.bind("<F2>", self._show_command_palette)
         self.root.bind("<F12>", lambda e: self._show_settings())
         self.root.bind("<Control-w>", lambda e: self.do_close())
@@ -2484,19 +2322,16 @@ class SlateApp:
         self.root.bind("<Escape>", self._on_escape_cancels_autoscroll)
 
         self._doc_view_built = True
-        # Real bug caught live: these widgets are built lazily, on first
-        # document open -- _apply_theme() only ran once already, in
-        # __init__, BEFORE any of them existed (their constructors'
-        # hardcoded defaults, e.g. the canvas's bg="gray80", would
-        # otherwise silently stick forever for an app launched directly
-        # with a path, since nothing re-themes them until the user
-        # manually re-picks a theme later).
+        # These widgets are built lazily, on first document open --
+        # _apply_theme() only ran once already, in __init__, BEFORE any
+        # of them existed (their constructors' hardcoded defaults, e.g.
+        # the canvas's bg="gray80", would otherwise silently stick
+        # forever for an app launched directly with a path).
         self._apply_theme()
-        # Devin, 2026-07-25: "default TOC view = true" -- the BooleanVar
-        # itself defaults True (__init__), but nothing actually added
-        # the panel to the PanedWindow until now; _toggle_toc_panel
-        # needs toc_frame/_canvas_frame, both real only once this
-        # method has run this far.
+        # The BooleanVar itself defaults True (__init__), but nothing
+        # actually added the panel to the PanedWindow until now;
+        # _toggle_toc_panel needs toc_frame/_canvas_frame, both real
+        # only once this method has run this far.
         if self.toc_visible.get():
             self._toggle_toc_panel()
 
@@ -2552,16 +2387,12 @@ class SlateApp:
             self._scroll_to_page(self.viewer.page_num)
         else:
             self._reset_scroll()
-        # Checkpoint the new position (Devin, 2026-07-26: restore
-        # document position, not just which files were open). Plain
-        # scrolling in continuous mode also moves page_num (see
+        # Plain scrolling in continuous mode also moves page_num (see
         # _sync_page_num_from_scroll) but isn't checkpointed here on
         # purpose -- that fires on every scroll tick, and writing
-        # settings.json that often is real, needless I/O; window close
+        # settings.json that often is needless I/O; window close
         # (main()'s _on_close) does one final save covering wherever
-        # scrolling actually left things, so a clean quit is never
-        # stale even though mid-session scroll positions aren't
-        # continuously persisted.
+        # scrolling actually left things.
         self._save_open_tabs()
 
     def _on_canvas_yscroll(self, first, last):
@@ -2577,12 +2408,11 @@ class SlateApp:
         """Continuous mode only: the page-number box/TOC highlight
         should track whatever page is at the viewport's top edge while
         scrolling, not freeze at whatever page was current when
-        continuous mode was entered -- Devin will notice immediately
-        if this is missing (small, but real UX). Also the one real
-        trigger point for _shift_window (Slice 3 perf fix) -- every
-        organic scroll cause (wheel, scrollbar drag, yscrollcommand)
-        already funnels through here, so windowing piggybacks on the
-        same hook rather than needing its own."""
+        continuous mode was entered. Also the one real trigger point
+        for _shift_window -- every organic scroll cause (wheel,
+        scrollbar drag, yscrollcommand) already funnels through here, so
+        windowing piggybacks on the same hook rather than needing its
+        own."""
         if self._suppress_scroll_sync:
             return
         if not self.continuous_scroll or self._layout is None or self.viewer is None:
@@ -2597,25 +2427,20 @@ class SlateApp:
         self._shift_window()
 
     def _set_view_mode(self):
-        """Devin, 2026-07-25: Page Layout submenu (View menu) --
-        Continuous Scroll and Side by Side are independent checkboxes
-        (Slice 4, Fable design review), not mutually-exclusive radio
-        options."""
+        """Page Layout submenu (View menu) -- Continuous Scroll and Side
+        by Side are independent checkboxes, not mutually-exclusive
+        radio options."""
         self.continuous_scroll = self.continuous_scroll_var.get()
         self.side_by_side = self.side_by_side_var.get()
         # Canonical entry point for the plain 2-vs-1 meaning num_columns
         # has always had -- every caller that flips side_by_side_var and
-        # calls _set_view_mode() directly (menu checkbox, Settings
-        # dialog radios, and a good chunk of the test suite) gets the
-        # right column count without needing its own num_columns line.
+        # calls _set_view_mode() directly gets the right column count
+        # without needing its own num_columns line.
         # _apply_width_based_side_by_side (ultrawide auto-follow) is the
         # ONE other case that wants a count above 2 -- it deliberately
         # overrides this again, AFTER calling here, for that case only.
-        # Skipped entirely while pinned (Devin, 2026-07-31: "I am the
-        # one who tells you how many columns") -- a Continuous/Book View
-        # mode switch shouldn't silently stomp a manually-chosen column
-        # count either, same reasoning as the auto-follow function's own
-        # pin check.
+        # Skipped entirely while pinned -- a Continuous/Book View mode
+        # switch shouldn't silently stomp a manually-chosen column count.
         if not self._columns_pinned:
             self.num_columns = 2 if self.side_by_side else 1
         settings.save({"continuous_scroll": self.continuous_scroll, "side_by_side": self.side_by_side})
@@ -2628,10 +2453,10 @@ class SlateApp:
         self._render_current_layout()
 
     def _render_current_layout(self):
-        """Shared re-render + scroll-position-fix tail, extracted
-        2026-07-31 so _apply_width_based_side_by_side can reuse it after
-        overriding num_columns past what _set_view_mode's own 2-vs-1
-        default just set, without duplicating the scroll-fix logic."""
+        """Shared re-render + scroll-position-fix tail so
+        _apply_width_based_side_by_side can reuse it after overriding
+        num_columns past what _set_view_mode's own 2-vs-1 default just
+        set, without duplicating the scroll-fix logic."""
         if self.viewer is None:
             return
         self._selected_words = []
@@ -2642,15 +2467,13 @@ class SlateApp:
             self._reset_scroll()
 
     def _toggle_book_view(self):
-        """Devin, 2026-07-29: "roll that up into Book View" -- one
-        combined preset (Sumatra-naming) instead of setting Continuous
-        Scroll + Side by Side by hand every time. Reads book_view_var's
-        OWN new value (already flipped by Tk before this command fires,
-        same as any checkbutton) and pushes that value onto both real
-        axes, then reuses _set_view_mode's existing save/render/scroll
-        path -- no duplicated logic. Fit Width included (Devin: "zoom to
-        fit"); a centered alignment was also asked for but isn't real
-        yet (queued Slate note, not this toggle's job to fake it)."""
+        """One combined preset (Sumatra-naming) instead of setting
+        Continuous Scroll + Side by Side by hand every time. Reads
+        book_view_var's OWN new value (already flipped by Tk before this
+        command fires, same as any checkbutton) and pushes that value
+        onto both real axes, then reuses _set_view_mode's existing
+        save/render/scroll path -- no duplicated logic. Fit Width
+        included; a centered alignment isn't built yet."""
         want = self.book_view_var.get()
         self.continuous_scroll_var.set(want)
         self.side_by_side_var.set(want)
@@ -2668,11 +2491,9 @@ class SlateApp:
         return "break"
 
     def _kb_toggle_colorize(self, event=None):
-        """F4 (Devin, 2026-07-29: "colorize pages is so hard to find
-        sometimes and i toggle that one the most") -- same raw-keypress-
-        needs-a-manual-flip-first pattern as F8/_kb_toggle_book_view,
-        reusing _on_colorize_toggle's real cache-invalidate-and-render
-        logic rather than duplicating it."""
+        """F4 -- same raw-keypress-needs-a-manual-flip-first pattern as
+        F8/_kb_toggle_book_view, reusing _on_colorize_toggle's real
+        cache-invalidate-and-render logic rather than duplicating it."""
         self.colorize_pages_var.set(not self.colorize_pages_var.get())
         self._on_colorize_toggle()
 
