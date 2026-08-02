@@ -2,15 +2,9 @@
 running. Real network call, real failure modes -- never raises, always
 returns a plain result the caller can act on or ignore.
 
-Fossil, not GitHub (Devin, 2026-07-25, exe/installer pass): Slate
-isn't on GitHub yet, and there's no reachable Slate fossil server
-either (checked live: only Cairn's own fossil server was running on
-this machine, 127.0.0.1:8080 -- a different repo entirely). SERVER_URL
-is a placeholder until a real slate.fossil server exists somewhere
-reachable (same pattern Cairn itself uses -- a fossil server on
-Ouroboros, tailnet-reachable). check_for_update() reports "not
-configured" rather than guessing a URL that would silently fail
-forever.
+SERVER_URL is a placeholder until a reachable slate.fossil server
+exists. check_for_update() reports "not configured" rather than
+guessing a URL that would silently fail forever.
 
 Mechanism: fossil's own `/raw/<file>?name=<branch>` HTTP endpoint
 returns a file's raw content at a given check-in/branch tip -- fetch

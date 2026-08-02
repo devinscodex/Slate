@@ -20,10 +20,10 @@ from pyhanko_certvalidator import ValidationContext
 
 
 def generate_self_signed_cert(key_path: str, cert_path: str, common_name="Slate Signer"):
-    """A throwaway self-signed cert -- fine for internal sign-off (v1
-    scope), NOT a substitute for a real CA-issued signing certificate.
-    Devin/MEG can supply a real cert+key later without any other change
-    to this module -- load_signer() takes any PEM key/cert pair."""
+    """A throwaway self-signed cert -- fine for internal sign-off, NOT a
+    substitute for a real CA-issued signing certificate. A real cert+key
+    can be supplied later with no other change -- load_signer() takes
+    any PEM key/cert pair."""
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
     now = datetime.datetime.now(datetime.timezone.utc)

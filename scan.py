@@ -1,17 +1,14 @@
 """Scan for financial/PII-shaped content (bank account/routing numbers,
-SSNs, credit card numbers) -- helps decide what needs redacting. Started
-as a one-off scratch audit script, promoted to a real feature.
+SSNs, credit card numbers) -- helps decide what needs redacting.
 
-Scope, stated plainly rather than implied: this catches specific
-NUMBER-SHAPED patterns only (SSN, ABA routing, labeled account numbers,
-Luhn-valid card numbers). It does NOT catch general PII (a name, phone
-number, or address with no account-shaped context), business-confidential
-content, or anything in an image-only/scanned PDF with no text layer --
-same OCR gap DESIGN.md already names as out of v1 for redaction itself.
-A page with 0 extracted characters is flagged as UNSCANNABLE rather than
-silently reported clean, specifically because this bit a real file
-during development (Sage-PDF-Converter-Permissions.pdf, an image-only
-PDF that produced a false "nothing found" before this check existed).
+Scope: catches specific NUMBER-SHAPED patterns only (SSN, ABA routing,
+labeled account numbers, Luhn-valid card numbers). Does NOT catch
+general PII (a name, phone number, or address with no account-shaped
+context), business-confidential content, or anything in an image-only/
+scanned PDF with no text layer (OCR gap, out of scope). A page with 0
+extracted characters is flagged as UNSCANNABLE rather than silently
+reported clean -- an image-only page is not the same claim as "checked,
+nothing sensitive found".
 """
 import re
 
@@ -38,12 +35,10 @@ def _luhn_ok(digits: str) -> bool:
 
 
 def _next_nonblank(lines, start, window=4):
-    """Real PDF text extraction often puts a label and its value on
-    SEPARATE lines -- confirmed directly against a real bank letter
-    ('Account Number:' / blank / '9825039777', each its own line). A
-    same-line-only regex silently missed this (a real false-negative
-    caught during development, not a hypothetical) -- look forward a
-    few non-blank lines instead of just the current one."""
+    """PDF text extraction often puts a label and its value on SEPARATE
+    lines (e.g. 'Account Number:' / blank / '9825039777', each its own
+    line) -- a same-line-only regex misses this, so look forward a few
+    non-blank lines instead of just the current one."""
     found = 0
     for j in range(start, min(start + window, len(lines))):
         if lines[j].strip():
@@ -114,10 +109,9 @@ def scan_document(doc: fitz.Document):
 
 
 def scan_directory(dir_path: str, pattern="*.pdf"):
-    """Batch mode: the real Downloads-folder-audit use case. Returns
-    {filename: [scan_document results]} for every PDF with at least one
-    hit (including unscannable pages) -- files with nothing found at
-    all are omitted, matching the original audit script's behavior."""
+    """Batch mode: returns {filename: [scan_document results]} for every
+    PDF with at least one hit (including unscannable pages) -- files
+    with nothing found at all are omitted."""
     import pathlib
 
     root = pathlib.Path(dir_path)

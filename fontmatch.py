@@ -1,26 +1,21 @@
 """find_system_font(name) -- check whether a font is already installed
-on THIS machine as a real system font, before ever falling back to a
-crude Base-14 substitute (DESIGN.md's "Text editing" section). Zero new
-dependency: stdlib `winreg`/`ctypes` on Windows (the real deployment
-target), `subprocess` + fontconfig's CLI tools on Linux (dev/testing).
+on THIS machine as a real system font, before falling back to a crude
+Base-14 substitute. Zero new dependency: stdlib `winreg`/`ctypes` on
+Windows, `subprocess` + fontconfig's CLI tools on Linux.
 
-Real, live-confirmed pitfall this module exists specifically to avoid:
-`fc-match` NEVER fails -- it always substitutes a "closest" font. Ran
-directly during development: `fc-match "Calibri"` on a box with no
-Calibri installed returned "DejaVu Sans" with exit code 0 and no error.
-Any code that treats fc-match's success as "found" is wrong. The fix
-(applied below): compare the *returned* family against what was asked
-for; a mismatch means fontconfig substituted, not matched.
+Real pitfall this module exists to avoid: `fc-match` NEVER fails -- it
+always substitutes a "closest" font (e.g. `fc-match "Calibri"` on a box
+with no Calibri returns "DejaVu Sans", exit code 0, no error). Any code
+treating fc-match's success as "found" is wrong. Fix: compare the
+*returned* family against what was asked for; a mismatch means
+fontconfig substituted, not matched.
 
-Windows note: the registry lookup (`_find_on_windows`) is implemented
-against Microsoft's documented registry layout (HKEY_CURRENT_USER
-checked before HKEY_LOCAL_MACHINE, per-user-installed fonts since
-Windows 10 1803 live in HKCU and are missed if you only check HKLM) but
-has NOT been exercised against a real Windows registry -- this dev
-environment is WSL2/Ubuntu, no Windows target available. The name-
-normalization logic (_normalize_font_name) is platform-independent and
-fully tested; the registry I/O itself is the one thing flagged as owed
-in DESIGN.md, not blocking, needs a smoke test on a real MEG Windows PC.
+Windows registry lookup (`_find_on_windows`) follows Microsoft's
+documented layout: HKEY_CURRENT_USER checked before HKEY_LOCAL_MACHINE
+(per-user-installed fonts since Windows 10 1803 live in HKCU, missed if
+only HKLM is checked) -- not exercised against a real Windows registry
+in this dev environment (Linux). Name-normalization
+(_normalize_font_name) is platform-independent and fully tested.
 """
 import platform
 import re
@@ -33,13 +28,9 @@ def _normalize_font_name(name: str) -> str:
     """'Arial (TrueType)' and 'ArialMT' need to compare equal (same
     regular-weight font, two different naming conventions) -- but
     'Arial' and 'Arial Bold' must NOT compare equal, they're different
-    font files. Real bug caught writing the test for this: an earlier
-    version stripped Bold/Italic as if they were noise suffixes like
-    "(TrueType)", which would have matched a bold PDF font against a
-    regular-weight system file -- wrong weight is still a visible
-    mismatch, not a safe substitution. Only "Regular" (a redundant
-    no-style marker some producers add) is stripped; Bold/Italic/
-    Oblique are kept as meaningful, comparison-relevant content."""
+    font files. Only "Regular" (a redundant no-style marker some
+    producers add) is stripped; Bold/Italic/Oblique are kept as
+    meaningful, comparison-relevant content."""
     n = name
     n = re.sub(r"\s*\((TrueType|OpenType)\)\s*$", "", n, flags=re.I)
     n = re.sub(r"(MT|PS|PSMT)$", "", n)

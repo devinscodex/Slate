@@ -7,24 +7,18 @@ DEFAULT_ZOOM = 1.5  # 108 DPI-equivalent at PyMuPDF's 72-DPI base
 
 def detect_content_bbox(doc: fitz.Document, sample_pages=None, padding: float = 8.0) -> "fitz.Rect | None":
     """Real content bounding box (union of text + images + vector
-    drawings) across a SAMPLE of pages, not per-page -- Devin, 2026-07-29
-    ("I don't like big page margins, especially in book view"). One
-    shared crop rect for the whole document, not a per-page-varying one:
-    most real PDFs have uniform margins page to page (same print/export
-    style throughout), and a single shared rect keeps layout.py's
-    existing uniform-column-width assumption intact -- no per-page-
-    varying dimensions rippling through the multi-page/side-by-side
-    geometry math, which would be a much bigger, riskier change for a
-    cosmetic feature.
+    drawings) across a SAMPLE of pages, not per-page. One shared crop
+    rect for the whole document, not a per-page-varying one: most real
+    PDFs have uniform margins page to page, and a single shared rect
+    keeps layout.py's uniform-column-width assumption intact.
 
-    Sampling (not just page 0) matters for real safety: a document whose
-    first page is a title page with less content than the rest would
-    otherwise get a too-tight crop applied everywhere, clipping real
-    content on later pages. Unions across the sample instead -- the
-    result is the smallest rect that's still safe for every sampled
-    page, at the honest cost of being looser than a true per-page crop
-    would be on any single page that happens to need less than the
-    sample's max extent.
+    Sampling (not just page 0): a document whose first page is a title
+    page with less content than the rest would otherwise get a
+    too-tight crop applied everywhere, clipping real content on later
+    pages. Unions across the sample instead -- the smallest rect that's
+    still safe for every sampled page, at the cost of being looser than
+    a true per-page crop on any page that needs less than the sample's
+    max extent.
 
     Returns None (caller's cue to skip cropping entirely) when nothing
     detectable exists on any sampled page -- a real, non-error case
@@ -75,26 +69,19 @@ class Viewer:
     def render_page(self, page_num=None, zoom=None, clip=None) -> Image.Image:
         """Render one page to a PIL Image at the given zoom (1.0 = 72 DPI).
 
-        Real perf fix (Fable design review, 2026-07-25, after Devin hit
-        a live lockup): get_pixmap() with no explicit alpha/colorspace
-        args already produces raw RGB samples -- the original
-        `Image.open(BytesIO(pix.tobytes("png")))` was a full PNG
-        COMPRESS (in PyMuPDF/C) followed by a full PNG DECOMPRESS (in
-        PIL) on every single call, pure waste. frombytes() is the
-        standard zero-copy interop instead -- behavior-identical
-        pixels, no round-trip. Speeds up every render in every mode,
-        not just continuous-scroll's eager-render loop.
+        get_pixmap() with no explicit alpha/colorspace args already
+        produces raw RGB samples -- frombytes() is zero-copy interop
+        vs. round-tripping through a PNG compress/decompress cycle
+        (Image.open(BytesIO(pix.tobytes("png")))), same pixels, no
+        waste.
 
-        clip (Devin, 2026-07-29, crop-to-content feature): an optional
-        fitz.Rect in PAGE space (pre-zoom, same convention as
-        detect_content_bbox's return value) -- get_pixmap's own `clip`
-        param renders ONLY that sub-rectangle, at the SAME zoom, rather
-        than rendering the full page and cropping the resulting image
-        afterward. Cheaper (PyMuPDF never rasterizes the discarded
-        margin pixels at all) and the more correct place for this: the
-        caller (layout.py's crop_rect-aware geometry) already expects
-        the rendered image's real pixel size to match a cropped rect,
-        not the full page."""
+        clip: an optional fitz.Rect in PAGE space (pre-zoom, same
+        convention as detect_content_bbox's return value) -- get_pixmap's
+        own `clip` param renders ONLY that sub-rectangle, at the SAME
+        zoom, rather than rendering the full page and cropping
+        afterward (cheaper, and matches layout.py's crop_rect-aware
+        geometry which expects the rendered image's real pixel size to
+        match the cropped rect, not the full page)."""
         page_num = self.page_num if page_num is None else page_num
         zoom = self.zoom if zoom is None else zoom
         page = self.doc[page_num]
@@ -128,26 +115,19 @@ class Viewer:
     def fit_width(self, viewport_width: float, page_num=None, floor=0.25, ceiling=8.0,
                   content_width=None):
         """Set zoom so the current (or given) page's width exactly fills
-        viewport_width. Fixes a real bug (Devin, 2026-07-26): pages wider
-        than DEFAULT_ZOOM's fixed 1.5x (e.g. a landscape diagram PDF)
-        opened at literal 1:1-ish size and ran off-screen -- every
-        document should default to fitting the view, not a fixed zoom
-        that only happens to work for common page sizes. Clamped to the
-        same practical range zoom_in/zoom_out already allow (floor stops
-        a degenerate near-zero zoom on a very wide page; ceiling stops a
-        tiny page from zooming absurdly large).
+        viewport_width -- pages wider than DEFAULT_ZOOM's fixed 1.5x
+        (e.g. a landscape diagram PDF) would otherwise open at literal
+        1:1-ish size and run off-screen. Clamped to the same practical
+        range zoom_in/zoom_out allow (floor stops a degenerate near-zero
+        zoom on a very wide page; ceiling stops a tiny page from
+        zooming absurdly large).
 
-        content_width (Devin, 2026-07-29 -- "crop to content doesn't
-        seem to do anything"): real bug, not cosmetic -- this always
-        measured the page's FULL native width, even with crop_to_content
-        on, so Fit Width (including Book View's auto-fit-on-toggle) kept
-        sizing zoom to the uncropped page. The freed-up margin space
-        crop is supposed to hand back to the reader never got used: the
-        cropped content just floated smaller inside the same frame,
-        reading as "crop does nothing." Callers that know the active
-        crop rect's width now pass it here instead of leaving this at
-        the default (None -> falls back to the real native page width,
-        unchanged behavior when crop is off)."""
+        content_width: without this, Fit Width always measures the
+        page's FULL native width even with crop_to_content on, so the
+        cropped content floats smaller inside the same frame instead of
+        the freed-up margin space being used as extra zoom. Callers
+        that know the active crop rect's width pass it here (None ->
+        real native page width, unchanged behavior when crop is off)."""
         page_num = self.page_num if page_num is None else page_num
         native_width = content_width if content_width is not None else self.doc[page_num].rect.width
         if native_width <= 0:

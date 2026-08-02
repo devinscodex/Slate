@@ -1,20 +1,14 @@
-"""Slice 3 perf fix (Fable design review, 2026-07-25), after Devin hit
-a real lockup live: continuous-scroll's _render_continuous() was
-eager-rendering EVERY page on EVERY render() call (every navigation,
-every zoom notch, every theme change) -- PageUp/PageDown, which route
-through render(), each re-rasterized the whole document and threw it
-away a moment later. This cache holds only the pages near the current
-viewport ("the window"), lazily filling new ones and evicting stale
-ones, so a single render()/scroll only ever touches a handful of
-pages regardless of document length.
+"""Windowed page-image cache for continuous scroll. Without it,
+_render_continuous() would re-rasterize every page on every render()
+call (navigation, zoom, theme change); this caches only pages near the
+current viewport ("the window"), lazily filling new ones and evicting
+stale ones, so a render/scroll only touches a handful of pages
+regardless of document length.
 
-Deliberately its own small module, not folded into PageLayout --
-layout.py's own docstring already draws that line ("Pure math only --
-no Tk, no fitz.Page objects held onto"); this class exists specifically
-to hold Tk PhotoImage state across render() calls, which PageLayout is
-not supposed to do. Owned by SlateApp as a single long-lived instance
-(self._page_cache), not reconstructed per render -- its whole value is
-surviving across calls."""
+Separate from PageLayout (pure math, no Tk/fitz.Page state) since this
+class exists specifically to hold Tk PhotoImage state across render()
+calls. Owned by SlateApp as a single long-lived instance
+(self._page_cache), not reconstructed per render."""
 
 
 class PageImageCache:

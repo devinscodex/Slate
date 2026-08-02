@@ -35,10 +35,9 @@ def add_recent(path: str):
 
 
 def remove_recent(path: str):
-    """Drop one entry by path -- Devin, 2026-07-26: "delete items from
-    the recently opened list." Comparing by abspath, same normalization
-    add_recent already uses, so a relative/absolute mismatch can't leave
-    a stale duplicate behind."""
+    """Drop one entry by path. Compares by abspath, same normalization
+    add_recent uses, so a relative/absolute mismatch can't leave a stale
+    duplicate behind."""
     abspath = os.path.abspath(path)
     entries = [e for e in _load() if e.get("path") != abspath]
     _save(entries)

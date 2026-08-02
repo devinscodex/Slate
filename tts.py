@@ -1,22 +1,16 @@
 """Text-to-speech reading (Read Aloud). Piper TTS -- engine is
-GPL-3.0-or-later, voices are MIT-licensed, both real FOSS confirmed
-live (not assumed) before choosing this over paid alternatives.
+GPL-3.0-or-later, voices are MIT-licensed.
 
-Voice choice (Devin's own listening tests, 3 real rounds -- a plain
-sentence, a numbers/punctuation/date/currency stress test, then a
-public-domain narrative passage across the finalists): northern_english_male
-is the one bundled voice (voices/, ships with Slate, zero setup). alba,
-southern_english_female, and danny are real but optional -- downloaded
-on first use into ~/.slate/tts-voices/ (same config convention as
-recent.py/gate.py/theme.py), keeping the repo itself from permanently
-carrying ~180MB of binaries for voices most installs will never touch.
-Small preview clips for all four (voices/previews/, a few hundred KB
-each, all reading the same passage for a fair comparison) ship bundled
-so a voice can be sampled before committing to its ~60MB download.
+northern_english_male and alba are bundled (voices/, ships with Slate,
+zero setup). southern_english_female and danny are real but optional --
+downloaded on first use into ~/.slate/tts-voices/, keeping the repo
+from permanently carrying ~180MB of binaries for voices most installs
+never touch. Small preview clips for all four (voices/previews/) ship
+bundled so a voice can be sampled before committing to its ~60MB
+download.
 
 piper is imported lazily inside functions, not at module load -- the
-rest of Slate must keep working even if these dependencies are somehow
-missing (matches _set_window_icon's fail-soft branding load).
+rest of Slate must keep working even if this dependency is missing.
 """
 import os
 import urllib.request
@@ -75,12 +69,11 @@ def preview_path(voice_id: str) -> str:
 
 def load_preview_audio(voice_id: str):
     """Returns (audio_int16_bytes, sample_rate, channels) for this
-    voice's bundled preview clip -- Devin, 2026-07-29: "make a page that
-    has a sampler with all the voices." All 4 preview WAVs ship bundled
-    regardless of whether a voice's full ~60MB model is installed
-    (see this module's own docstring), so every voice can be sampled
-    without downloading anything. Uses stdlib wave, not a raw-bytes
-    assumption -- real WAV header, not guaranteed headerless PCM."""
+    voice's bundled preview clip. All 4 preview WAVs ship bundled
+    regardless of whether a voice's full model is installed, so every
+    voice can be sampled without downloading anything. Uses stdlib
+    wave, not a raw-bytes assumption -- real WAV header, not guaranteed
+    headerless PCM."""
     import wave
     with wave.open(preview_path(voice_id), "rb") as w:
         return w.readframes(w.getnframes()), w.getframerate(), w.getnchannels()
@@ -151,26 +144,16 @@ def _get_cached_voice(voice_id: str):
     return voice
 
 
-# Real, deliberate calibration (Devin, 2026-07-25: "make the default
-# audio reading voice slower, more natural pace... do this for all
-# voices. that is '1.0x' speed, base other speeds around that once we
-# get a good natural default reading cadence"). Piper's own native
-# length_scale=1.0 reads noticeably rushed for continuous-prose
-# reading -- a common report for VITS-family TTS models at their raw
-# default rate, not specific to any one voice here. This shifts what
-# the UI calls "1.0x" to a slower, more natural pace; every other
-# speed preset (0.75x/1.25x/1.5x/2.0x, see slate.py's Speed menu)
-# scales proportionally FROM this new baseline via speed_to_length_
-# scale() below, not from Piper's raw default -- the whole speed
-# range moves together as one calibrated unit, applied uniformly to
-# every voice in VOICES (nothing here is voice-specific).
+# Piper's native length_scale=1.0 reads noticeably rushed for
+# continuous-prose reading (common for VITS-family TTS models at their
+# raw default rate). This shifts what the UI calls "1.0x" to a slower,
+# more natural pace; every other speed preset scales proportionally
+# FROM this baseline via speed_to_length_scale(), not from Piper's raw
+# default -- applied uniformly to every voice in VOICES.
 #
-# NOT tuned by ear here -- confirmed live: this dev environment (WSL2)
-# has zero real audio output devices (sd.query_devices() returns an
-# empty list). 1.15 is a reasonable starting point (VITS-family models
-# commonly read ~10-20% too fast at their raw default), not a value
-# verified against real playback -- needs Devin's live listen on real
-# Windows hardware and a follow-up adjustment if it's still off.
+# NOT tuned against real audio hardware (this dev environment has zero
+# audio output devices) -- 1.15 is a reasonable starting point, needs a
+# real-hardware listening pass to confirm.
 BASE_LENGTH_SCALE = 1.15
 
 
@@ -186,29 +169,22 @@ def synthesize(text: str, voice_id: str, length_scale: float = 1.0):
     """Returns (audio_int16_bytes, sample_rate, sample_width, sample_channels,
     chunk_sample_counts) for the whole text (Piper yields one AudioChunk per
     sentence; concatenated here into one buffer). length_scale is Piper's own
-    real speed control (>1 slower, <1 faster) -- confirmed live via
-    SynthesisConfig's actual signature, not guessed.
+    speed control (>1 slower, <1 faster).
 
-    chunk_sample_counts (added 2026-07-26, real "TTS indicator too fast"
-    fix) is the number of audio samples EACH sentence-chunk contributed,
-    in order -- real, measured per-sentence durations for
+    chunk_sample_counts is the number of audio samples EACH sentence-
+    chunk contributed, in order -- real per-sentence durations for
     _update_tts_highlight (slate.py) to calibrate the read-along
-    highlight per sentence instead of assuming one uniform character
-    rate across the whole page. True per-PHONEME alignment
-    (voice.synthesize(..., include_alignments=True)) was investigated
-    first and ruled out: confirmed live against the actual bundled/
-    downloadable voice models that the ONNX session returns only one
-    output tensor (audio) -- these specific voice exports were never
-    built with the duration-output branch alignment needs, not
-    something a config flag can turn on. Per-sentence chunk boundaries
-    are the real data that IS available without that.
+    highlight per sentence instead of assuming a uniform character rate
+    across the whole page. True per-phoneme alignment
+    (include_alignments=True) isn't available: these voice exports'
+    ONNX session returns only one output tensor (audio), no duration-
+    output branch. Per-sentence chunk boundaries are the data that IS
+    available.
 
-    Real perf finding, not assumed: PiperVoice.load() alone takes
-    ~1.2s (loading the ~60MB ONNX model + building an onnxruntime
-    session) -- reloading it on every single call, as this function
-    originally did, meant every "Read this page" repaid that full cost
-    even for the SAME voice back-to-back. _voice_cache keeps one
-    loaded PiperVoice per voice_id for the process's lifetime instead.
+    PiperVoice.load() alone takes ~1.2s (loading the ONNX model +
+    building an onnxruntime session) -- _voice_cache keeps one loaded
+    PiperVoice per voice_id for the process's lifetime so repeated
+    reads of the same voice don't repay that cost each time.
     """
     voice = _get_cached_voice(voice_id)
     from piper import SynthesisConfig

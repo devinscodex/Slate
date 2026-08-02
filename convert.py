@@ -1,17 +1,12 @@
 """Document converters for common office tasks (PDF <-> Markdown/text/
-images). Zero new dependencies -- reuses PyMuPDF, already a dependency,
-the same "compose from what's already here" doctrine as the rest of
-Slate.
+images). Zero new dependencies -- reuses PyMuPDF, already a dependency.
 
-Real finding, not assumed: `pymupdf4llm` (the obvious off-the-shelf
-choice for PDF->Markdown) looked lightweight on PyPI ("minimal core:
-PyMuPDF and PyMuPDF Layout") but its actual `pip install` pulls
-`pymupdf-layout` (a 41MB wheel) plus a full ONNX Runtime, numpy,
+`pymupdf4llm` (the obvious off-the-shelf choice for PDF->Markdown)
+pulls `pymupdf-layout` (a 41MB wheel) plus a full ONNX Runtime, numpy,
 protobuf, networkx -- 80MB+ of transitive weight for a layout-detection
-ML model, confirmed by literally installing it and inspecting what
-landed. Too much weight for what this needs. Reverted; `pdf_to_markdown` below is hand-rolled
-instead, using the same span-level text data (size/flags) `textedit.py`
-already parses for font info.
+ML model. Too much weight for what this needs; `pdf_to_markdown` below
+is hand-rolled instead, using the same span-level text data
+(size/flags) `textedit.py` already parses for font info.
 """
 import os
 import shutil
@@ -43,15 +38,12 @@ _BROWSER_CANDIDATES = [
 def _wsl_mount_variant(win_path: str) -> str | None:
     """`C:\\Program Files\\...` -> `/mnt/c/Program Files/...`, so the
     same candidate list resolves under WSL's own Python too, not just a
-    native Windows one. Real bug found live 2026-07-28: `os.path.exists`
-    on a raw Windows path is unconditionally False under WSL, so
-    `_find_browser` always fell through to `shutil.which`, which also
-    fails (brave.exe isn't on a WSL shell's PATH) -- silent failure
-    every time this ran from the WSL-side .venv, not just a Devin
-    launch-choice issue. Checking both forms unconditionally is cheap
-    (the "wrong" form for the current OS is just harmlessly False) and
-    means this list stays correct from either venv without branching on
-    platform."""
+    native Windows one. `os.path.exists` on a raw Windows path is
+    unconditionally False under WSL, so `_find_browser` would otherwise
+    always fall through to `shutil.which` (which also fails -- brave.exe
+    isn't on a WSL shell's PATH). Checking both forms unconditionally is
+    cheap and keeps this list correct from either venv without branching
+    on platform."""
     if len(win_path) < 3 or win_path[1] != ":":
         return None
     drive = win_path[0].lower()
@@ -83,11 +75,10 @@ def html_to_pdf(html_path: str, pdf_path: str, timeout: int = 30) -> str:
     handling) and any inline JS-rendered content (charts) to actually
     render, matching what a human would see opening it directly.
 
-    Real, live-confirmed gotcha: --headless mode's print-to-pdf ignores
-    @media print rules some pages might rely on and instead prints the
-    on-screen (@media screen) layout -- fine for this project's own
-    reports/dashboards (self-contained, no separate print stylesheet),
-    worth knowing if a future HTML source assumes print CSS applies.
+    Gotcha: --headless mode's print-to-pdf ignores @media print rules
+    some pages might rely on and instead prints the on-screen
+    (@media screen) layout -- worth knowing if an HTML source assumes
+    print CSS applies.
     """
     browser = _find_browser()
     abspath = os.path.abspath(html_path)
@@ -157,10 +148,8 @@ def pdf_to_markdown(doc: fitz.Document) -> str:
                 all_bold = all(s["flags"] & _FLAG_BOLD for s in spans)
                 # Weighted by character volume, not line count: a single
                 # short title line and a single short body line would
-                # otherwise tie on "most frequent size" (a real case
-                # caught writing this module's own integration test) --
-                # body text is reliably the size with the most total
-                # characters, even when line counts are close or equal.
+                # otherwise tie on "most frequent size" -- body text is
+                # reliably the size with the most total characters.
                 size_char_totals[size] = size_char_totals.get(size, 0) + len(text)
                 page_lines.append((text, size, all_bold))
         lines_per_page.append(page_lines)
@@ -216,8 +205,7 @@ def pdf_to_images(doc: fitz.Document, out_dir: str, base_name: str, dpi: int = 1
 def images_to_pdf(image_paths: list) -> fitz.Document:
     """One full-page-image per input file, in the given order. Each
     image is converted to its own one-page PDF first (PyMuPDF's own
-    documented technique: Document.convert_to_pdf()) and inserted --
-    confirmed live before writing this, not assumed."""
+    documented technique: Document.convert_to_pdf()) and inserted."""
     out = fitz.open()
     for path in image_paths:
         img_doc = fitz.open(path)

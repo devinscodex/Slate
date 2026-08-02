@@ -1,22 +1,13 @@
-"""Fixes a real, confirmed epub authoring bug: some epub HTML/XHTML
-content files declare one encoding via their own XML declaration
+"""Fixes an epub authoring bug: some epub HTML/XHTML content files
+declare one encoding via their own XML declaration
 (<?xml version="1.0" encoding="UTF-8"?>) but a DIFFERENT, conflicting
 one via an HTML meta charset tag in the same <head> -- MuPDF honors the
 meta tag, misdecoding genuinely correct bytes when the two disagree.
 
-Confirmed live (not assumed), against a real epub (Brandon Sanderson's
-"The Way of Kings"): its chapter HTML declared `encoding="UTF-8"` in
-the XML prolog but `charset=iso-8859-1` in an HTML meta tag; the actual
-bytes were real UTF-8. Patching just the meta tag to match the XML
-declaration, and re-rendering, fixed the mojibake (confirmed
-before/after against the real file).
-
 Deliberately narrow: only acts when the two declarations genuinely
 disagree (an unambiguous signal), not a general charset-sniffing/
-guessing pass -- that would be a real rabbit hole and isn't needed
-here. Never touches the original file (same "never mutate the
-original" discipline as everywhere else in Slate) -- writes a
-corrected temp copy and returns ITS path; the original is untouched.
+guessing pass. Never touches the original file -- writes a corrected
+temp copy and returns its path; the original is untouched.
 """
 import re
 import tempfile

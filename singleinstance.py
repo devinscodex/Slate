@@ -1,32 +1,17 @@
-"""Single-instance coordination so every new output Cairn (or Devin)
-opens through Slate lands as a TAB in one already-running window,
-instead of spawning a new process/window per file (Devin's real ask,
-2026-07-25 -- "use the tab system for each new output", "try to use a
-single instance where possible").
+"""Single-instance coordination -- a new file opened through Slate lands
+as a TAB in one already-running window instead of spawning a new
+process/window per file.
 
 Plain TCP loopback socket, not a lock file + OS-specific IPC (named
-pipe/D-Bus) -- same "compose from the simplest real mechanism" doctrine
-as the rest of this project, and it's the one approach that's actually
-testable on this Linux dev box exactly like the real Windows deployment
-(a named pipe would need per-platform test code; a loopback socket
-doesn't care which OS it's on). Bound to 127.0.0.1 only -- never
-reachable off-machine.
+pipe/D-Bus) -- cross-platform without per-OS code, and works identically
+in dev (Linux) and deployment (Windows). Bound to 127.0.0.1 only --
+never reachable off-machine.
 """
 import queue
 import socket
 import threading
 
-PORT = 51234  # arbitrary, fixed -- both the client-probe and the
-               # server bind to this one port so they always agree.
-               # NOT 47552 (the original pick): real, live-confirmed
-               # PermissionError (WinError 10013) binding that specific
-               # port on Devin's Windows machine, 2026-07-25 -- not a
-               # WSL2 excluded-port-range issue (checked: `netsh
-               # interface ipv4 show excludedportrange protocol=tcp`
-               # doesn't list it), cause otherwise undetermined
-               # (likely security software or a per-port ACL). Several
-               # other arbitrary ports bound cleanly; not chased
-               # further -- just picked a port that works.
+PORT = 51234  # arbitrary, fixed -- client-probe and server must agree.
 
 
 def try_send_to_running_instance(path: str, port: int = PORT, timeout: float = 0.3) -> bool:
@@ -45,10 +30,8 @@ def start_server(on_path, port: int = PORT):
     """Starts a background thread listening for paths from later
     invocations. on_path(path) is called for each one -- the caller
     (slate.py) is responsible for making on_path thread-safe (route
-    through root.after(), same pattern already established for the TTS
-    download-progress and synthesis-worker threads -- direct Tk calls
-    from a non-main thread are not safe, confirmed the hard way once
-    already in this codebase).
+    through root.after()); direct Tk calls from a non-main thread are
+    not safe.
 
     Returns the queue paths are placed on AND the server socket, so a
     caller that wants on_path to be a plain queue.put can just pass

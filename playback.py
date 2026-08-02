@@ -6,16 +6,11 @@ paused flag and the current sample position directly -- pause holds
 the position (resume continues from exactly there), not just a stop
 that would lose it.
 
-NOT live-verified against real audio hardware: this dev environment
-(WSL2) exposes zero audio output devices even with libportaudio2
-installed (confirmed live: sd.query_devices() returns an empty list) --
-a WSL/passthrough limitation, not something in this code. The real
-Windows deployment target has no such gap (sounddevice's wheel bundles
-PortAudio with normal native device access). The callback's own
-position/pause LOGIC is still fully real-tested here, by calling it
-directly with synthetic buffers -- same technique already used for the
-Windows-only font-registry and DWM-titlebar code that can't be
-exercised on this box either.
+NOT live-verified against real audio hardware -- WSL2 exposes zero audio
+output devices regardless of libportaudio2 install state, a WSL/
+passthrough limitation, not a code issue. The callback's own position/
+pause logic is still fully tested by calling it directly with synthetic
+buffers, bypassing the need for a real device.
 """
 import numpy as np
 import sounddevice as sd
@@ -67,15 +62,10 @@ class Player:
         if self._stream is not None and not self._stream.active:
             # Reaching end-of-audio raises sd.CallbackStop() from inside
             # _callback, which stops the PortAudio stream but does NOT
-            # close it -- only the explicit stop() button call did that.
-            # Left as-is, the next play() (e.g. clicking Pause/Resume
-            # after a page finished reading itself out) opened a SECOND
-            # OutputStream on top of this still-open native handle,
-            # which real Windows audio backends (WASAPI/DirectSound)
-            # don't tolerate -- real crash, confirmed live by Devin,
-            # never testable in this WSL dev environment (zero audio
-            # devices). Always release a dead stream before opening a
-            # new one, exactly like stop() already does.
+            # close it. Opening a second OutputStream on top of a still-
+            # open native handle crashes on Windows audio backends
+            # (WASAPI/DirectSound) -- always release a dead stream
+            # before opening a new one, same as stop() already does.
             self._stream.close()
             self._stream = None
         if self._stream is None:
@@ -117,9 +107,7 @@ class Player:
     def has_audio(self) -> bool:
         """Something is loaded (playing, paused, or freshly load()ed
         and not yet played) -- distinct from is_playing(), which is
-        only True while actively producing sound. The toolbar's single
-        play/pause/resume button (Devin, 2026-07-25: "easier audio
-        readback controls... on the main toolbar") needs this to know
+        only True while actively producing sound. Needed to decide
         whether to start a fresh read or just toggle pause/resume."""
         return self._audio is not None
 

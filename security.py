@@ -1,13 +1,11 @@
 """Encryption / password protection -- pikepdf-backed. Covers both
-directions Slate needs (DESIGN.md, "IN v1"): opening PDFs Devin receives
-that are already password-protected, and producing encrypted output.
+opening already-encrypted PDFs and producing encrypted output.
 
-Note pikepdf's own docs are explicit: the library does not enforce
-permission restrictions itself -- it only encodes them in the file. A
-compliant reader is expected to honor them. Slate's own UI layer (slice
-8) is responsible for actually disabling e.g. printing when
-`allow.print_highres` is False; this module's job is correctly setting
-and reading back the bits, which is what's tested here.
+pikepdf does not enforce permission restrictions itself -- it only
+encodes them in the file; a compliant reader is expected to honor them.
+This module only sets/reads the permission bits correctly; the UI layer
+is responsible for actually disabling e.g. printing when
+`allow.print_highres` is False.
 """
 import pikepdf
 

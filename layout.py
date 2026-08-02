@@ -1,58 +1,39 @@
-"""Slice 2 (Fable design review, 2026-07-25): canvas-space geometry for
-stacking multiple rendered pages in continuous-scroll mode. Pure math
-only -- no Tk, no fitz.Page objects held onto past construction.
-Deliberately kept separate from Viewer (viewer.py): Viewer's
-page_num/render_page()/next_page() contract is exactly what
-single-page mode still needs unchanged, and multi-page canvas layout
-is a different concern (Tk-canvas geometry, not document state).
+"""Canvas-space geometry for stacking multiple rendered pages in
+continuous-scroll mode. Pure math only -- no Tk, no fitz.Page objects
+held onto past construction. Kept separate from Viewer (viewer.py):
+Viewer's page_num/render_page()/next_page() contract is what
+single-page mode needs; multi-page canvas layout is a different
+concern (Tk-canvas geometry, not document state).
 
-Built fresh whenever page count or zoom changes; never touched by
-scrolling itself (scrolling only moves the canvas viewport over this
-already-computed geometry).
+Built fresh whenever page count or zoom changes; scrolling only moves
+the canvas viewport over this already-computed geometry.
 
-`cols` (Fable design review, 2026-07-25, Slice 3 perf consult): added
-now as groundwork for Slice 4's side-by-side view, even though every
-caller today still uses the cols=1 default -- row-major grid with
-cols=1 collapses to exactly the same vertical-list geometry as before,
-so this costs nothing for the current slice and means Slice 4 never
-has to touch this class's core math again. Every column shares one
-fixed width (the widest page in the whole document) rather than a
-per-column width -- same "left-align first pass, revisit only if it
-looks wrong live" simplicity already established for mixed page
-sizes."""
+`cols`: row-major grid, cols=1 collapses to the same vertical-list
+geometry as a single column. Every column shares one fixed width (the
+widest page in the whole document) rather than a per-column width."""
 import fitz
 
 
 class PageLayout:
     def __init__(self, doc: fitz.Document, zoom: float, gap: int = 2, cols: int = 1,
                  center_offset_x: float = 0.0, crop_rect: "fitz.Rect | None" = None):
-        """center_offset_x (Devin, 2026-07-29 -- "current default alignment
-        isn't centered"): a single horizontal shift applied to every rect,
-        computed by the caller (slate.py knows the real Tk canvas viewport
-        width; this class deliberately stays Tk-free, pure math only, per
-        its own module docstring) as max(0, (viewport_width - content_width)
-        / 2). Baking it in HERE, once, means every existing call site that
-        already trusts rect_of()'s coordinates for drawing, click hit-
-        testing (page_at), TTS highlight placement, and text-selection
-        overlays all get centered positions automatically -- no separate
-        offset-plumbing needed at each of those call sites. Zero when
-        content is already >= viewport width (nothing to center, the
-        existing left-pinned behavior IS correct once real horizontal
-        scrolling is needed).
+        """center_offset_x: a single horizontal shift applied to every
+        rect, computed by the caller as
+        max(0, (viewport_width - content_width) / 2). Applied here once
+        so rect_of()'s coordinates, click hit-testing (page_at), TTS
+        highlight placement, and text-selection overlays all get
+        centered positions automatically. Zero when content is already
+        >= viewport width (left-pinned behavior for real horizontal
+        scrolling).
 
-        crop_rect (Devin, 2026-07-29 -- "build the crop feature... don't
-        like big page margins"): ONE shared crop rectangle (in page-space,
-        pre-zoom), from viewer.detect_content_bbox(), applied uniformly to
-        EVERY page rather than a per-page-varying crop. Deliberately
-        uniform: real PDFs almost always share the same margins page to
-        page, and a single shared rect means col_w/row_heights below stay
-        exactly the "widest page in the doc" math already established --
-        no per-page-varying-dimensions complexity rippling through the
-        side-by-side/continuous layout geometry for what's fundamentally a
-        cosmetic feature. The caller (slate.py) is responsible for
-        actually rendering each page's pixmap clipped to this same rect
-        (get_pixmap(clip=crop_rect)) so the drawn image size matches what
-        this class computes here -- this class only does the geometry."""
+        crop_rect: ONE shared crop rectangle (page-space, pre-zoom),
+        from viewer.detect_content_bbox(), applied uniformly to every
+        page rather than a per-page-varying crop -- keeps col_w/
+        row_heights as the "widest page in the doc" math. The caller is
+        responsible for rendering each page's pixmap clipped to this
+        same rect (get_pixmap(clip=crop_rect)) so the drawn image size
+        matches what this class computes -- this class only does the
+        geometry."""
         self.zoom = zoom
         self.gap = gap
         self.cols = cols

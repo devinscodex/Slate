@@ -1,15 +1,12 @@
-"""In-place editing of existing body text (gated feature, DESIGN.md).
-Detect the font a text span uses, pick the safest available way to
-reproduce it for NEW text (reuse the exact embedded font > a real
-system font > a Base-14 substitute, in that preference order), then
-redact-and-reinsert at the same spot.
+"""In-place editing of existing body text (gated feature). Detect the
+font a text span uses, pick the safest available way to reproduce it
+for NEW text (reuse the exact embedded font > a real system font > a
+Base-14 substitute, in that preference order), then redact-and-reinsert
+at the same spot.
 
-Real, live-confirmed finding while building this (slice 0's experiment,
-DESIGN.md): reusing redact.py's own mark_region() here would leave a
-solid BLACK bar instead of the new text -- that function is correctly
-built for actual redaction (black fill, on purpose). Text-editing's
-redaction call uses a WHITE fill instead; the two are not
-interchangeable despite both being "add_redact_annot then apply".
+Uses a WHITE fill for its own redact-annot call, not redact.py's
+mark_region() (black fill, correct for actual redaction) -- the two are
+not interchangeable despite both being "add_redact_annot then apply".
 """
 import fitz
 
@@ -72,17 +69,15 @@ def font_safety(doc: fitz.Document, page: fitz.Page, span: dict) -> str:
     that preference order -- 1 and 2 both give real, non-approximated
     glyphs, only 3 needs a warning to the user.
 
-    Real bug caught writing this module's tests: get_fonts()'s `name`
-    field is the page's font-RESOURCE alias (e.g. "F1", whatever
-    insert_font/the PDF producer chose as the dict key), while
-    span["font"] (from get_text("dict")) is the font's own internal
-    name -- confirmed live, these are NOT the same string even for a
-    font this exact code just embedded. The correct comparison is
-    span["font"] against `basefont` (the font's real reported name),
-    normalized the same way fontmatch.py already normalizes for
-    registry/fontconfig comparisons, since the two naming schemes
-    disagree on whitespace/style-suffix conventions too (e.g.
-    "DejaVuSerif" vs "DejaVu Serif Book").
+    get_fonts()'s `name` field is the page's font-RESOURCE alias (e.g.
+    "F1", whatever insert_font/the PDF producer chose as the dict key),
+    NOT the same string as span["font"] (from get_text("dict"), the
+    font's own internal name), even for a font this code just embedded.
+    The correct comparison is span["font"] against `basefont` (the
+    font's real reported name), normalized the same way fontmatch.py
+    normalizes for registry/fontconfig comparisons, since the two
+    naming schemes disagree on whitespace/style-suffix conventions too
+    (e.g. "DejaVuSerif" vs "DejaVu Serif Book").
     """
     target = fontmatch._normalize_font_name(span["font"])
     for xref, ext, _type, basefont, name, _encoding in page.get_fonts():

@@ -1,34 +1,17 @@
 """Parse a real Obsidian-style CSS theme snippet (:root + .theme-light +
 .theme-dark blocks of CSS custom properties) directly into Slate's own
 palette dict shape, instead of hand-transcribing hex values into a
-second Python data structure.
+second Python data structure -- hand-transcribed copies drift out of
+sync with the source file with no mechanism to catch it.
 
-Real bug this exists to prevent, not a hypothetical one: mosscairn2.css
-got live-edited mid-session while theme.py's _MOSSCAIRN3_LIGHT dict still
-carried the values it was copied from hours earlier -- nobody noticed
-until a live look caught it ("too tan"). The SAME class of drift then
-recurred independently in webui/index.html, which had ALSO hand-copied
-mosscairn2.css's old values into its own <style> block. Two unrelated
-copies, same root cause: no mechanism keeps a hand-transcription in sync
-with the file it was copied from. Parsing the real file at load time
-removes the second copy entirely.
-
-Scope, deliberately narrow: this handles exactly the property/value
-patterns Runestone's own theme snippets actually use (confirmed by
-reading slate.css, boneink.css, inkbone.css -- slate.css was named
-mosscairn.css through 2026-07-29) -- hex literals,
-rgb(var(--name)) referencing a :root-declared R,G,B triple, and plain
-var(--other-property) indirection one level through the same block. It
-does NOT attempt to be a general CSS parser (no cascade, no specificity,
-no media queries, no nested selectors) -- Obsidian snippets don't need
-any of that for the properties Slate actually reads, and building a real
-CSS engine for this would be the same mistake convert.py's own header
-already named and rejected once (pymupdf4llm's hidden ML weight, pulled
-in for a job a hand-rolled ~50-line function already did correctly).
-Unrecognized formats fail loud (ValueError), matching how open_file
-already fails loud on an HTML/image open with no working conversion --
-a silently-wrong color is worse than a crash naming exactly what wasn't
-understood.
+Scope, deliberately narrow: handles exactly the property/value patterns
+real theme snippets use -- hex literals, rgb(var(--name)) referencing a
+:root-declared R,G,B triple, and plain var(--other-property) indirection
+one level through the same block. Not a general CSS parser (no cascade,
+no specificity, no media queries, no nested selectors) -- unnecessary
+for the properties Slate actually reads. Unrecognized formats fail loud
+(ValueError) -- a silently-wrong color is worse than a crash naming
+exactly what wasn't understood.
 """
 import re
 
