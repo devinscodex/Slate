@@ -369,11 +369,11 @@ order:
    fixed by gating that check on `doc.is_pdf` too (signing is itself a
    PDF-only action; a non-PDF is never "signed" by definition).
 
-**Explicitly still out of scope:** true ebook-reader extras (TTS,
-adjustable reflow/font size for epub, night mode) — these were a
-separate, earlier exploratory research thread (real Piper TTS sizing
-numbers gathered, nothing built) and stay that way unless asked for
-directly.
+**Explicitly still out of scope:** adjustable reflow for epub (font
+size is covered by the global UI Font Size setting, but true reflow
+isn't). TTS and night mode are no longer out of scope -- see Read
+Aloud below and the multi-theme roster (Slate/Bonepaper/Flexoki/Martin,
+each with a dark variant).
 
 ## Convert — office document utilities (`convert.py`)
 

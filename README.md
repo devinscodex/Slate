@@ -12,6 +12,11 @@ Built to be the document reader/editor we always wanted.
 Design rationale, library choices, and the build/verification order: see
 `DESIGN.md`.
 
+## Download
+
+Prebuilt binaries (Windows installer, Linux tarball): see
+[Releases](https://github.com/devinscodex/slate/releases/latest).
+
 ## Setup
 
 ```
