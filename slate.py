@@ -792,6 +792,17 @@ class SlateApp:
             # paint, un-paint, repaint for a value that never changes.
             # One flag, one config call, no re-assertion needed anywhere.
             widget.configure(bg=widget.slate_fixed_bg)
+        elif getattr(widget, "slate_accent_swatch", False):
+            # Devin, 2026-08-01: "I want about to have theme's accent
+            # color displayed." Opposite of slate_fixed_bg above -- this
+            # one is SUPPOSED to change with the active theme (the
+            # swatch's whole point is showing whichever accent is
+            # current), so it reads colors["select_bg"] fresh on every
+            # repaint instead of a value frozen at construction time.
+            # Live-updates now that About-from-Settings no longer grabs
+            # (see _show_about), so flipping the Theme picker with About
+            # still open shows this swatch tracking in real time.
+            widget.configure(bg=colors["select_bg"])
         else:
             cls = widget.winfo_class()
             try:
@@ -1262,14 +1273,12 @@ class SlateApp:
         top.resizable(False, False)
 
         def _close_about():
+            # No grab hand-back needed either way: standalone About (its
+            # own grab, settings_open is None) simply releases its grab
+            # on destroy, same as any other modal Tk dialog; About opened
+            # from Settings never took a grab in the first place (see
+            # below), so Settings' own grab was never disturbed.
             top.destroy()
-            # Hand Tk's one process-wide grab back to Settings (see the
-            # grab-handoff comment below) -- otherwise Settings, still
-            # open underneath, is left holding no grab at all and its
-            # own controls go dead, the same symptom this fix closes,
-            # just in the opposite direction.
-            if settings_open is not None and settings_open.winfo_exists():
-                settings_open.grab_set()
 
         top.bind("<Escape>", lambda e: _close_about())
         top.protocol("WM_DELETE_WINDOW", _close_about)
@@ -1280,30 +1289,26 @@ class SlateApp:
         # when opened from Settings' own "About Slate..." button (a true
         # parent chain root -> settings -> about, not two siblings both
         # hanging directly off root, per Devin's 2026-07-30 "child nest
-        # those two" ask); grab_set() makes it real modal; -topmost keeps
-        # it above every other window.
+        # those two" ask); -topmost keeps it above every other window.
         top.transient(settings_open if settings_open is not None else self.root)
         top.attributes("-topmost", True)
-        # Real bug, Devin 2026-07-30 hunch confirmed live (grab_current()
-        # actually checked headless, not assumed from reading the code):
-        # Tk's grab_set() is a LOCAL grab, but "local" means local to the
-        # whole APPLICATION, not to this one Toplevel -- it blocks input
-        # to every OTHER window in the same Tk process, including a
-        # sibling Toplevel like Settings. The original fix here just
-        # skipped About's OWN grab_set() when Settings was open, which
-        # stopped About from locking Settings out -- but left Settings'
-        # own pre-existing grab standing, which locks OUT ABOUT instead:
-        # About would open, look normal, and simply never receive input
-        # until Settings' grab was released by closing Settings first --
-        # exactly the "have to close Settings before I can close About"
-        # bug reported live 2026-07-30. Real fix: there is only ever one
-        # process-wide local-grab holder at a time; hand it off cleanly
-        # (Settings releases, About takes it) instead of either window
-        # unconditionally grabbing and starving the other. _close_about
-        # above hands it back the same way on the way out.
-        if settings_open is not None:
-            settings_open.grab_release()
-        top.grab_set()
+        # Grab policy REVISED 2026-08-01 (Devin, live): "when About opens
+        # from Settings, I cannot change colors/settings at all" -- the
+        # 2026-07-30 fix (grab-handoff: Settings releases, About takes
+        # it, hands it back on close) technically worked as designed,
+        # but "modal About blocks Settings entirely" turns out to be the
+        # wrong behavior for the actual workflow Devin wants: he asked
+        # in the SAME breath for About to show the theme's accent color,
+        # which only matters if he can flip themes in Settings while
+        # About stays open to compare. Real fix: About opened FROM
+        # Settings is no longer modal at all -- no grab_set(), Settings
+        # keeps its own grab and stays fully live underneath, About is
+        # just a floating reference panel (still transient+topmost, so
+        # it stays visually attached and on top). About opened standalone
+        # (Help menu, no Settings open) is UNCHANGED -- still real modal,
+        # matching the original 2026-07-29 ask for that case.
+        if settings_open is None:
+            top.grab_set()
         # Titlebar theme handled generically by _paint_widget's own
         # Toplevel branch (see its comment) via the self._paint_widget(
         # top, colors) call below -- no separate call needed here.
@@ -1352,6 +1357,22 @@ class SlateApp:
         tk.Label(
             top, text=version.SUMMARY, wraplength=360, justify="left"
         ).pack(padx=24, pady=(0, 12))
+
+        # Theme accent swatch (Devin, 2026-08-01: "I want about to have
+        # theme's accent color displayed") -- distinct from the fixed
+        # green house accent_bar above (that one is Slate's own brand
+        # mark, never changes); this one shows whichever theme is
+        # ACTIVE right now, live, via slate_accent_swatch (see
+        # _paint_widget's own branch for it). Most useful precisely
+        # because About-from-Settings is no longer modal (see the grab
+        # policy above) -- flip themes in Settings, watch this update.
+        accent_row = tk.Frame(top)
+        accent_row.pack(fill=tk.X, padx=24, pady=(0, 12), anchor="w")
+        tk.Label(accent_row, text="Theme accent:").pack(side=tk.LEFT, padx=(0, 8))
+        accent_swatch = tk.Frame(accent_row, width=22, height=16, highlightthickness=1)
+        accent_swatch.pack_propagate(False)
+        accent_swatch.slate_accent_swatch = True
+        accent_swatch.pack(side=tk.LEFT)
         author_label = tk.Label(top, text=f"© 2026 {version.AUTHOR}", fg="gray40")
         author_label.slate_muted = True
         author_label.pack(padx=24, pady=(0, 18))
@@ -1610,12 +1631,40 @@ class SlateApp:
             self.theme_name.set(modes[mode])
             _on_theme_changed_and_repaint()
 
-        tk.Radiobutton(
-            mode_frame, text="Light", variable=mode_var, value="Light", command=_select_theme
-        ).pack(side=tk.LEFT)
-        tk.Radiobutton(
-            mode_frame, text="Dark", variable=mode_var, value="Dark", command=_select_theme
-        ).pack(side=tk.LEFT, padx=(10, 0))
+        # Light/Dark control, rebuilt a 4th time (Devin, live, after the
+        # plain-Radiobutton pair): "the radio buttons are not working...
+        # maybe we can use a single toggle form object, light on left,
+        # dark on right? ... please don't use another color either."
+        # Real root cause of "not working": a bare indicatoron=True
+        # Radiobutton relies on Tk's own default selectcolor for its
+        # indicator dot, which _paint_widget's generic Radiobutton
+        # branch never touches (it only ever repaints bg/fg/active* --
+        # see that branch's own comment) -- on a dark theme the tiny dot
+        # stayed whatever Tk's platform default was, unrelated to either
+        # theme color, reading as broken/invisible rather than a live
+        # control. Rebuilt using the SAME proven indicatoron=False +
+        # _wire_toggle_button_contrast pattern the Mode/Display toggles
+        # already use below (real selectcolor=colors["select_bg"], WCAG-
+        # checked checked-state text) instead of a 3rd bespoke selection
+        # mechanism -- "don't use another color" means reuse the
+        # theme's own accent here, not invent a 4th indicator color
+        # after red/orange and green both already failed to read as
+        # "selected" in the two prior swatch-grid rebuilds.
+        # flat=True packing (no padding between the two buttons, shared
+        # 1px border) reads as one segmented control, not two separate
+        # buttons -- the actual "single toggle form object" ask.
+        light_btn = tk.Radiobutton(
+            mode_frame, text="Light", variable=mode_var, value="Light", command=_select_theme,
+            indicatoron=False, relief=tk.RAISED, padx=10, pady=3, selectcolor=colors["select_bg"],
+        )
+        light_btn.pack(side=tk.LEFT)
+        self._wire_toggle_button_contrast(light_btn, mode_var, value="Light")
+        dark_btn = tk.Radiobutton(
+            mode_frame, text="Dark", variable=mode_var, value="Dark", command=_select_theme,
+            indicatoron=False, relief=tk.RAISED, padx=10, pady=3, selectcolor=colors["select_bg"],
+        )
+        dark_btn.pack(side=tk.LEFT, padx=(1, 0))
+        self._wire_toggle_button_contrast(dark_btn, mode_var, value="Dark")
         family_combo.bind("<<ComboboxSelected>>", _select_theme)
 
         # Palette preview -- "include the color palette somewhere in a
@@ -1651,30 +1700,17 @@ class SlateApp:
 
         _refresh_palette_preview()  # initial state -- matches theme_name at dialog-open time
 
-        # -- Mode -- collapsed to the 2 real reading modes (Devin,
-        # 2026-07-29, live screenshot review: "the top 3 should be
-        # grouped, and really only 2 modes bookview and continuous").
-        # The View MENU keeps all 3 real checkboxes (Continuous Scroll/
-        # Side by Side/Book View) exactly as independent axes, unchanged
-        # -- this dialog's own simplified view collapses them to one
-        # Continuous/Book View radio choice instead. Accepted tradeoff,
-        # explicit not accidental: side-by-side WITHOUT continuous
-        # scroll has no radio of its own here (reads as "Continuous" if
-        # reached some other way) -- still fully reachable via the View
-        # menu, just not exposed as a 3rd option in this shorter list.
-        mode_frame = tk.LabelFrame(top, text="Mode")
-        mode_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
-        for text, value, cmd, pad in (
-            ("Continuous", "continuous", self._select_view_mode_continuous, (6, 2)),
-            ("Book View (F8)", "book", self._select_view_mode_book, (2, 6)),
-        ):
-            btn = tk.Radiobutton(
-                mode_frame, text=text, variable=self.view_mode_var, value=value,
-                command=cmd, selectcolor=colors["select_bg"],
-                indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
-            )
-            btn.pack(fill=tk.X, padx=10, pady=pad)
-            self._wire_toggle_button_contrast(btn, self.view_mode_var, value=value)
+        # Mode box (Continuous/Book View radio) REMOVED (Devin, 2026-08-01:
+        # "get rid of 'continuous' and 'bookview' (mode box)... just use
+        # columns"). Columns (below, under Zoom) is now the sole
+        # layout control this dialog exposes -- continuous scroll stays
+        # the permanent, only reading mode (matches Devin's own
+        # standing "continuous scroll stays a default," see
+        # _apply_width_based_side_by_side's docstring). The View menu's
+        # own Continuous Scroll/Side by Side/Book View checkboxes are
+        # UNTOUCHED -- still real, independent axes for anyone who
+        # reaches them there, this dialog just no longer surfaces a
+        # simplified radio for them.
 
         # -- Display -- Colorize moved to the TOP of this group (Devin,
         # 2026-07-29: "colorize pages is so hard to find sometimes and i
@@ -1738,41 +1774,45 @@ class SlateApp:
         # window size"), then reversed same session: "it's easier for
         # you to focus on that when I am the one who tells you how many
         # columns to focus your zooming/centering efforts around
-        # though." Real manual control now, same -/+ shape as Zoom
-        # above -- a click PINS num_columns (self._columns_pinned),
-        # which _apply_width_based_side_by_side and _set_view_mode both
-        # now check first and skip entirely while set, so a manual pick
-        # can't get silently overwritten by the next resize or mode
-        # toggle. "Auto" un-pins and recomputes immediately from the
-        # real current viewport width, not just on the next resize.
+        # though." Real manual control, same -/+ shape as Zoom above --
+        # a click PINS num_columns (self._columns_pinned), which
+        # _apply_width_based_side_by_side and _set_view_mode both check
+        # first and skip entirely while set, so a manual pick can't get
+        # silently overwritten by the next resize or mode toggle.
+        # "Auto" button REMOVED (Devin, 2026-08-01: "just use columns
+        # and get rid of 'auto' columns") -- manual -/+ is now the only
+        # way to change column count from here; the underlying
+        # auto-follow-on-resize still runs until the first manual click
+        # pins it (unchanged initial-sizing behavior for a fresh
+        # ultrawide window), it just has no button to revert back to
+        # from this dialog anymore.
+        # Column change now re-fits zoom to width immediately (Devin:
+        # "text zoom should fit to width upon column change") -- calling
+        # fit_width() instead of a plain re-render means the new column
+        # count never leaves stale zoom from the OLD layout; fit_width()
+        # already renders internally, so no separate render call needed.
         columns_row = tk.Frame(zoom_frame)
         columns_row.pack(fill=tk.X, padx=10, pady=(0, 6))
 
-        def _columns_label_text():
-            return f"Columns: {self.num_columns}" + ("" if self._columns_pinned else " (auto)")
-
-        columns_label = tk.Label(columns_row, text=_columns_label_text())
+        columns_label = tk.Label(columns_row, text=f"Columns: {self.num_columns}")
         columns_label.pack(side=tk.LEFT)
 
         def _refresh_columns_label():
-            columns_label.config(text=_columns_label_text())
+            columns_label.config(text=f"Columns: {self.num_columns}")
 
         def _columns_dec_and_refresh():
             self._columns_pinned = True
             self.num_columns = max(1, self.num_columns - 1)
-            self._render_current_layout()
+            self.fit_width()
             _refresh_columns_label()
+            _refresh_zoom_label()
 
         def _columns_inc_and_refresh():
             self._columns_pinned = True
             self.num_columns = min(6, self.num_columns + 1)
-            self._render_current_layout()
+            self.fit_width()
             _refresh_columns_label()
-
-        def _columns_auto_and_refresh():
-            self._columns_pinned = False
-            self._apply_width_based_side_by_side()  # real recompute now, not just next resize
-            _refresh_columns_label()
+            _refresh_zoom_label()
 
         columns_btns = tk.Frame(columns_row)
         columns_btns.pack(side=tk.RIGHT)
@@ -1782,9 +1822,6 @@ class SlateApp:
         tk.Button(
             columns_btns, text="+", width=2, command=_columns_inc_and_refresh, state=zoom_state
         ).pack(side=tk.LEFT, padx=4)
-        tk.Button(
-            columns_btns, text="Auto", command=_columns_auto_and_refresh, state=zoom_state
-        ).pack(side=tk.LEFT)
 
         # -- UI Font Size -- separate from Zoom above (Devin, 2026-07-29:
         # "the font needs to be adjustable for the UI, not just the
@@ -2188,10 +2225,17 @@ class SlateApp:
         tk.Label(
             title_box, text=f"Slate {version.VERSION}", font=self._ui_header_font(extra=11)
         ).pack(anchor="w")
+        # Devin, 2026-08-01: "Slate 'about text' needs to be brightened"
+        # -- was deliberately dimmed via slate_muted (real muted_fg,
+        # theme-correct but intentionally low-contrast, meant for
+        # secondary text like the copyright line) plus a hardcoded
+        # fg="gray30" fallback that never even reflected the active
+        # theme. This is the app's own pitch, the first text a new user
+        # reads -- full colors["fg"] (plain Label, no slate_muted) reads
+        # as normal-priority text instead of a de-emphasized caption.
         tagline = tk.Label(
-            title_box, text=version.SUMMARY, wraplength=460, justify="left", fg="gray30"
+            title_box, text=version.SUMMARY, wraplength=460, justify="left"
         )
-        tagline.slate_muted = True  # theme walker keeps this dimmer than normal text
         tagline.pack(anchor="w", pady=(4, 0))
 
         tk.Button(content, text="Open...", command=self.open_file).pack(
@@ -3490,6 +3534,20 @@ class SlateApp:
         # so a repeated render at an unchanged viewport never measures its
         # OWN previous offset and compounds it.
         crop_rect = self._get_crop_rect()
+        # Real bug (Devin, 2026-08-01: "often the text doesn't render
+        # upon column change"): this comment already claimed the same
+        # update_idletasks()-then-winfo_width() pattern fit_width()/
+        # _apply_width_based_side_by_side() use, but the actual call
+        # was missing -- winfo_width() without a forced idle-tasks
+        # flush can return a stale cached width right after a column
+        # count change (Settings' -/+ buttons fire synchronously,
+        # before Tk's own event loop has processed the geometry change
+        # that triggered this render), producing a wrong content_w/
+        # center_offset_x and, in the worst case, a layout computed
+        # against a pre-resize viewport that doesn't match what
+        # actually gets drawn. Matches the reported "often," not
+        # "always" -- exactly the shape of a race, not a hard failure.
+        self.canvas.update_idletasks()
         viewport_w = self.canvas.winfo_width()
         content_w = layout.PageLayout(self.doc, zoom, cols=cols, crop_rect=crop_rect).content_width
         center_offset_x = max(0.0, (viewport_w - content_w) / 2) if viewport_w > 1 else 0.0

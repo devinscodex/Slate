@@ -1729,15 +1729,22 @@ def test_settings_and_about_are_modal_transient_and_topmost(tmp_path):
     separate Toplevel, not a Settings descendant): About opened, looked
     normal, and simply never received input until Settings' grab was
     released by closing Settings first -- reported live as "I have to
-    close Settings before I can close About." Real fix, matching Devin's
-    "child nest those two" ask: About opened from Settings is now
-    transient to SETTINGS itself (true parent chain root -> settings ->
-    about), Settings releases its grab, About takes it, and closing
-    About hands the grab back to Settings. This test covers both real
-    paths: About opened standalone (Help menu, no Settings open) still
-    grabs against root exactly as before; About opened from within
-    Settings now grabs against Settings, with Settings' own grab
-    released while About is up and restored the moment About closes."""
+    close Settings before I can close About." Grab-handoff fix built
+    for this (Settings releases, About takes it, hands it back on
+    close) -- superseded by the policy below.
+
+    Grab policy REVISED 2026-08-01 (Devin, live): "when About opens
+    from Settings, I cannot change colors/settings at all" -- modal
+    About-from-Settings, even with a clean handoff, still meant
+    Settings was frozen the whole time About stayed open, which turned
+    out to be the wrong behavior for the real workflow (comparing the
+    Theme picker against About's new live accent swatch needs BOTH
+    open and interactive at once). Real fix: About opened FROM Settings
+    no longer grabs at all -- Settings keeps its own grab and stays
+    fully live, About is a non-modal floating reference panel (still
+    transient+topmost). About opened standalone (Help menu, no Settings
+    open) is UNCHANGED -- still real modal, matching the original
+    2026-07-29 ask for that case."""
     root, app = _make_app(tmp_path)
     try:
         app._show_settings()
@@ -1748,32 +1755,27 @@ def test_settings_and_about_are_modal_transient_and_topmost(tmp_path):
         assert settings_win.master == root
 
         # Opened FROM Settings (the common real path, its own "About
-        # Slate..." button) -- true parent nesting under Settings, and
-        # the single process-wide grab hands off to About so it can
-        # actually receive input (Settings' own grab is released, not
-        # left standing to starve the dialog opened from inside it).
+        # Slate..." button) -- true parent nesting under Settings, but
+        # NO grab at all: Settings must stay fully interactive with
+        # About open alongside it.
         app._show_about()
         about_win = app._about_window
         root.update()
-        assert about_win.grab_status() == "local"
+        assert about_win.grab_status() is None  # non-modal from Settings
         assert bool(about_win.attributes("-topmost")) is True
         # .master is just the Toplevel() constructor's widget parent
         # (always root, unchanged) -- the real "child nest" relationship
         # is the WM transient() hint, queried back the same way, not
         # assumed from the transient() call we made.
         assert str(about_win.transient()) == str(settings_win)
-        assert settings_win.grab_status() is None  # released, handed to About
+        assert settings_win.grab_status() == "local"  # never released -- Settings stays live
 
-        # Closing About must hand the grab back to Settings -- this is
-        # the exact mechanism that fixes "close Settings first" (before
-        # this fix, nothing ever restored Settings' grab, so it was
-        # stuck locked out even after About went away).
         about_win.focus_force()  # <Escape> binding only fires on the focused widget
         root.update()
         about_win.event_generate("<Escape>")
         root.update()
         assert not about_win.winfo_exists()
-        assert settings_win.grab_status() == "local"  # restored, not left ungrabbed
+        assert settings_win.grab_status() == "local"  # untouched by About's whole lifecycle
 
         settings_win.destroy()
         app._settings_window = None
@@ -4161,12 +4163,14 @@ def test_settings_columns_control_pins_the_count_and_survives_resize(tmp_path):
     just worry about zooming nicely and rendering right based on window
     size"), then reversed same session: "it's easier for you to focus
     on that when I am the one who tells you how many columns... though."
-    Real regression test for the manual pin: clicking + must set
-    num_columns AND set self._columns_pinned, the label must drop its
-    "(auto)" suffix once pinned, and -- the actual point of pinning --
-    a subsequent width-based resize check must NOT overwrite the manual
-    choice. "Auto" must release the pin and hand control back to the
-    real width computation immediately."""
+    "Auto" button REMOVED 2026-08-01 (Devin: "just use columns and get
+    rid of 'auto' columns") -- manual -/+ is the only Settings-facing
+    control now; this test covers the real regression it still needs to
+    guard: clicking + must set num_columns AND pin it (self._columns_
+    pinned), and -- the actual point of pinning -- a subsequent
+    width-based resize check must NOT silently overwrite the manual
+    choice (the auto-follow-on-resize mechanism itself is unchanged,
+    just has no button left to manually revert to it from here)."""
     root, app = _make_app(tmp_path)
     try:
         app.num_columns = 2
@@ -4187,7 +4191,7 @@ def test_settings_columns_control_pins_the_count_and_survives_resize(tmp_path):
             return None
 
         label = find(tk.Label, lambda t: t.startswith("Columns:"))
-        assert label.cget("text") == "Columns: 2 (auto)"
+        assert label.cget("text") == "Columns: 2"
         assert app._columns_pinned is False
 
         plus_btn = find(
@@ -4199,7 +4203,7 @@ def test_settings_columns_control_pins_the_count_and_survives_resize(tmp_path):
         root.update()
         assert app.num_columns == 3
         assert app._columns_pinned is True
-        assert label.cget("text") == "Columns: 3"  # no "(auto)" once pinned
+        assert label.cget("text") == "Columns: 3"
 
         # The real point: a resize-driven width recheck must leave a
         # pinned count alone, not silently overwrite Devin's own choice.
@@ -4209,10 +4213,7 @@ def test_settings_columns_control_pins_the_count_and_survives_resize(tmp_path):
         assert app.num_columns == 3  # untouched
 
         auto_btn = find(tk.Button, lambda t: t == "Auto", w=label.master)
-        auto_btn.invoke()
-        root.update()
-        assert app._columns_pinned is False
-        assert app.num_columns == 6  # real recompute against the real (wide) viewport, not stale
+        assert auto_btn is None  # removed -- no button left to un-pin from Settings
     finally:
         app.doc.close()
         root.destroy()
@@ -4268,7 +4269,12 @@ def test_settings_toggle_buttons_use_each_themes_own_accent_not_one_fixed_color(
     itself reverted to plain standard radio buttons (see
     test_settings_theme_picker_is_plain_radio_buttons_no_accent below
     for its own coverage), so this test now only covers the OTHER
-    toggle-button groups (Mode/Display/Voice/Speed) that are unchanged."""
+    toggle-button groups (Mode/Display/Voice/Speed) that are unchanged.
+
+    Scope narrowed again 2026-08-01: the Mode box (Continuous/Book View)
+    was removed from Settings entirely (Devin: "just use columns") --
+    this test now covers Display (the one remaining indicatoron=False
+    toggle-button group) instead of Mode."""
     root, app = _make_app(tmp_path)
     try:
         app.theme_name.set("slate_dark")
@@ -4287,8 +4293,8 @@ def test_settings_toggle_buttons_use_each_themes_own_accent_not_one_fixed_color(
                 return None
             return walk(top)
 
-        continuous_btn = find("Continuous")
-        assert continuous_btn.cget("selectcolor") == theme.THEMES["slate_dark"]["select_bg"]
+        toc_btn = find("Show Table of Contents")
+        assert toc_btn.cget("selectcolor") == theme.THEMES["slate_dark"]["select_bg"]
     finally:
         app.doc.close()
         root.destroy()
@@ -4300,12 +4306,17 @@ def test_settings_theme_picker_is_a_dropdown_with_light_dark_radios(tmp_path):
     "isn't cutting it"): "redesign as dropdown but include the color
     palette somewhere in a classy way. please have radio buttons for
     light/dark." Real structural test: a real ttk.Combobox lists exactly
-    the 4 families (readonly -- can't type an invalid one), and 2 plain
-    tk.Radiobutton widgets (not indicatoron=False, no custom
-    selectcolor) cover Light/Dark. No custom selection-indicator code
-    exists in this design at all -- both real widgets show their own
-    selected state natively, which is the actual fix for "not cutting
-    it": nothing left to get wrong."""
+    the 4 families (readonly -- can't type an invalid one).
+
+    Light/Dark control rebuilt AGAIN 2026-08-01 (Devin: "the radio
+    buttons are not working... maybe we can use a single toggle form
+    object, light on left, dark on right?"): plain indicatoron=True
+    Radiobuttons relied on Tk's own default selectcolor for the
+    indicator dot, which _paint_widget's generic repaint never touched
+    -- reads as broken on a themed dark background. Now indicatoron=False
+    segmented-toggle buttons (same proven pattern as Mode/Display),
+    flush-packed with a 1px gap to read as one control, real
+    selectcolor=theme accent via _wire_toggle_button_contrast."""
     root, app = _make_app(tmp_path)
     try:
         app.theme_name.set("slate_dark")
@@ -4343,7 +4354,11 @@ def test_settings_theme_picker_is_a_dropdown_with_light_dark_radios(tmp_path):
         radios = find_all(tk.Radiobutton)
         assert {r.cget("text") for r in radios} == {"Light", "Dark"}
         for r in radios:
-            assert bool(r.cget("indicatoron")) is True  # real radio dot, not a colored button
+            # Segmented-toggle style now, not a plain radio dot -- see
+            # the docstring's 2026-08-01 update. Real selectcolor (the
+            # theme's own accent), not indicatoron's default gray.
+            assert bool(r.cget("indicatoron")) is False
+            assert r.cget("selectcolor") == theme.THEMES["slate_dark"]["select_bg"]
     finally:
         app.doc.close()
         root.destroy()
@@ -4497,7 +4512,6 @@ def test_mode_display_voice_speed_selectcolor_follows_a_live_theme_switch(tmp_pa
             return walk(top)
 
         voice_btn = find("Northern English Male")
-        continuous_btn = find("Continuous")
         toc_btn = find("Show Table of Contents")
         assert voice_btn.cget("selectcolor") == theme.THEMES["bonepaper_dark"]["select_bg"]
 
@@ -4506,7 +4520,9 @@ def test_mode_display_voice_speed_selectcolor_follows_a_live_theme_switch(tmp_pa
         app._on_theme_changed()
         app._paint_widget(top, theme.get_palette("slate_dark"))
 
-        for btn, label in ((voice_btn, "Voice"), (continuous_btn, "Mode"), (toc_btn, "Display")):
+        # Mode group removed 2026-08-01 (Devin: "just use columns") --
+        # Voice/Display are the remaining groups this test can cover.
+        for btn, label in ((voice_btn, "Voice"), (toc_btn, "Display")):
             assert btn.cget("selectcolor") == theme.THEMES["slate_dark"]["select_bg"], (
                 f"{label} group's selectcolor didn't follow the theme switch"
             )
