@@ -45,18 +45,10 @@ from playback import Player as TTSPlayer
 _TAB_CLOSE_GLYPH = "×"  # visual hint only -- middle-click actually closes, see _on_tab_strip_click
 
 # Tk's radiobutton/checkbutton checked-indicator (selectcolor) defaults
-# to a mid-gray that can vanish against a dark theme's background --
-# real bug, Devin screenshot 2026-07-25 ("if this is inkbone dark, i
-# cannot see the menu checkboxes"), fixed for the app's Menu-based
-# checkboxes at the time but never promoted to a shared constant, so
-# the Settings dialog's own standalone Radiobutton/Checkbutton widgets
-# (a separate code path, built later) never got it and shipped with
-# the same invisible-indicator bug in Dark/Inkbone Dark -- real
-# screenshot, 2026-07-28. Bright green reads against light OR dark
-# backgrounds, so one fixed value here (not re-themed live) is more
-# robust than tracking every radio/checkbutton through every theme
-# switch -- same reasoning _build_menu already used, now shared so it
-# can't drift between the two call sites again.
+# to a mid-gray that can vanish against a dark theme's background.
+# Bright green reads against light OR dark backgrounds, so one fixed
+# value here (not re-themed live) is more robust than tracking every
+# radio/checkbutton through every theme switch.
 RADIO_SELECT_COLOR = "#4a9e3a"
 
 
@@ -64,9 +56,8 @@ def _wcag_contrast_ratio(hex_a: str, hex_b: str) -> float:
     """Real WCAG 2.x relative-luminance contrast ratio (the same formula
     behind the 3:1/4.5:1 accessibility thresholds), not a cheap RGB-
     distance approximation -- used by _wire_toggle_button_contrast to
-    pick real, measured checked-state text color per theme rather than
-    a guessed one (Devin, 2026-07-29: "check all themes and color
-    selections... make sure there's no collisions")."""
+    pick a measured checked-state text color per theme rather than a
+    guessed one."""
     def _luminance(hexval):
         hexval = hexval.lstrip("#")
         def chan(c):
@@ -79,30 +70,25 @@ def _wcag_contrast_ratio(hex_a: str, hex_b: str) -> float:
     lighter, darker = max(la, lb), min(la, lb)
     return (lighter + 0.05) / (darker + 0.05)
 
-# UI font scale (Devin, 2026-07-29: "the font needs to be adjustable for
-# the UI, not just the page... pretty small rn"). These are Tk's own
-# built-in NAMED fonts -- virtually every stock Tk/ttk widget (Label,
-# Button, Menu, Entry, Listbox, Notebook tabs, Treeview) defaults to one
-# of these unless a widget explicitly overrides its own font, so
-# reconfiguring just these few font OBJECTS (not walking every widget by
-# hand) is the real "universal, suckless, won't break" mechanism Devin
-# asked for -- one shared, well-documented Tk feature instead of a
-# custom font-propagation system. TkFixedFont included too (code-view/
-# monospace text benefits from the same scale). Deliberately does NOT
-# include TkCaptionFont/TkSmallCaptionFont/TkIconFont/TkTooltipFont --
-# Slate never uses window-manager captions or system tooltips, so
-# touching those would be dead code, not caution.
+# These are Tk's own built-in NAMED fonts -- virtually every stock
+# Tk/ttk widget (Label, Button, Menu, Entry, Listbox, Notebook tabs,
+# Treeview) defaults to one of these unless a widget explicitly
+# overrides its own font, so reconfiguring just these few font objects
+# (not walking every widget by hand) scales the whole UI via one shared
+# Tk mechanism. TkFixedFont included (code-view/monospace text).
+# Deliberately excludes TkCaptionFont/TkSmallCaptionFont/TkIconFont/
+# TkTooltipFont -- Slate never uses window-manager captions or system
+# tooltips, so touching those would be dead code.
 _UI_SCALABLE_FONTS = (
     "TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont", "TkFixedFont",
 )
 
-# Extensions fitz/PyMuPDF would otherwise refuse outright ("Failed to open
-# file '...' as type ps1" -- confirmed live 2026-07-29) because it only
-# infers document type from the extension and doesn't recognize these as
-# text, even though the content is byte-identical to a .txt file it opens
-# fine. Passing filetype="txt" explicitly for these makes them open as
-# plain monospace text (no crash, no syntax color yet -- that's a separate,
-# bigger feature: a real tokenizer + per-theme color mapping, not built).
+# Extensions fitz/PyMuPDF would otherwise refuse outright ("Failed to
+# open file '...' as type ps1") because it only infers document type
+# from the extension and doesn't recognize these as text, even though
+# the content is byte-identical to a .txt file it opens fine. Passing
+# filetype="txt" explicitly for these makes them open as plain
+# monospace text (no syntax coloring -- not built).
 CODE_TEXT_EXTENSIONS = (
     ".ps1", ".py", ".sh", ".js", ".ts", ".json", ".yaml", ".yml",
     ".c", ".h", ".cpp", ".cs", ".go", ".rs", ".css", ".sql", ".ini", ".cfg",
@@ -110,10 +96,9 @@ CODE_TEXT_EXTENSIONS = (
 
 # Menu labels that only make sense for a real PDF (mutation/signing/
 # forms/etc) -- disabled whenever the active tab's document isn't one.
-# PyMuPDF/MuPDF (confirmed live + via its own docs feature matrix) also
-# opens EPUB/MOBI/FB2/CBZ/TXT/MD natively -- view/search/TOC/keyboard
-# nav all already work unchanged on those, only these PDF-specific
-# actions need gating.
+# PyMuPDF/MuPDF also opens EPUB/MOBI/FB2/CBZ/TXT/MD natively --
+# view/search/TOC/keyboard nav all already work unchanged on those,
+# only these PDF-specific actions need gating.
 _FILE_PDF_ONLY_LABELS = [
     "Save", "Save As...", "Merge PDFs...", "Split into pages...",
     "Encrypt...", "Sign (self-signed test cert)...",
@@ -130,28 +115,24 @@ class SlateApp:
     def __init__(self, root, path=None):
         self.root = root
         # Set before any other widget exists (even before root.title())
-        # so the very first paint already uses the right color -- real
-        # ask (Devin): loading light and then visibly flashing to dark
-        # a moment later, once a saved preference applies, is exactly
-        # the jarring effect this line order avoids.
+        # so the very first paint already uses the right color, not a
+        # visible flash from light to a saved dark preference a moment
+        # later.
         root.configure(bg=theme.get_palette(theme.load_preference())["bg"])
-        # Persisted user prefs (Devin, 2026-07-26 handoff): loaded once
-        # here, applied below as each corresponding variable's initial
-        # value instead of a hardcoded default. self._saved_zoom is kept
-        # separately (not applied yet) since no Viewer/document exists
-        # this early -- _open_document applies it once a doc is loaded.
+        # Persisted user prefs: loaded once here, applied below as each
+        # corresponding variable's initial value. self._saved_zoom is
+        # kept separately (not applied yet) since no Viewer/document
+        # exists this early -- _open_document applies it once a doc is
+        # loaded.
         _saved = settings.load()
         self._saved_zoom = _saved["zoom"]
         self._saved_open_tabs = _saved["open_tabs"]
-        # UI font scale (Devin, 2026-07-29): capture each named font's
-        # REAL platform-native size ONCE, before touching anything --
-        # this is Tk's own already-DPI/OS-aware default, not a guessed
-        # constant, so the same integer delta reads as a proportionally
-        # similar bump on Windows or Linux, whatever native size each
-        # picked on its own. Applied immediately, before _build_menu()
-        # or any widget exists, so the very first paint already uses the
-        # saved size (same "no visible flash to a different size a
-        # moment later" reasoning as the theme bg line just above).
+        # Capture each named font's real platform-native size ONCE,
+        # before touching anything -- Tk's own DPI/OS-aware default, not
+        # a guessed constant, so the same integer delta reads as a
+        # proportionally similar bump regardless of native size.
+        # Applied before _build_menu() or any widget exists, so the
+        # first paint already uses the saved size.
         self.ui_font_scale = _saved["ui_font_scale"]
         self._ui_font_base_sizes = {}
         for _name in _UI_SCALABLE_FONTS:
@@ -164,23 +145,18 @@ class SlateApp:
         self.doc = None
         self.viewer = None
         self.page = None
-        # Theme-colorize opt-out (Devin, 2026-07-26): _colorize_for_theme
-        # deliberately flattens every page to the theme's fg/bg pair so
-        # documents visually match the app chrome (2026-07-25 design
-        # call) -- correct default for prose/book reading, but it
-        # destroys real color content (a categorical-color-coded diagram,
-        # a photo) where color IS the information. Per-session toggle,
-        # default True (unchanged existing behavior) so nothing regresses
-        # for the common case.
+        # _colorize_for_theme flattens every page to the theme's fg/bg
+        # pair so documents visually match the app chrome -- correct
+        # default for prose/book reading, but it destroys real color
+        # content (a categorical-color-coded diagram, a photo) where
+        # color IS the information. Per-session toggle.
         self.colorize_pages = _saved["colorize_pages"]
-        # Crop to content (Devin, 2026-07-29: "I don't like big page
-        # margins, especially in book view") -- one shared crop rect
-        # (viewer.detect_content_bbox) applied to every page, cached per
-        # DOCUMENT (self._crop_rect, keyed by self._crop_rect_doc) since
-        # sampling several pages' real text/image/drawing bboxes isn't
-        # free and the result doesn't change unless the document itself
-        # changes. Default off -- a display-altering feature, opt-in same
-        # as colorize_pages above, not sprung on an existing workflow.
+        # One shared crop rect (viewer.detect_content_bbox) applied to
+        # every page, cached per DOCUMENT (self._crop_rect, keyed by
+        # self._crop_rect_doc) since sampling several pages' real
+        # text/image/drawing bboxes isn't free and the result doesn't
+        # change unless the document itself changes. Default off --
+        # opt-in, not sprung on an existing workflow.
         self.crop_to_content = _saved.get("crop_to_content", False)
         self._crop_rect = None
         self._crop_rect_doc = None
@@ -190,13 +166,11 @@ class SlateApp:
         self._drag_rect_id = None
         self._corner_grip_start = None  # (start mouse x/y, start window w/h) for the bottom-right resize grip
         self._pending_redactions = []  # [(page_num, fitz.Rect), ...]
-        # Text selection (view mode default -- Devin's ask, 2026-07-25:
-        # "default to arrow/select text over rectangle select"). Each
-        # entry is a fitz word tuple (x0, y0, x1, y1, word, block_no,
-        # line_no, word_no) -- page.get_text("words") already returns
-        # words in natural reading order, so the selected subset stays
-        # correctly ordered without re-sorting by geometry.
-        self._selected_words = []  # (page_num, word) pairs -- Devin, 2026-07-26: cross-page selection
+        # Each entry is a fitz word tuple (x0, y0, x1, y1, word,
+        # block_no, line_no, word_no) -- page.get_text("words") already
+        # returns words in natural reading order, so the selected subset
+        # stays correctly ordered without re-sorting by geometry.
+        self._selected_words = []  # (page_num, word) pairs, can span multiple pages
         self._selection_highlight_photos = []  # PhotoImage refs for the current selection overlay -- see _draw_text_selection_for_page
         self._search_highlight_photos = []  # PhotoImage refs for the current search-match overlay -- see _draw_search_highlights_for_page
         # Slice 4 (Fable design review, 2026-07-25): two INDEPENDENT
@@ -224,18 +198,11 @@ class SlateApp:
         # very first render (before any width measurement has happened)
         # still gets a sane 1-or-2 starting value.
         self.num_columns = 2 if self.side_by_side else 1
-        # Devin, 2026-07-31, reversing his own earlier "always auto, no
-        # manual override" call: "it's easier for you to focus on that
-        # [zoom/centering] when I am the one who tells you how many
-        # columns to focus your zooming/centering efforts around." A
-        # manually-picked count now PINS num_columns -- the width-based
+        # A manually-picked count PINS num_columns -- the width-based
         # auto-follow (_apply_width_based_side_by_side) checks this
         # first and does nothing while pinned, so it can't silently
-        # overwrite Devin's own explicit choice on the next resize.
-        # Session-scoped only, matches the original "always auto by
-        # default" spirit for anyone who never touches this control --
-        # every fresh launch starts unpinned, real auto behavior, same
-        # as before this control existed.
+        # overwrite a manual choice on the next resize. Session-scoped
+        # only: every fresh launch starts unpinned (real auto).
         self._columns_pinned = False
         self._layout = None
         # Static (non-scrolling) row rendering draws the CURRENT row
@@ -252,12 +219,12 @@ class SlateApp:
         # render()'s own geometry-settling update_idletasks() calls
         # (scrollregion/width/height config) fire the canvas's
         # yscrollcommand with whatever scroll position was current
-        # BEFORE this render -- a real bug caught live: navigating to
-        # page 2 in continuous mode synchronously clobbered
+        # BEFORE this render -- without suppression, navigating to page
+        # 2 in continuous mode would synchronously clobber
         # viewer.page_num right back to the OLD page via that stale
-        # callback, before _go_to_page's own _scroll_to_page() call
-        # ever ran. Suppressed during render() itself; real organic
-        # scrolling (wheel/scrollbar-drag) is unaffected.
+        # callback, before _go_to_page's own _scroll_to_page() call ever
+        # ran. Suppressed during render() itself; real organic scrolling
+        # (wheel/scrollbar-drag) is unaffected.
         self._suppress_scroll_sync = False
         self._drag_page = None  # page a click/drag started on, pinned for the whole gesture (continuous mode: a drag can visually cross page rects, but a redaction/annotation belongs to exactly one page)
         self._drag_anchor_pdf = None  # (x, y) in PDF space where the drag started -- text-flow selection's fixed start point, see _on_press/_on_drag
@@ -267,11 +234,9 @@ class SlateApp:
         self._autoscroll_pos = None  # live cursor (x, y), updated by _on_canvas_motion
         self._autoscroll_indicator_id = None
         self._autoscroll_after_id = None
-        # Slice 3 perf fix (Fable design review, 2026-07-25), after
-        # Devin hit a real lockup on PageUp/PageDown: continuous mode
-        # used to eager-render EVERY page on EVERY render() call. Now
-        # windowed -- self._page_cache holds PhotoImages only for pages
-        # near the viewport (it IS the keepalive; no separate list
+        # Continuous mode renders windowed, not every page on every
+        # render() call: self._page_cache holds PhotoImages only for
+        # pages near the viewport (it IS the keepalive; no separate list
         # needed), self._layout_doc/_last_window/_page_canvas_items/
         # _page_placeholder_items track what's currently drawn so
         # scrolling can incrementally shift the window instead of
@@ -283,9 +248,6 @@ class SlateApp:
         self._page_placeholder_items = {}
         self._doc_view_built = False
         self.home_frame = None
-        # Devin, 2026-07-25: "default TOC view = true." (now overridden
-        # by a persisted value once the user has actually changed it --
-        # 2026-07-26 -- default stays true for a first-ever launch.)
         self.toc_visible = tk.BooleanVar(value=_saved["toc_visible"])
         self.theme_name = tk.StringVar(value=theme.load_preference())
         # Read Aloud (TTS): app-wide, not per-tab -- reading one document
@@ -293,28 +255,21 @@ class SlateApp:
         self.tts_voice = tk.StringVar(value=_saved["tts_voice"])
         self.tts_speed = tk.DoubleVar(value=_saved["tts_speed"])  # user-facing multiplier, not Piper's length_scale directly
         self.tts_player = TTSPlayer()
-        # Position-indicator state (Devin, 2026-07-25: "is there a way
-        # to tell what is the current voice/speed... a good application
-        # for our green accent" + a real follow-along highlight) --
-        # which page do_read_page() actually started reading, kept
-        # fixed even if the user scrolls/navigates elsewhere while
-        # listening. See _update_tts_highlight for the real estimation
-        # method and its honest limitation.
+        # Which page do_read_page() actually started reading, kept fixed
+        # even if the user scrolls/navigates elsewhere while listening.
+        # See _update_tts_highlight for the estimation method.
         self._tts_reading_page = None
         self._tts_reading_page_num = None
-        # The EXACT word list actually synthesized (Devin, 2026-07-26,
-        # real bug: "read from here" starts at the top of the page, not
-        # the point of my mouse) -- _update_tts_highlight used to always
-        # re-derive the full page's own words from scratch, ignorant of
-        # a "read from here" click trimming the START of what's actually
-        # being read/spoken. See _update_tts_highlight's own docstring.
+        # The EXACT word list actually synthesized -- needed since a
+        # "read from here" click trims the START of what's read, so
+        # _update_tts_highlight can't just re-derive the full page's
+        # words from scratch. See _update_tts_highlight's own docstring.
         self._tts_reading_words = []
         self._tts_chunk_sample_counts = []  # real per-sentence audio durations from tts.synthesize(), see _update_tts_highlight
-        # Devin, 2026-07-25: "TTS: read entire document, not just
-        # current page." True between do_read_document() and either
-        # reaching the end of the document or an explicit Stop --
-        # _poll_tts_playback_state uses _tts_was_playing to tell a
-        # real natural end-of-audio apart from an explicit pause.
+        # True between do_read_document() and either reaching the end of
+        # the document or an explicit Stop -- _poll_tts_playback_state
+        # uses _tts_was_playing to tell a real natural end-of-audio
+        # apart from an explicit pause.
         self._tts_reading_document = False
         self._tts_was_playing = False
         # Gated feature (DESIGN.md's "Text editing"): a local UX gate,
@@ -342,17 +297,11 @@ class SlateApp:
             # with.
             self._open_document(path)
         elif self._saved_open_tabs:
-            # Session restore (Devin, 2026-07-26, extended same day to
-            # include page position: "i want my Slate session to be
-            # restored (document position)"). Missing/moved files are
-            # skipped silently (same "a dead link is worse than no
-            # entry" philosophy already used by recent.py) rather than
+            # Missing/moved files are skipped silently rather than
             # erroring on launch over a file that's since been deleted.
-            # Each entry is normally {"path": ..., "page": N} now, but a
-            # settings.json written by an earlier build of this feature
-            # (same day, before page position existed) still has plain
-            # path strings -- handled here rather than forcing a manual
-            # file edit or a migration script for one dev's own local file.
+            # Each entry is normally {"path": ..., "page": N}, but an
+            # older settings.json may still have plain path strings --
+            # handled here rather than forcing a migration.
             for entry in self._saved_open_tabs:
                 saved_path = entry["path"] if isinstance(entry, dict) else entry
                 saved_page = entry.get("page") if isinstance(entry, dict) else None
@@ -369,15 +318,14 @@ class SlateApp:
         # F12 (Settings) bound here too, redundant with the copy inside
         # _ensure_doc_view_widgets() -- that method only runs once the
         # first document opens, so a fresh launch sitting on the home
-        # screen never registered F12 at all (Devin, 2026-07-29: "F12
-        # doesn't work on homepage"). _show_settings() already tolerates
-        # no open document (its own zoom-label line checks self.viewer).
+        # screen would never register F12 otherwise. _show_settings()
+        # already tolerates no open document (its own zoom-label line
+        # checks self.viewer).
         self.root.bind("<F12>", lambda e: self._show_settings())
 
-        # Auto-check on launch (Devin, 2026-07-25: "auto-checks for
-        # updates"). Delayed 2s so it never competes with initial
-        # doc-load/render for the same event loop; silent unless
-        # there's real news (see _check_for_updates's docstring).
+        # Delayed 2s so it never competes with initial doc-load/render
+        # for the same event loop; silent unless there's real news (see
+        # _check_for_updates's docstring).
         self.root.after(2000, lambda: self._check_for_updates(silent_if_current=True))
 
     # ------------------------------------------------------------------
@@ -447,32 +395,20 @@ class SlateApp:
     def _wire_toggle_button_contrast(self, widget, variable, value=None, fixed_theme_name=None):
         """indicatoron=False Checkbutton/Radiobutton widgets (Settings
         dialog's Theme/Mode/Display/Voice/Speed toggles) fill their ENTIRE
-        background with selectcolor when checked -- Devin, 2026-07-29,
-        live screenshot review: "the button color in is interesting...
-        better visibility UX color pass." Real fix: selectcolor is now
-        each theme's own select_bg (the same accent already reserved for
-        "selection roles only" everywhere else in this file), not one
-        fixed universal green -- but that accent ranges from very dark
-        (Bonepaper Light's jade, #2d765b) to very light (Bonepaper Dark's
-        mint glow, #b5deb4), so a single static text color can't stay
-        readable in both the checked and unchecked state.
+        background with selectcolor when checked. selectcolor is each
+        theme's own select_bg (the same accent reserved for "selection
+        roles only" everywhere else), not one fixed universal color --
+        but that accent ranges from very dark to very light across
+        themes, so a single static text color can't stay readable in
+        both the checked and unchecked state.
 
         Checked-state text picks WHICHEVER of colors["bg"]/colors["fg"]
-        has the higher real WCAG contrast ratio against colors["select_bg"]
-        (see _wcag_contrast_ratio) -- not a blind "always bg" assumption.
-        Real gap this closes, found by auditing all 6 themes' actual
-        numbers (Devin, 2026-07-29: "check all themes and color
-        selections... make sure there's no collisions"): bg wins for 4
-        of 6 themes (e.g. Bonepaper Dark's near-black bg against its own
-        pale mint accent, 13.83:1 -- exactly the TOC-selected-row
-        convention this was originally modeled on), but fg actually wins
-        for Slate Light and Bonepaper Light specifically, where bg
-        (light stone/tan) sits too close in luminance to their own
-        medium-dark accent (2.61:1 for Bonepaper Light using bg, below
-        the 3:1 UI-text floor -- a real, measured collision, not a
-        guess). Unchecked state stays the plain colors["fg"] on
-        colors["bg"] either way -- that pairing is the theme's own
-        baseline contrast, already relied on everywhere else.
+        has the higher real WCAG contrast ratio against
+        colors["select_bg"] (see _wcag_contrast_ratio), not a blind
+        "always bg" assumption -- bg wins for most themes, but fg wins
+        for themes where bg sits too close in luminance to their own
+        accent (below the 3:1 UI-text floor using bg). Unchecked state
+        stays the plain colors["fg"] on colors["bg"] either way.
 
         value (for a Radiobutton sharing ONE variable across several
         buttons, e.g. the Theme grid's self.theme_name or Voice/Speed's
@@ -582,23 +518,15 @@ class SlateApp:
         attribute for this (DWMWA_USE_IMMERSIVE_DARK_MODE = 20).
         Best-effort only: wrapped broadly because ctypes.windll doesn't
         exist at all off Windows, and older Windows builds don't
-        support this attribute -- either way, failing soft just means
-        the title bar stays whatever it already was, never a crash.
-        NOT live-verified against a real Windows box (this dev
-        environment is Linux/WSL2) -- same "built against the
-        documented API, needs an actual machine to confirm" caveat as
-        fontmatch.py's Windows registry path.
+        support this attribute -- failing soft just means the title bar
+        stays whatever it already was, never a crash. NOT live-verified
+        against a real Windows box (this dev environment is Linux).
 
-        window (Devin, 2026-07-29: "slate dark settings still isn't
-        fixed... on my version of slate" -- real bug, not a repeat of
-        the already-fixed content colors): this only ever targeted
-        self.root before, so Settings/About's own native OS titlebar
-        never picked up dark mode at all, regardless of how correctly
-        their CONTENT repainted -- two completely separate things
-        (content is Tk's job, the titlebar is the OS's). Defaults to
-        self.root (unchanged existing behavior); _show_settings/
-        _show_about now also pass their own Toplevel here, both at
-        open time and on every live theme switch while still open."""
+        window: content colors (Tk's job) and the native OS titlebar (a
+        completely separate mechanism) can repaint independently --
+        defaults to self.root; _show_settings/_show_about also pass
+        their own Toplevel here, both at open time and on every live
+        theme switch while still open."""
         if platform.system() != "Windows":
             return
         target = window if window is not None else self.root
@@ -620,10 +548,10 @@ class SlateApp:
         theming persistent widgets (toolbar/canvas/tabs) and freshly-
         built ones (home screen) two different ways.
 
-        Real platform constraint (theme.py's own docstring, not
-        repeated in full here): tk.Menu dropdown popups are drawn by
-        the native Win32 renderer on Windows and ignore these colors
-        there -- harmless to set anyway, and correct on Linux/X11.
+        Platform constraint (see theme.py's own docstring): tk.Menu
+        dropdown popups are drawn by the native Win32 renderer on
+        Windows and ignore these colors there -- harmless to set
+        anyway, and correct on Linux/X11.
         """
         colors = theme.get_palette(self.theme_name.get())
         self.root.configure(bg=colors["bg"])
@@ -633,22 +561,12 @@ class SlateApp:
         style = ttk.Style()
         style.theme_use("clam")
         # tabstrip_bg, not plain bg -- the Notebook's own background is
-        # the MIDDLE step of the menubar->tabstrip->toolbar cascade
-        # (Devin, 2026-07-25: "make menu bar cascade down in color from
-        # window bar down to tabs, to toolbar making it aesthetic").
+        # the MIDDLE step of the menubar->tabstrip->toolbar cascade.
         style.configure("TNotebook", background=colors["tabstrip_bg"], borderwidth=0)
-        # Tab redesign (Devin, 2026-07-25, seeing it running live: "the
-        # sepia... remove that from the tabs... come up with a better,
-        # more creative solution") -- the ORIGINAL fix dropped color
-        # blocks entirely (inactive = button_bg/muted_fg, active = bg/fg,
-        # distinguished only by brightness). Revisited 2026-07-31, a
-        # fresh ask, not a reversal of the old complaint: "can we also
-        # use clever hints of green for our active tabs in all themes of
-        # Slate plz?" active_tab_bg (theme.py's own chrome-cascade
-        # addition, 35% toward select_bg from button_bg, never a full
-        # fill) is the deliberately subtle middle ground -- a real tint,
-        # not the flat sepia BLOCK Devin rejected back in July, and each
-        # family's OWN accent hue rather than a forced green everywhere.
+        # Inactive tabs: button_bg/muted_fg (a quiet card). Active tabs:
+        # active_tab_bg (theme.py's own chrome-cascade addition, 35%
+        # toward select_bg from button_bg) -- a subtle tint, not a full
+        # fill, using each family's own accent hue.
         style.configure(
             "TNotebook.Tab", background=colors["button_bg"], foreground=colors["muted_fg"]
         )
@@ -663,12 +581,8 @@ class SlateApp:
             foreground=colors["fg"],
             fieldbackground=colors["entry_bg"],
         )
-        # Real bug caught live (Devin, 2026-07-25: "the highlight in
-        # TOC is blue, i want that to be inkbone green") -- selected-
-        # row color was never actually styled here at all; it was
-        # riding ttk's own 'clam' theme built-in default (a blue-ish
-        # highlight), completely independent of Slate's own palette,
-        # this whole time. Now genuinely theme-driven via highlight_bg.
+        # Selected-row color, genuinely theme-driven via highlight_bg
+        # (not ttk's own 'clam' theme built-in blue-ish default).
         style.map(
             "Treeview",
             background=[("selected", colors["highlight_bg"])],
@@ -681,20 +595,17 @@ class SlateApp:
             self._set_mode(self.mode)  # reassert redact's red badge over the generic pass
 
     def _apply_chrome_theme(self, colors):
-        """The chrome CASCADE (Devin, 2026-07-25): "make menu bar
-        cascade down in color from window bar down to tabs, to toolbar
-        making it aesthetic," same rule for all 3 core families
-        (Standard/Inkbone/Solarized) -- see theme.py's
-        _with_chrome_cascade for the actual 3-step values (menubar_bg
-        = bg, tabstrip_bg = midpoint, toolbar_bg = button_bg). This
-        method applies menubar_bg/fg to the menubar and toolbar_bg/fg
-        to the toolbar + scrollbars, overriding the generic bg/fg the
-        recursive _paint_widget pass already applied to them as plain
-        Frames/Labels/Buttons. tabstrip_bg is applied separately, via
-        ttk.Style's "TNotebook" background above (a ttk widget, not
-        part of this plain-Tk walk). Menu itself is native-rendered on
-        Windows (same documented limitation as elsewhere in this
-        file) -- setting it anyway is harmless and correct on Linux.
+        """The chrome cascade, same rule for every family -- see
+        theme.py's _with_chrome_cascade for the 3-step values
+        (menubar_bg = bg, tabstrip_bg = midpoint, toolbar_bg =
+        button_bg). This method applies menubar_bg/fg to the menubar
+        and toolbar_bg/fg to the toolbar + scrollbars, overriding the
+        generic bg/fg the recursive _paint_widget pass already applied
+        to them as plain Frames/Labels/Buttons. tabstrip_bg is applied
+        separately, via ttk.Style's "TNotebook" background above (a
+        ttk widget, not part of this plain-Tk walk). Menu itself is
+        native-rendered on Windows -- setting it anyway is harmless and
+        correct on Linux.
         """
         if hasattr(self, "menubar"):
             try:
@@ -717,15 +628,10 @@ class SlateApp:
 
     def _draw_corner_grip(self, colors):
         """The bottom-right corner where the h/v scrollbars collide.
-        Dagaz (ᛞ) from TART's own rune palette (tart.h's "Runes" row) --
-        replaces an earlier literal stacked-stones cairn (Devin,
-        2026-07-25: "no more green turd cairn plz... one of the classic
-        rune symbols that we have in Tart"). Dagaz's shape (two
+        Dagaz (ᛞ) from TART's own rune palette -- its shape (two
         triangles meeting at a point) reads naturally as a resize
-        handle, and its meaning -- dawn, breakthrough -- fits a blank
-        page/new-document tool. Rendered in the same neutral chrome
-        text color as the rest of the toolbar band, not a special
-        accent -- minimal, not a mascot."""
+        handle. Rendered in the same neutral chrome text color as the
+        rest of the toolbar band, not a special accent."""
         g = self._corner_grip
         g.configure(bg=colors["toolbar_bg"])
         g.delete("all")
@@ -733,10 +639,8 @@ class SlateApp:
                        fill=colors["toolbar_fg"], anchor="center")
 
     def _on_corner_grip_press(self, event):
-        """Devin, 2026-07-25: "make the 'corner' hitbox bigger, i often
-        just want the corner to resize both H and V" -- standard OS
-        bottom-right window-resize convention, hand-rolled because the
-        actual hitbox needs to be bigger than a bare ttk.Sizegrip's
+        """Standard OS bottom-right window-resize convention, hand-rolled
+        because the hitbox needs to be bigger than a bare ttk.Sizegrip's
         default (~17px vs this widget's 22px) and this corner already
         has to be a real widget anyway (the rune icon lives here).
         Position captured here too (not just size) -- see
@@ -748,17 +652,14 @@ class SlateApp:
         )
 
     def _on_corner_grip_drag(self, event):
-        """Real bug Devin caught live, 2026-07-25: "the initial
-        bottomright resize moves the window's top left." Root cause: a
-        size-only geometry string ("WxH", no "+x+y") occasionally gets
+        """A size-only geometry string ("WxH", no "+x+y") can get
         re-anchored by the window manager instead of preserving the
-        existing top-left corner, on the very first resize call after
-        the window's position was last set with its own separate
-        geometry("+x+y") call (see main()'s startup centering) -- Tk
-        has no guarantee the WM keeps remembering a position it wasn't
-        just told. Fix: always pass position explicitly, pinned to
-        what it was when the drag started, so the WM never has to
-        guess or "remember" anything."""
+        existing top-left corner, on the first resize call after the
+        window's position was last set with its own separate
+        geometry("+x+y") call -- Tk has no guarantee the WM keeps
+        remembering a position it wasn't just told. Fix: always pass
+        position explicitly, pinned to what it was when the drag
+        started."""
         if self._corner_grip_start is None:
             return
         start_x, start_y, start_w, start_h, win_x, win_y = self._corner_grip_start
@@ -785,24 +686,15 @@ class SlateApp:
         elif getattr(widget, "slate_muted", False):
             widget.configure(bg=colors["bg"], fg=colors["muted_fg"])
         elif getattr(widget, "slate_fixed_bg", None):
-            # Suckless pass 2026-07-30: a widget meant to stay ONE fixed
-            # color regardless of theme (e.g. About's permanent green
-            # accent bar) used to get painted here by the generic Frame
-            # branch below anyway, then manually re-asserted back to its
-            # real color right after every _paint_widget call site --
-            # paint, un-paint, repaint for a value that never changes.
-            # One flag, one config call, no re-assertion needed anywhere.
+            # A widget meant to stay ONE fixed color regardless of theme
+            # (e.g. About's permanent green accent bar) -- one flag, one
+            # config call, no re-assertion needed at every call site.
             widget.configure(bg=widget.slate_fixed_bg)
         elif getattr(widget, "slate_accent_swatch", False):
-            # Devin, 2026-08-01: "I want about to have theme's accent
-            # color displayed." Opposite of slate_fixed_bg above -- this
-            # one is SUPPOSED to change with the active theme (the
-            # swatch's whole point is showing whichever accent is
-            # current), so it reads colors["select_bg"] fresh on every
-            # repaint instead of a value frozen at construction time.
-            # Live-updates now that About-from-Settings no longer grabs
-            # (see _show_about), so flipping the Theme picker with About
-            # still open shows this swatch tracking in real time.
+            # Opposite of slate_fixed_bg above -- this one is SUPPOSED
+            # to change with the active theme, so it reads
+            # colors["select_bg"] fresh on every repaint instead of a
+            # value frozen at construction time.
             widget.configure(bg=colors["select_bg"])
         else:
             cls = widget.winfo_class()
@@ -810,53 +702,27 @@ class SlateApp:
                 if cls in ("Toplevel", "Tk"):
                     widget.configure(bg=colors["bg"])  # no -fg option on these
                     if cls == "Toplevel":
-                        # Real bug (Devin, 2026-07-29): Settings/About's
-                        # own native OS titlebar never re-themed on a
-                        # live theme switch unless something explicitly
-                        # called _apply_native_titlebar_theme for THAT
-                        # specific window -- and with both dialogs
-                        # sometimes open at once, hand-listing each one
-                        # doesn't scale. This generic repaint walk
-                        # already reaches every open Toplevel (they're
-                        # real children of self.root in Tk's own widget
-                        # tree), so hooking the titlebar refresh in here
-                        # covers Settings/About/Sample Voices/any future
-                        # dialog automatically, not just the ones
-                        # someone remembered to hand-wire.
+                        # This generic repaint walk reaches every open
+                        # Toplevel (real children of self.root in Tk's
+                        # own widget tree), so hooking the titlebar
+                        # refresh here covers Settings/About/Sample
+                        # Voices/any future dialog automatically.
                         self._apply_native_titlebar_theme(widget)
-                        # dialog_border re-assertion added 2026-08-02:
-                        # this border used to be one universal fixed
-                        # gray (#6b6b6b, same in every theme), so no
-                        # repaint was ever needed. Now it's theme-
-                        # tinted (colors["dialog_border"] -- see
-                        # theme.py's own comment), so a live theme
-                        # switch with Settings/About/Sample Voices
-                        # already open needs this reasserted same as
-                        # the titlebar above. Only touches a Toplevel
-                        # that already opted into the bordered-dialog
-                        # style (highlightthickness > 0) -- a bare
-                        # Toplevel with no border set (if one exists)
-                        # is left alone, not forced into this style.
+                        # dialog_border is theme-tinted (see theme.py),
+                        # so it needs reasserting on a live theme switch
+                        # same as the titlebar above. Only touches a
+                        # Toplevel that already opted into the
+                        # bordered-dialog style (highlightthickness > 0).
                         if int(widget.cget("highlightthickness")) > 0:
                             widget.configure(
                                 highlightbackground=colors["dialog_border"],
                                 highlightcolor=colors["dialog_border"],
                             )
                 elif cls == "Frame":
-                    # Real bug caught live (Devin's screenshot,
-                    # 2026-07-25 -- the home screen never themed
-                    # itself): Frame has NO -fg option at all (only
-                    # Label does), so the original combined
-                    # `configure(bg=..., fg=...)` here threw
-                    # "unknown option -fg" for every single Frame in
-                    # the app, silently swallowed by the blanket
-                    # except TclError below -- meaning bg was NEVER
-                    # actually applied to any plain Frame via this
-                    # generic pass, ever, app-wide. Masked everywhere
-                    # else by a separate override (toolbar/menubar's
-                    # own _apply_chrome_theme, canvas's own Canvas-
-                    # class branch below); the home screen was just
-                    # the first place with no such override to hide it.
+                    # Frame has NO -fg option (only Label does) -- a
+                    # combined configure(bg=..., fg=...) here would
+                    # throw "unknown option -fg" and get silently
+                    # swallowed by the blanket except TclError below.
                     widget.configure(bg=colors["bg"])
                 elif cls == "Label":
                     widget.configure(bg=colors["bg"], fg=colors["fg"])
@@ -867,46 +733,28 @@ class SlateApp:
                         bg=colors["button_bg"], fg=colors["fg"], activebackground=colors["select_bg"]
                     )
                 elif cls in ("Checkbutton", "Radiobutton"):
-                    # First real use of bare (non-menu) Checkbutton/
-                    # Radiobutton widgets in the app -- the Settings
-                    # dialog's menu-equivalent checkboxes/radios are Menu
-                    # entries (a different code path, handled by the
-                    # "Menu" branch below), never a standalone widget
-                    # class, so this branch never existed until now.
-                    # selectcolor (the checked-indicator color) is left
-                    # alone -- callers already pass their own theme-
-                    # accent color for it at construction time.
+                    # Bare (non-menu) Checkbutton/Radiobutton widgets --
+                    # the menu-equivalent checkboxes/radios are Menu
+                    # entries (a different code path, "Menu" branch
+                    # below). selectcolor (checked-indicator color) is
+                    # left alone -- callers pass their own theme-accent
+                    # color for it at construction time.
                     #
-                    # Real bug, live screenshot 2026-07-30 (dark-on-dark
-                    # text on the Theme grid's unchecked Light swatches,
-                    # e.g. "Slate Light" while Slate Dark is active):
-                    # _wire_toggle_button_contrast already paints this
-                    # widget's UNCHECKED fg from its own fixed_theme_name
-                    # (so "Slate Light"'s button always reads its own
-                    # fg, #13120f) -- but this branch was still painting
-                    # bg from the DIALOG's active theme (Slate Dark's
-                    # #002b36), not the swatch's own. Two code paths
-                    # disagreeing on what "this swatch's own colors"
-                    # means. Fix: read bg (and active* to match) from
-                    # the same fixed palette the fg trace already uses,
-                    # falling back to the active theme's colors for
-                    # every plain (non-Theme-grid) toggle, unchanged.
+                    # fixed_theme_name pins bg/active* to a SPECIFIC
+                    # theme's own palette (the Theme grid's per-swatch
+                    # buttons), matching the fg trace
+                    # _wire_toggle_button_contrast already uses -- rather
+                    # than painting bg from the dialog's active theme,
+                    # which would disagree with the swatch's own fixed fg.
                     _fixed_name = getattr(widget, "slate_fixed_theme_name", None)
                     if _fixed_name:
                         _swatch_colors = theme.get_palette(_fixed_name)
                         _toggle_bg = _swatch_colors["bg"]
                     else:
-                        # Real ask (Devin, 2026-07-30: "a smidge more
-                        # contrast to slate settings"): unchecked Mode/
-                        # Display/Voice/Speed toggles were painted flat
-                        # bg == the surrounding panel's own bg, so each
-                        # button read as a borderless blob (only Tk's
-                        # thin relief bevel hinted a button was even
-                        # there). button_bg is already the palette's own
-                        # designated "content/card level" tone (see
-                        # theme.py's chrome-cascade comment) -- reusing
-                        # it here gives a real, theme-consistent step up
-                        # from the panel instead of inventing a new color.
+                        # button_bg is the palette's own designated
+                        # "content/card level" tone -- gives unchecked
+                        # toggles a real step up from the panel bg
+                        # instead of reading as a borderless blob.
                         _swatch_colors = colors
                         _toggle_bg = colors["button_bg"]
                     widget.configure(
@@ -948,14 +796,10 @@ class SlateApp:
             self._paint_widget(child, colors)
 
     def _build_menu(self):
-        # Devin, 2026-07-25, real screenshot: "if this is inkbone dark,
-        # i cannot see the menu checkboxes" -- see RADIO_SELECT_COLOR's
-        # own module-level comment for the full story (now shared with
-        # the Settings dialog's standalone radios/checkboxes too, which
-        # had the same bug independently). Fixed value, not re-themed
-        # live on theme switch (the native Win32 menu popup itself is
-        # already a documented can't-fully-control surface, see
-        # theme.py's own docstring).
+        # See RADIO_SELECT_COLOR's own module-level comment. Fixed
+        # value, not re-themed live on theme switch (the native Win32
+        # menu popup is already a documented can't-fully-control
+        # surface, see theme.py's own docstring).
         radio_select_color = RADIO_SELECT_COLOR
         menubar = self.menubar = tk.Menu(self.root)
 
@@ -1027,37 +871,25 @@ class SlateApp:
         viewm.add_command(label="Find... (/)", command=self._show_find_bar)
         viewm.add_command(label="Fit Width (Ctrl+0)", command=self.fit_width)
         viewm.add_separator()
-        # Slice 4 (Fable design review, 2026-07-25): independent
-        # checkboxes, not mutually-exclusive radio options -- Devin:
-        # "side by side option (both can be turned on, checkbox in
-        # menu)", matching Adobe/Foxit's own "Two Page View" + "Scroll
+        # Independent checkboxes, not mutually-exclusive radio options --
+        # matches Adobe/Foxit's own "Two Page View" + "Scroll
         # Continuously" combination.
         self.continuous_scroll_var = tk.BooleanVar(value=self.continuous_scroll)
         self.side_by_side_var = tk.BooleanVar(value=self.side_by_side)
-        # Book View (Devin, 2026-07-29): Sumatra-style single toggle that
-        # rolls up Continuous Scroll + Side by Side + Fit Width into one
-        # F8 press, instead of setting both checkboxes by hand every time.
-        # Derived state, not a third independent axis -- stays in sync
-        # with the two underlying checkboxes in both directions (toggling
-        # either individual box updates this one's displayed check too,
-        # see _set_view_mode). Real gap named, not faked: a "centered"
-        # page alignment was asked for as part of "book view" too, but
-        # that's one of the 3 Slate notes still queued (not built yet) --
-        # this toggle only does what's actually real today (scroll +
-        # side-by-side + fit-width), not a centered layout.
+        # Book View: Sumatra-style single toggle that rolls up Continuous
+        # Scroll + Side by Side + Fit Width into one F8 press. Derived
+        # state, not a third independent axis -- stays in sync with the
+        # two underlying checkboxes in both directions (see
+        # _set_view_mode).
         self.book_view_var = tk.BooleanVar(value=self.continuous_scroll and self.side_by_side)
-        # Settings dialog's own simplified 2-option view (Devin, 2026-07-29,
-        # live screenshot review: "really only 2 modes bookview and
-        # continuous") -- the View MENU keeps all 3 real checkboxes exactly
-        # as-is (Continuous Scroll / Side by Side / Book View, independent
-        # axes, unchanged), but the Settings dialog collapses them to one
-        # Continuous/Book View choice for a much shorter, easier-to-scan
-        # list. Explicit accepted tradeoff: continuous=False+side_by_side=
-        # True (side-by-side WITHOUT continuous scroll) has no radio of its
-        # own here and reads as "continuous" if reached some other way --
-        # still fully reachable via the View menu, just not a 3rd option in
-        # this dialog. Kept honest in both directions same as book_view_var
-        # (see _set_view_mode).
+        # Settings dialog's own simplified 2-option view -- the View
+        # MENU keeps all 3 real checkboxes as independent axes
+        # unchanged, but Settings collapses them to one Continuous/Book
+        # View choice. Accepted tradeoff: continuous=False+side_by_side=
+        # True (side-by-side WITHOUT continuous scroll) has no radio of
+        # its own here and reads as "continuous" -- still reachable via
+        # the View menu. Kept honest in both directions same as
+        # book_view_var (see _set_view_mode).
         self.view_mode_var = tk.StringVar(
             value="book" if (self.continuous_scroll and self.side_by_side) else "continuous"
         )
@@ -1083,23 +915,18 @@ class SlateApp:
                 command=self._on_theme_changed, selectcolor=radio_select_color,
             )
         viewm.add_cascade(label="Theme", menu=thememenu)
-        # Colorize opt-OUT-by-default (Devin, 2026-07-26, flipped same day
-        # after actually hitting it): _colorize_for_theme flattens every
-        # page to the theme's fg/bg pair, which destroys real color
-        # content (a categorical diagram, a photo) -- real example hit
-        # live the same day, a bake-off comparison diagram with real
-        # blue/orange bars. Default is now off (self.colorize_pages=False);
-        # a prose-only reader who wants the old tinted-to-match-theme look
-        # can still opt back in via this checkbox.
+        # Opt-out by default: _colorize_for_theme flattens every page to
+        # the theme's fg/bg pair, which destroys real color content (a
+        # categorical diagram, a photo). A prose-only reader who wants
+        # the tinted-to-match-theme look can opt in via this checkbox.
         self.colorize_pages_var = tk.BooleanVar(value=self.colorize_pages)
         viewm.add_checkbutton(
             label="Colorize pages to theme", variable=self.colorize_pages_var,
             command=self._on_colorize_toggle, selectcolor=radio_select_color,
             accelerator="F4",
         )
-        # Crop to Content (Devin, 2026-07-29): opt-in same as Colorize
-        # above -- a display-altering feature, default off so it doesn't
-        # surprise an existing workflow.
+        # Opt-in same as Colorize above -- a display-altering feature,
+        # default off so it doesn't surprise an existing workflow.
         self.crop_to_content_var = tk.BooleanVar(value=self.crop_to_content)
         viewm.add_checkbutton(
             label="Crop to Content", variable=self.crop_to_content_var,
@@ -1118,13 +945,11 @@ class SlateApp:
 
         readm = tk.Menu(menubar, tearoff=0)
         voicem = tk.Menu(readm, tearoff=0)
-        # Bundled voices only (Devin, 2026-07-29: "remove the other 2
-        # readback voices that need to be downloaded... leave the 2
-        # defaults there") -- southern_english_female/danny still exist
-        # in tts.VOICES (their preview clips ship bundled either way,
-        # see load_preview_audio) and can still be sampled from the new
-        # Sample Voices dialog below, they're just no longer offered as
-        # a pickable default here or in Settings.
+        # Bundled voices only -- southern_english_female/danny still
+        # exist in tts.VOICES (their preview clips ship bundled either
+        # way, see load_preview_audio) and can still be sampled from the
+        # Sample Voices dialog below, just not offered as a pickable
+        # default here or in Settings.
         for voice_id, info in tts.VOICES.items():
             if not info.get("bundled"):
                 continue
@@ -1149,9 +974,8 @@ class SlateApp:
         readm.add_command(label="Stop", command=self.do_tts_stop)
         menubar.add_cascade(label="Read Aloud", menu=readm)
 
-        # Check for Updates lives on the About dialog now, not a
-        # separate menu item (Devin, 2026-07-25: "having updates in
-        # about means the menu option can be removed").
+        # Check for Updates lives on the About dialog, not a separate
+        # menu item.
         helpm = tk.Menu(menubar, tearoff=0)
         helpm.add_command(label="About Slate...", command=self._show_about)
         menubar.add_cascade(label="Help", menu=helpm)
@@ -1163,10 +987,10 @@ class SlateApp:
         thread-safety pattern already established for TTS synthesis/
         voice downloads (never touch Tk widgets off the main thread;
         poll a plain dict via root.after()). silent_if_current=True is
-        the startup auto-check (Devin, 2026-07-25: "auto-checks for
-        updates") -- stays quiet unless there's real news, so it never
-        nags on every launch; the menu-triggered manual check always
-        reports something, even "up to date" or a real error."""
+        the startup auto-check -- stays quiet unless there's real news,
+        so it never nags on every launch; the menu-triggered manual
+        check always reports something, even "up to date" or an
+        error."""
         result = {"done": False, "data": None}
 
         def worker():
@@ -1195,13 +1019,10 @@ class SlateApp:
         poll()
 
     def _show_command_palette(self, event=None):
-        """F2 (Devin, 2026-07-25: "is there an easier way for me to
-        change the theme please? f2 command palette or something?").
-        v1 scope is theme-switching, but built as a real (label,
+        """F2. Theme-switching only for now, but built as a real (label,
         action) list + live filter rather than a theme-only hardcoded
-        dialog -- the smallest real command palette, not a one-off,
-        so it's a natural extension point later rather than a dead
-        end. Escape/click-away cancels; Enter or a click applies the
+        dialog -- a natural extension point later, not a dead end.
+        Escape/click-away cancels; Enter or a click applies the
         highlighted entry and closes."""
         commands = [
             (f"Theme: {label}", (lambda n=name: self._apply_command_palette_theme(n)))
@@ -1272,10 +1093,8 @@ class SlateApp:
         self._on_theme_changed()
 
     def _show_about(self):
-        # Single-instance (Devin, 2026-07-29: "only have 1 instance of
-        # settings, not multiple" -- same real gap existed here too,
-        # fixed alongside it): re-focus the already-open dialog instead
-        # of stacking a second one on repeated menu/button clicks.
+        # Single-instance: re-focus the already-open dialog instead of
+        # stacking a second one on repeated menu/button clicks.
         existing = getattr(self, "_about_window", None)
         if existing is not None and existing.winfo_exists():
             existing.deiconify()
@@ -1302,71 +1121,39 @@ class SlateApp:
 
         top.bind("<Escape>", lambda e: _close_about())
         top.protocol("WM_DELETE_WINDOW", _close_about)
-        # Devin, 2026-07-29: "settings/about should both be modal and
-        # always on top, should be separate windows, they should be
-        # within Slate if possible." transient() ties this window to its
-        # real opener -- Slate's main window normally, or Settings itself
-        # when opened from Settings' own "About Slate..." button (a true
-        # parent chain root -> settings -> about, not two siblings both
-        # hanging directly off root, per Devin's 2026-07-30 "child nest
-        # those two" ask); -topmost keeps it above every other window.
+        # transient() ties this window to its real opener -- Slate's
+        # main window normally, or Settings itself when opened from
+        # Settings' own "About Slate..." button (a true parent chain
+        # root -> settings -> about, not two siblings both hanging
+        # directly off root); -topmost keeps it above every other window.
         top.transient(settings_open if settings_open is not None else self.root)
         top.attributes("-topmost", True)
-        # Grab policy REVISED 2026-08-01 (Devin, live, 1st report): "when
-        # About opens from Settings, I cannot change colors/settings at
-        # all" -- the 2026-07-30 handoff fix (Settings releases, About
-        # takes the grab) worked as designed, but modal About blocking
-        # Settings entirely is the wrong behavior for the real workflow
-        # (comparing the Theme picker against About's live accent color
-        # needs BOTH open and interactive at once).
-        #
-        # REVISED AGAIN same day (2nd report): the first revision above
-        # only stopped About from grabbing -- it forgot that Settings'
-        # OWN pre-existing grab was still standing, and Tk's grab is
-        # local to the whole APPLICATION, not the widget that set it, so
-        # Settings' still-active grab silently blocked ABOUT's input
-        # instead ("I can no longer close About without closing Settings
-        # again" -- textbook reappearance of the ORIGINAL 2026-07-30 bug,
-        # just with which window gets starved flipped back). Neither a
-        # headless `.invoke()` test nor a code-reading pass catches this
-        # -- it only shows up under real Tk event routing.
-        # Real fix: while About is open FROM Settings, NEITHER window
+        # Grab policy: while About is open FROM Settings, NEITHER window
         # holds the grab -- Settings releases its own (so About can
-        # receive input/close normally), About never takes one either (so
-        # Settings stays fully clickable too). _close_about above hands
-        # Settings' grab back the moment About closes, restoring its
-        # normal modal-against-root behavior. About opened standalone
-        # (Help menu, no Settings open) is UNCHANGED -- still real modal
-        # against root, matching the original 2026-07-29 ask for that case.
+        # receive input/close normally), About never takes one either
+        # (so Settings stays fully clickable too). Tk's grab is local to
+        # the whole APPLICATION, not the widget that set it, so either
+        # window unconditionally grabbing starves the other of input.
+        # _close_about above hands Settings' grab back the moment About
+        # closes, restoring its normal modal-against-root behavior.
+        # About opened standalone (Help menu, no Settings open) stays
+        # real modal against root.
         if settings_open is not None:
             settings_open.grab_release()
         else:
             top.grab_set()
         # Titlebar theme handled generically by _paint_widget's own
-        # Toplevel branch (see its comment) via the self._paint_widget(
-        # top, colors) call below -- no separate call needed here.
-        # Visible border (Devin, 2026-07-29: "blends in with the rest of
-        # the app too much, can't tell where that window is except for
-        # the title bar"). Was fixed green at first, then "change the
-        # border to dark instead of green" -- but a genuinely dark fixed
-        # color (tried #2b2b2b) disappears entirely against Inkrain
-        # Dark's near-black bg (#030302), verified live via a real
-        # screenshot before shipping this value -- the same "can't tell
-        # where the window is" problem this exists to fix, just moved to
-        # dark themes instead of solved. Mid-gray (#6b6b6b) reads as a
-        # quiet structural line rather than a color accent (the actual
-        # ask) while staying visible against both light and near-black
-        # extremes. Fixed, not theme-variable -- _paint_widget's Toplevel
-        # branch only ever touches bg, never highlight options, so this
-        # needs no re-assertion after the repaint pass runs.
+        # Toplevel branch via the self._paint_widget(top, colors) call
+        # below. Visible border, theme-tinted via dialog_border --
+        # _paint_widget's Toplevel branch reasserts it on live theme
+        # switch, no separate call needed here at construction time.
         top.configure(highlightthickness=2, highlightbackground=colors["dialog_border"], highlightcolor=colors["dialog_border"])
 
         header = tk.Frame(top)
         header.pack(padx=24, pady=(18, 6), anchor="w")
         if getattr(self, "_icon_img", None) is not None:
             # Same subsample(4,4) reuse-not-reload trick as the home
-            # screen's own logo -- Devin, 2026-07-25: "along with the
-            # icon in a good spot as well, i love the slate icon."
+            # screen's own logo.
             logo = self._icon_img.subsample(4, 4)
             self._about_logo_img = logo  # keep a reference, same gotcha as _tk_img/_home_logo_img
             tk.Label(header, image=logo).pack(side=tk.LEFT, padx=(0, 12))
@@ -1374,23 +1161,15 @@ class SlateApp:
             header, text=f"Slate {version.VERSION}", font=self._ui_header_font(extra=5)
         ).pack(side=tk.LEFT)
 
-        # Permanent green accent (Devin, 2026-07-25: "could we add a
-        # clever accent of green on the 'about' as well?" then "please
-        # add a permanent, clever hint of inkbone green on the about
-        # page please"). Left half FIXED hex -- Slate's own house color
-        # on the About page, regardless of which theme is active.
-        # slate_fixed_bg (not a direct bg=) so _paint_widget's own
-        # generic walk leaves it alone -- see its comment.
+        # Left half: FIXED hex, Slate's own house color on the About
+        # page regardless of which theme is active. slate_fixed_bg (not
+        # a direct bg=) so _paint_widget's own generic walk leaves it
+        # alone -- see its comment.
         #
-        # Right half shows the ACTIVE theme's own accent, live, via
-        # slate_accent_swatch (see _paint_widget's own branch for it).
-        # Devin, 2026-08-01, revising an earlier explicit "Theme accent:"
-        # labeled swatch row: "I meant add it naturally/clever someplace
-        # (even the line between Slate and the about text)" -- this IS
-        # that line, split in two rather than bolting on a separate
-        # labeled section. Most useful precisely because About-from-
-        # Settings is non-modal (see the grab policy above) -- flip
-        # themes in Settings, watch this half update live.
+        # Right half: the ACTIVE theme's own accent, live, via
+        # slate_accent_swatch (see _paint_widget's own branch). Most
+        # useful precisely because About-from-Settings is non-modal --
+        # flip themes in Settings, watch this half update live.
         accent_bar_row = tk.Frame(top)
         accent_bar_row.pack(fill=tk.X, padx=24, pady=(0, 10))
         house_accent = tk.Frame(accent_bar_row, bg="#62a945", height=2)
@@ -1407,9 +1186,7 @@ class SlateApp:
         author_label.pack(padx=24, pady=(0, 18))
         button_row = tk.Frame(top)
         button_row.pack(pady=(0, 14))
-        # Check for Updates lives here now, not a separate Help menu
-        # item (Devin, 2026-07-25). Spacing tuned live twice same day:
-        # 8px read as "too close," 24px read as "a gap" -- 10px landed.
+        # Check for Updates lives here, not a separate Help menu item.
         tk.Button(
             button_row, text="Check for Updates...",
             command=lambda: self._check_for_updates(silent_if_current=False),
