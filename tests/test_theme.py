@@ -163,7 +163,7 @@ def test_standard_uses_real_flexoki_blue_not_the_shared_house_green():
     """A same-day teal experiment (2026-07-31, live webUI parity ask)
     came and went -- reverted back to Flexoki's real published blue
     (#205EA6 light / #4385BE dark, stephango.com/flexoki) when this
-    checkout synced theme_data/*.json against themes-custom's own
+    checkout synced theme_data/*.json against devs-themes's own
     canonical values (2026-08-01, secondary's reconciliation pass:
     "had drifted independently in this branch checkout... reconciled
     against primary's webUI"). Blue is the ratified value again --

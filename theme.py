@@ -50,8 +50,8 @@ from pathlib import Path
 CONFIG_DIR = Path.home() / ".slate"
 PREF_FILE = CONFIG_DIR / "theme.json"
 
-# theme_data/*.json are pulled copies of themes-custom/palettes/*.json (the
-# central source of truth, /mnt/c/bin/projects/themes-custom/README.md) --
+# theme_data/*.json are pulled copies of devs-themes/palettes/*.json (the
+# central source of truth, /mnt/c/bin/projects/devs-themes/README.md) --
 # run pull_themes.sh to refresh. Copy, not symlink, on purpose: Slate is
 # free to tweak its own copy independently without touching the shared repo.
 _THEME_DATA_DIR = Path(__file__).parent / "theme_data"
@@ -67,7 +67,7 @@ def _load_base(family: str, mode: str) -> dict:
     """Loads one family's base 8-key palette (_BASE_KEYS) for the given
     mode ("light" or "dark") from theme_data/<family>.json, plus is_dark
     (not stored in the JSON itself, derived from which mode was asked
-    for). Whitelisted to _BASE_KEYS on purpose: themes-custom is a
+    for). Whitelisted to _BASE_KEYS on purpose: devs-themes is a
     shared repo across apps and can carry extra per-consumer keys (e.g.
     bonepaper.json's external_link, Runestone-only) that aren't part of
     Slate's own palette shape -- test_theme.py's own
@@ -173,7 +173,7 @@ def _with_chrome_cascade(palette: dict) -> dict:
 # was actually looking at, not that separate, intentional design
 # choice.
 # Real values now loaded from theme_data/flexoki.json (pulled from
-# themes-custom) rather than hand-transcribed here -- see _load_base
+# devs-themes) rather than hand-transcribed here -- see _load_base
 # above. History of how these values were reached, kept for provenance:
 #
 # bg/button_bg reverted to real spec 2026-07-30 -- Devin, live:
@@ -226,7 +226,7 @@ _STANDARD_LIGHT = _load_base("flexoki", "light")
 # per Devin's same-day ask, this dark variant also retires the old
 # separate "solarized" theme entirely (redundant once this existed).
 # Real values now loaded from theme_data/slate.json (pulled from
-# themes-custom) rather than hand-transcribed here -- see _load_base
+# devs-themes) rather than hand-transcribed here -- see _load_base
 # above. History kept for provenance:
 #
 # muted_fg corrected 2026-07-29: was #586e75 (Solarized base01, the
@@ -267,7 +267,7 @@ _SLATE_LIGHT = _load_base("slate", "light")
 # along with it -- Boneink's real light wins the slot instead. Roster is
 # 3 core families: Standard, Bonepaper, Slate.
 # Real values now loaded from theme_data/bonepaper.json (pulled from
-# themes-custom) rather than hand-transcribed here -- see _load_base
+# devs-themes) rather than hand-transcribed here -- see _load_base
 # above. Briefly renamed to "Ossuary" 2026-07-31 (Devin: "Bonepaper never
 # really stuck"), reverted same day ("leave bonepaper") once the 4th
 # family got renamed to "Martin" instead of "Graphpaper" -- no more

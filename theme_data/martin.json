@@ -1,11 +1,11 @@
 {
   "light": {
-    "bg": "#ffffff",
+    "bg": "#f7f6f2",
     "fg": "#1b2224",
     "button_bg": "#f9f9f9",
-    "entry_bg": "#ffffff",
-    "canvas_bg": "#ffffff",
-    "select_bg": "#62a945",
+    "entry_bg": "#f7f6f2",
+    "canvas_bg": "#f7f6f2",
+    "select_bg": "#56ac35",
     "muted_fg": "#535353",
     "highlight_bg": "#4a7637"
   },

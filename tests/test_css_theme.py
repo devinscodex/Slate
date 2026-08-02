@@ -157,7 +157,7 @@ def test_shipped_theme_dicts_match_the_real_current_css_file(filename, dark_key,
     # both went through same-day 2026-07-31 experiments (a body/sidebar
     # invert; a Catppuccin Mocha accent swap) that were reverted again
     # 2026-08-01 when this checkout synced theme_data/*.json against
-    # themes-custom's own canonical values (secondary's reconciliation
+    # devs-themes's own canonical values (secondary's reconciliation
     # pass) -- both keys are back to matching this CSS snapshot exactly,
     # so no skip is needed for them anymore. button_bg is the one real,
     # still-live divergence: webUI already moved Bonepaper Dark's
