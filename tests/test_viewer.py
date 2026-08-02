@@ -157,10 +157,13 @@ def test_content_bbox_never_exceeds_the_page_bounds():
 
 def test_content_bbox_on_real_essay_pdf_matches_measured_margins():
     """Grounds the synthetic-fixture tests above against a real,
-    already-shipped document (not just constructed edge cases)."""
-    essay = "/mnt/c/bin/projects/cairn-secondary/artifacts/260729_0016-Chappie-Deon-Cairn-Essay.pdf"
-    if not os.path.exists(essay):
-        return  # real file may not exist in every environment -- skip quietly, not a hard dependency
+    already-shipped document (not just constructed edge cases). Opt-in
+    via SLATE_TEST_REAL_PDF (a local path to any real multi-page PDF
+    with normal print margins) -- no such document ships in this repo,
+    so this test is a no-op unless that env var is set."""
+    essay = os.environ.get("SLATE_TEST_REAL_PDF")
+    if not essay or not os.path.exists(essay):
+        return  # opt-in only -- skip quietly, not a hard dependency
     doc = fitz.open(essay)
     bbox = detect_content_bbox(doc, padding=8.0)
     assert bbox is not None

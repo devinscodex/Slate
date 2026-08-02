@@ -1,6 +1,6 @@
 """Digital signing -- pyHanko-backed, real PAdES (not PyMuPDF's own
 basic/visual-only signature fields, per DESIGN.md). v1 ships PAdES B-B
-(baseline, no timestamp/revocation -- fine for internal MEG sign-off).
+(baseline, no timestamp/revocation -- fine for internal sign-off).
 B-LT/B-LTA (long-term validation) is a business question, not an
 engineering one: it needs a real non-self-signed cert to matter to
 external recipients (DESIGN.md).

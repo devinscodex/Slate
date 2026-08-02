@@ -11,12 +11,10 @@ def test_get_palette_falls_back_to_default_for_unknown_name():
 
 
 def test_default_theme_is_slate_light_per_devins_explicit_request():
-    """Supersedes the earlier 2026-07-17 "plain Dark" ruling, the
-    2026-07-25 "inkbone-dark will be our default" ruling, and the
-    2026-07-29 "slate_dark" ruling (back when this family was still
-    named Mosscairn, "these colors are looking GREAT"). Devin's final
-    call same day, after seeing the full renamed roster live:
-    "starting/defaulting to Slate light, that stone look.\""""
+    """The default theme has changed several times over the project's
+    history (plain Dark, then Inkbone Dark, then Slate Dark, back when
+    that family was still named Mosscairn) before settling on Slate
+    Light as the final choice."""
     assert theme.DEFAULT_THEME == "slate_light"
 
 
@@ -37,52 +35,41 @@ def test_every_theme_label_maps_to_a_real_theme():
 
 
 def test_roster_is_exactly_eight_themes():
-    """Devin, 2026-07-25: "make standard light/dark modes the same as
-    Flexoki, and get rid of Flexoki as a separate option, also delete
-    Gruvbox themes... main will be Dark/Light, Solarized Light/Dark,
-    Inkbone Light/Dark." Down from 5 families (10 variants) to 3
-    families (6). Same day, later: "please delete solarized light
-    color, just leave solarized dark and call it just 'solarized'" --
-    Solarized drops to a single variant, roster was 5 total.
+    """The theme roster has gone through several rounds of consolidation
+    and renaming. It started as 5 families (10 variants: Dark/Light,
+    Gruvbox, Solarized, Inkbone, Flexoki-as-Standard), was cut down to
+    Dark/Light + Solarized Light/Dark + Inkbone Light/Dark, then
+    Solarized was further trimmed to a single dark-only variant.
 
-    Grown to 9, 2026-07-29 (WebUI/CSS council): Boneink (light/dark) and
-    Mosscairn3 (light/dark) added as real candidates, Mosscairn3 ->
-    Mosscairn (dropped the number), Solarized and Inkbone both retired
-    (their ground covered by Mosscairn Dark and Boneink respectively).
-    Inkrain then added, dark-only at first (real branding-imagery batch),
-    given a real designed light half minutes later. Peaked at 9, briefly
-    8 -- then Boneink and Inkrain, which had existed as two separate
-    families for about twenty minutes, were merged into one under the
-    Inkrain name ("make inkrain the dark mode for Boneink... just 3 core
-    themes still... update boneink to 'inkrain'"): Boneink's real light
-    half survives inside Inkrain, Inkrain's real sampled dark half
-    replaces Boneink's own jade-dark, and Inkrain's own short-lived
-    newsprint light is retired.
+    The roster later grew as Boneink and Mosscairn3 were added as
+    candidates; Mosscairn3 was renamed to Mosscairn, and Solarized and
+    Inkbone were both retired since their ground was covered by
+    Mosscairn Dark and Boneink respectively. Inkrain was added dark-only
+    at first and then given a designed light half. Boneink and Inkrain,
+    which had briefly existed as two separate families, were merged into
+    one under the Inkrain name: Boneink's light half survives inside
+    Inkrain, Inkrain's own sampled dark half replaces Boneink's jade-dark,
+    and Inkrain's short-lived newsprint light was retired.
 
-    Same day, once more: both surviving custom families were renamed
-    (Mosscairn -> Slate, "or just Slate"; Inkrain -> Bonepaper, "i
-    prefer bonepaper..."), and Standard's own label renamed to Flexoki
-    (it always carried Flexoki's real published values directly, so the
-    label now says what it is). Devin's final display order: Slate,
-    Bonepaper, Flexoki. Final roster: Flexoki/Bonepaper/Slate, light/
-    dark each, 6 total -- 3 core families, same count Devin asked for
-    after the very first roster consolidation.
+    Both surviving custom families were then renamed a final time
+    (Mosscairn -> Slate, Inkrain -> Bonepaper), and Standard's display
+    label was renamed to Flexoki since it always carried Flexoki's
+    published values directly. Final roster at that point: Flexoki/
+    Bonepaper/Slate, light/dark each, 6 total -- 3 core families.
 
-    Grown to 8, 2026-07-30: MEG (light/dark) added, real verified Martin
-    Energy Group brand colors (see theme.py's own _MARTIN_LIGHT/
-    _MARTIN_DARK comment for full sourcing) -- named "MEG" specifically,
-    not "Martin" (Devin, same day: "Martin Construction can suck it... we're
-    green team all the way!!" -- the bare name collides with an unrelated
-    company he has real beef with). Same day, Standard's own display
-    label reverted "Kepano" (a brief 2026-07-29 rename) back to
-    "Flexoki", its original real source name. Renamed 2026-07-31, several
-    times same day: MEG -> Anthracite -> Gridpaper -> Graphpaper ->
-    **Martin** (Devin's final call, explicit override of the exact
-    collision concern above -- flagged, confirmed twice anyway). Values
-    unchanged through every rename.
+    MEG (light/dark) was then added: verified Martin Energy Group brand
+    colors (see theme.py's own _MARTIN_LIGHT/_MARTIN_DARK comment for
+    full sourcing), named "MEG" rather than "Martin" to avoid colliding
+    with an unrelated company of the same bare name. Standard's own
+    display label was reverted from a brief "Kepano" rename back to
+    "Flexoki", its original source name. The MEG family itself was later
+    renamed several times (MEG -> Anthracite -> Gridpaper -> Graphpaper
+    -> Martin), with the original name-collision concern re-evaluated
+    and the Martin name confirmed anyway. Values stayed unchanged through
+    every rename.
 
-    Gotham (real Alacritty theme, dark-only) added and removed same day,
-    2026-07-31 -- roster stays at 8 (see theme.py's own THEME_LABELS
+    Gotham (an Alacritty theme, dark-only) was added and removed in the
+    same pass -- roster stays at 8 (see theme.py's own THEME_LABELS
     comment for the full add/remove note)."""
     assert set(theme.THEMES.keys()) == {
         "light", "dark",
@@ -122,61 +109,52 @@ def test_roster_is_exactly_eight_themes():
 
 
 def test_standard_light_dark_carry_flexokis_real_values():
-    """"make standard light/dark modes the same as Flexoki" -- real
-    published values (stephango.com/flexoki, verified live 2026-07-24),
-    not just "inspired by." fg is unchanged and still exactly on spec;
-    dark's bg/button_bg are the one other deliberate exception besides
-    accent -- see test_standard_dark_is_lightened_off_spec below for
-    why (a real, repeated, live-feedback-driven deviation). Internal
+    """Standard's light/dark modes carry Flexoki's actual published
+    values (stephango.com/flexoki), not just colors "inspired by" it.
+    fg is unchanged and still exactly on spec; dark's bg/button_bg are
+    the one other deliberate exception besides accent -- see
+    test_standard_dark_is_lightened_off_spec below for why. Internal
     keys stay "light"/"dark" even after the display label became
     "Flexoki Light"/"Flexoki Dark" -- the values were always Flexoki's,
     only the label changed.
 
-    light bg/button_bg updated 2026-08-01/02 (secondary's devs-themes
-    reconciliation pass, landed via themes-custom -> devs-themes rename
-    + sync): #fdf6dc/#eee2c9, a webUI-parity variant rather than the
-    stock stephango.com paper/base-50 (#fffcf0/#f2f0e5) -- fg stays on
-    real spec either way."""
+    light bg/button_bg were later updated to a webUI-parity variant,
+    #fdf6dc/#eee2c9, rather than the stock stephango.com paper/base-50
+    (#fffcf0/#f2f0e5) -- fg stays on spec either way."""
     assert theme.THEMES["dark"]["fg"] == "#e6e4d9"
     assert theme.THEMES["light"]["bg"] == "#fdf6dc"
     assert theme.THEMES["light"]["fg"] == "#100f0f"
 
 
 def test_standard_dark_reverted_to_real_flexoki_spec_2026_07_30():
-    """REVERSAL of the 2026-07-25 lightening this test used to guard
-    (that entry's real reasoning kept below, for the record -- it isn't
-    wrong about what happened, just no longer current). Devin,
-    2026-07-30, live: "if flexoki dark could represent Kepano's flexoki
-    dark at home a lil better." The original lightening was deliberate
-    contrast-vs-Inkbone insurance; Inkbone is long retired (2026-07-29)
-    and nothing in the current roster needs Standard/Flexoki Dark
-    pushed off its own real spec anymore, so it's back on it.
+    """REVERSAL of an earlier lightening this test used to guard (that
+    entry's original reasoning kept below, for the record -- it isn't
+    wrong about what happened, just no longer current). The original
+    lightening was deliberate contrast-vs-Inkbone insurance; Inkbone is
+    long retired and nothing in the current roster needs Standard/
+    Flexoki Dark pushed off its own spec anymore, so it's back on it,
+    to better represent Flexoki's dark theme as it appears elsewhere.
 
-    Original 2026-07-25 reasoning (for history): asked TWICE "should be
-    lighter than inkbone's dark" then, after a first "already lighter,
-    no change needed" answer proved wrong on a real screen, "make
-    standard dark lighter in contrast to inkbone dark" again -- real
-    Flexoki bg (#1c1b1a) IS numerically lighter than Inkbone Dark's bg
-    (#0e0c0a) but didn't read as different enough live, so it got
-    lightened further, off spec, on purpose. That's the deviation this
-    test now confirms is UNDONE."""
+    Original reasoning (for history): Flexoki's real bg (#1c1b1a) IS
+    numerically lighter than Inkbone Dark's bg (#0e0c0a) but didn't read
+    as different enough on screen, so it got lightened further, off
+    spec, on purpose. That's the deviation this test now confirms is
+    UNDONE."""
     assert theme.THEMES["dark"]["bg"] == "#1c1b1a"  # real Flexoki base-950
     assert theme.THEMES["dark"]["button_bg"] == "#282726"  # real Flexoki base-900
     assert theme.THEMES["dark"]["entry_bg"] == "#100f0f"  # real Flexoki black, never drifted
 
 
 def test_standard_uses_real_flexoki_teal_not_the_shared_house_green():
-    """The 2026-07-31 teal experiment (live webUI parity ask: "change
-    Kepano's accent from blue to dark teal... like osaka teal?") briefly
-    reverted to Flexoki's real published blue, then landed for real as
-    teal once secondary's devs-themes reconciliation pass (2026-08-01/02)
-    synced theme_data/*.json against the actual current webUI/devs-themes
-    values: #24837B light / #3AA99F dark -- still Flexoki's own real
-    published palette (real cyan swatch, --color-cyan), just not the one
-    Kepano originally picked as his interactive-accent, per that same
-    live ask. This test's real job is just guarding against the shared
-    house green (the 2026-07-25 swap this test has guarded against from
-    the start), not blue vs. teal."""
+    """Standard's accent went through a teal experiment for webUI parity
+    (changing Kepano's accent from blue to dark teal), briefly reverted
+    to Flexoki's published blue, then landed for real as teal once
+    theme_data/*.json was synced against the current webUI/devs-themes
+    values: #24837B light / #3AA99F dark -- still Flexoki's own
+    published palette (its cyan swatch, --color-cyan), just not the one
+    originally picked as the interactive accent. This test's job is just
+    guarding against the shared house green this test has guarded
+    against from the start, not blue vs. teal."""
     assert theme.THEMES["dark"]["select_bg"] == "#3aa99f"
     assert theme.THEMES["dark"]["highlight_bg"] == "#3aa99f"
     assert theme.THEMES["light"]["select_bg"] == "#24837b"
@@ -184,14 +162,14 @@ def test_standard_uses_real_flexoki_teal_not_the_shared_house_green():
 
 
 def test_every_theme_accent_is_minimal_pure_accent_lives_in_selection_roles_only():
-    """Manga-essence pass (Devin, 2026-07-25, originally Inkbone-specific:
-    "MINIMAL green, pure accent only... must NOT color tabs or chrome").
-    Generalized 2026-07-29 when Inkbone retired -- the rule itself is a
-    real house-wide design constraint every family (Flexoki, Bonepaper,
-    Slate) actually follows, not a property unique to the retired
-    theme: accent lives only in the genuine "selection" roles, select_bg
-    (Listbox/Entry) and highlight_bg (text-selection highlight), never
-    menubar/toolbar/tabstrip."""
+    """This rule originated as an Inkbone-specific constraint (minimal
+    green, pure accent only, must not color tabs or chrome) and was
+    later generalized when Inkbone retired -- it's a house-wide design
+    constraint every family (Flexoki, Bonepaper, Slate) actually
+    follows, not a property unique to the retired theme: accent lives
+    only in the genuine "selection" roles, select_bg (Listbox/Entry)
+    and highlight_bg (text-selection highlight), never menubar/toolbar/
+    tabstrip."""
     for name, colors in theme.THEMES.items():
         assert colors["select_bg"] not in (
             colors["menubar_bg"], colors["toolbar_bg"], colors["tabstrip_bg"]
@@ -221,16 +199,15 @@ def test_named_theme_palettes_are_real_and_distinct():
 
 
 def test_no_dark_theme_has_brown_tones():
-    """Devin, 2026-07-25, real correction after seeing the first chrome
-    attempt (a warm tan/sepia #a8916a), originally Inkbone-specific:
-    "less brown, more dark noir manga... no brown tones at all with
-    dark slate plz... save those for our light mode." Generalized
-    2026-07-29 when Inkbone retired -- this is a real house-wide rule
-    (brown/sepia belongs in light themes only), not a property unique
-    to the one retired theme it was first stated against. Every dark
-    theme's colors must be a real grayscale/near-neutral or its own
-    accent -- never a brown/tan hue. Cheap real check: brown/tan hues
-    have R > G > B with a real gap (not true of grayscale, where
+    """This rule was originally Inkbone-specific, a correction after an
+    early chrome attempt used a warm tan/sepia (#a8916a) that read as
+    too "brown" for a dark noir look, with brown tones reserved for
+    light mode instead. Generalized when Inkbone retired -- this is a
+    house-wide rule (brown/sepia belongs in light themes only), not a
+    property unique to the one retired theme it was first stated
+    against. Every dark theme's colors must be a grayscale/near-neutral
+    or its own accent -- never a brown/tan hue. Cheap check: brown/tan
+    hues have R > G > B with a real gap (not true of grayscale, where
     R=G=B, nor of a green/moss/jade accent)."""
     for name, colors in theme.THEMES.items():
         if not colors["is_dark"]:
@@ -244,31 +221,30 @@ def test_no_dark_theme_has_brown_tones():
 
 
 def test_every_theme_has_a_real_second_accent_distinct_from_the_primary():
-    """Devin, 2026-08-02: Slate "feels like it has less colors compared
-    to... webUI and the obsidian version" -- traced to select_bg ==
-    highlight_bg in 3 of 4 families (only Martin already had two real
-    distinct greens). accent2 is a genuine second color per family,
-    used for search-match emphasis (see _draw_search_highlights_for_page
-    in slate.py) -- every family's own comment in theme.py documents
-    where its specific value came from (never invented).
+    """Slate previously felt like it had fewer colors than the webUI and
+    Obsidian versions -- traced to select_bg == highlight_bg in 3 of 4
+    families (only Martin already had two distinct greens). accent2 is
+    a genuine second color per family, used for search-match emphasis
+    (see _draw_search_highlights_for_page in slate.py) -- every family's
+    own comment in theme.py documents where its specific value came
+    from (never invented).
 
-    Widened same day -- Devin, real correction: "no theme should have
-    any repeat colors!" First accent2 pass for Martin reused
-    highlight_bg's own value outright (distinct from select_bg, but
-    now IDENTICAL to highlight_bg -- just relocated the duplicate
-    instead of removing it). accent2 must be pairwise distinct from
-    BOTH other accent roles, not just select_bg.
+    Widened further: the first accent2 pass for Martin reused
+    highlight_bg's own value outright (distinct from select_bg, but now
+    IDENTICAL to highlight_bg -- just relocated the duplicate instead
+    of removing it). accent2 must be pairwise distinct from BOTH other
+    accent roles, not just select_bg.
 
     select_bg == highlight_bg still holds for Bonepaper/Standard/Slate
     (only Martin ever had two distinct greens) -- deliberately NOT
-    changed here. That pairing is a real, documented, already-shipped
-    design choice for those 3 families (theme.py's own history: "carries
+    changed here. That pairing is a documented, already-shipped design
+    choice for those 3 families (theme.py's own history: "carries
     through selection highlight/checked-toggle-fill/TOC-highlight
     everywhere this theme is active, not a one-off") and highlight_bg
     also drives live text-selection + saved-PDF-highlight-annotation
-    color, tested behavior this pass isn't touching. Whether Devin's
-    "no repeat colors" also means reversing THAT pairing is a real open
-    question for him to answer, not a call to make silently here."""
+    color, tested behavior this pass isn't touching. Whether "no repeat
+    colors" also means reversing THAT pairing is a real open question,
+    not a call to make silently here."""
     for name, colors in theme.THEMES.items():
         assert "accent2" in colors, name
         assert colors["select_bg"] != colors["accent2"], f"{name}: select_bg == accent2"
@@ -276,17 +252,15 @@ def test_every_theme_has_a_real_second_accent_distinct_from_the_primary():
 
 
 def test_chrome_cascade_is_a_real_three_step_gradient():
-    """Devin, 2026-07-25: "make menu bar cascade down in color from
-    window bar down to tabs, to toolbar making it aesthetic... same
-    for the other 3 'core' themes." Second pass same day, real
-    screenshot review: "menubar doesn't cascade in hue/darkness" --
-    the original bg/button_bg-anchored formula produced a
+    """The menu bar cascades down in color from window bar to tabs to
+    toolbar for an aesthetic gradient effect, consistent across every
+    core theme. The original bg/button_bg-anchored formula produced a
     mathematically-real but PERCEPTUALLY INVISIBLE step for
-    inkbone_dark (both tones too close to pure black). Real fix:
-    interpolate toward fg instead (0%/8%/16%), which rides the
-    theme's own guaranteed bg<->fg contrast -- one consistent rule for
-    all 6 variants, and this test proves the 3 steps are ACTUALLY
-    distinct by a real, non-trivial margin, not just non-equal."""
+    inkbone_dark (both tones too close to pure black). Fix: interpolate
+    toward fg instead (0%/8%/16%), which rides the theme's own
+    guaranteed bg<->fg contrast -- one consistent rule for all 6
+    variants, and this test proves the 3 steps are ACTUALLY distinct by
+    a real, non-trivial margin, not just non-equal."""
     for name, colors in theme.THEMES.items():
         assert colors["menubar_bg"] == colors["bg"], name
         assert colors["tabstrip_bg"] == theme._lerp_toward_fg(colors["bg"], colors["fg"], 0.08), name
@@ -316,46 +290,41 @@ def test_lerp_toward_fg_computes_a_real_fractional_step():
 
 
 def test_slate_dark_matches_the_real_official_solarized_bones():
-    """Originally test_solarized_matches_the_real_official_palette
-    (Devin, 2026-07-25: "please review the solarized light/dark...
-    refer to official repos/color palette for it" -- real values,
-    ethanschoonover.com/solarized, verified live: base03:base0 for
-    bg:fg, base02 for the secondary/UI surface).
+    """Originally test_solarized_matches_the_real_official_palette,
+    checking against the official Solarized values (ethanschoonover.com/
+    solarized): base03:base0 for bg:fg, base02 for the secondary/UI
+    surface.
 
-    Solarized itself was retired 2026-07-29 ("Solarized can go away")
-    once this family existed (named Mosscairn at the time, then renamed
-    to Slate same day, "or just Slate"), carrying these exact same
-    official neutrals with a moss accent instead of blue -- this test
-    moved with the values rather than being deleted, so official-
+    Solarized itself was later retired once this family existed (named
+    Mosscairn at the time, then renamed to Slate), carrying these exact
+    same official neutrals with a moss accent instead of blue -- this
+    test moved with the values rather than being deleted, so official-
     palette fidelity for bg/button_bg/fg/muted_fg is still checked
     live. Only select_bg differs on purpose now: Slate's own moss
     accent (#699d43), not Solarized's official blue -- that
     substitution IS the whole point of this theme, not a regression.
 
-    muted_fg corrected 2026-07-29 (#586e75 -> #657b83): css_theme.py's
-    parser, reading the real slate.css (named mosscairn.css at the
-    time), caught that Slate's own muted_fg had been hand-copied from
-    --text-faint (base01) instead of the property it's actually meant
-    to mirror, --text-muted (base00) -- see theme.py's own _SLATE_DARK
-    comment for the full story.
+    muted_fg was corrected (#586e75 -> #657b83): css_theme.py's parser,
+    reading the real slate.css (named mosscairn.css at the time), caught
+    that Slate's own muted_fg had been hand-copied from --text-faint
+    (base01) instead of the property it's actually meant to mirror,
+    --text-muted (base00) -- see theme.py's own _SLATE_DARK comment for
+    the full story.
 
-    bg/canvas_bg moved off stock Solarized 2026-07-31 -- Devin: "i do
-    like that theme for our Slate Dark," referring to Solarized Osaka
-    (craftzdog/solarized-osaka.nvim, real values pulled from Devin's own
-    Alacritty config, not memory). Osaka's real `black` (#073642) and
+    bg/canvas_bg later moved off stock Solarized toward Solarized Osaka
+    (craftzdog/solarized-osaka.nvim). Osaka's `black` (#073642) and
     `foreground` (#839496) already matched Slate Dark's button_bg/fg
     exactly -- only Osaka's deeper primary background (#001a1d vs stock
     Solarized's #002b36) actually differs, so that's the only value that
     moved at the time.
 
-    bg/button_bg moved AGAIN 2026-08-01/02 -- a "Bluish-gray Slate Dark"
-    pass (secondary's devs-themes reconciliation commit) landed
-    #2c3640/#414f5a, moving further off both stock Solarized and Osaka
-    toward a cooler blue-gray. fg/muted_fg/select_bg are still the same
-    official Solarized-lineage/moss values as before, unchanged by this
-    pass."""
+    bg/button_bg moved AGAIN in a later "Bluish-gray Slate Dark" pass,
+    landing #2c3640/#414f5a, moving further off both stock Solarized and
+    Osaka toward a cooler blue-gray. fg/muted_fg/select_bg are still the
+    same official Solarized-lineage/moss values as before, unchanged by
+    this pass."""
     dark = theme.THEMES["slate_dark"]
-    assert dark["bg"] == "#2c3640"  # bluish-gray Slate Dark, 2026-08-01/02 reconciliation
+    assert dark["bg"] == "#2c3640"  # bluish-gray Slate Dark reconciliation
     assert dark["button_bg"] == "#414f5a"  # same pass, moved with bg
     assert dark["fg"] == "#839496"  # Solarized base0 (== Osaka's own "foreground")
     assert dark["muted_fg"] == "#657b83"  # Solarized base00 (--text-muted, not --text-faint)

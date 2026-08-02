@@ -1,21 +1,18 @@
-; Slate installer (Inno Setup 6). Devin, 2026-07-25: "build the full
-; installer." Wraps the PyInstaller --onedir output (dist\Slate\) --
-; real Start Menu + optional Desktop shortcut, a real uninstaller
-; (Inno Setup provides this automatically, no extra code needed), and
-; OPTIONAL .pdf/.epub file-association registration (a Task checkbox,
-; not forced -- overriding someone else's existing default PDF viewer
-; unprompted would be rude on a shared/MEG machine, even though Devin
-; himself wants Slate as his own default).
+; Slate installer (Inno Setup 6). Wraps the PyInstaller --onedir output
+; (dist\Slate\) -- real Start Menu + optional Desktop shortcut, a real
+; uninstaller (Inno Setup provides this automatically, no extra code
+; needed), and OPTIONAL .pdf/.epub file-association registration (a
+; Task checkbox, not forced -- overriding someone else's existing
+; default PDF viewer unprompted would be rude on a shared machine).
 ;
 ; Build: run this file through ISCC.exe (Inno Setup's own compiler) --
 ; requires dist\Slate\ to already exist (run PyInstaller first).
 
 #define MyAppName "Slate"
 ; Overridable via ISCC's /DMyAppVersion=X.Y.Z (build-installer.ps1 passes
-; version.py's real VERSION this way) so the two never drift apart again
-; -- real gap caught live 2026-07-29: this stayed hardcoded "1.1.0" while
-; version.py had already moved to 1.2.0, so the built installer's own
-; filename silently lied about what it shipped.
+; version.py's real VERSION this way) so the two never drift apart --
+; a hardcoded value here would silently lie about what the installer
+; actually ships the moment version.py moves on without it.
 #ifndef MyAppVersion
   #define MyAppVersion "1.1.0"
 #endif
@@ -38,8 +35,7 @@ SolidCompression=yes
 WizardStyle=modern
 ; No admin rights forced -- installs to the user's own profile by
 ; default via {autopf} resolving appropriately; PrivilegesRequired
-; lowest lets a non-admin MEG user install it too, matching the
-; eventual multi-user goal (feedback-cairn-slate-suckless-link memory).
+; lowest lets a non-admin user install it too.
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 

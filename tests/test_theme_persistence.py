@@ -1,8 +1,8 @@
 """theme.py's load/save preference round-trip. Storage isolation comes
 from conftest.py's autouse fixture (same pattern as recent.py/gate.py).
 Assertions check against theme.DEFAULT_THEME rather than a hardcoded
-name, since Devin changed the default from "light" to "dark" already
-once -- these should keep passing the next time that changes too.
+name, since the default theme changed from "light" to "dark" once
+already -- these should keep passing the next time that changes too.
 """
 import theme
 

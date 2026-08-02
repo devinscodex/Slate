@@ -91,11 +91,10 @@ class PageLayout:
 
     def pages_in_range(self, top_y: float, bottom_y: float) -> list:
         """Every page whose rect vertically overlaps [top_y, bottom_y]
-        -- the real basis for windowed rendering (Fable design review,
-        2026-07-25, Slice 3): callers pass the viewport's own bounds
-        expanded by one screenful of slack, so "how many pages" falls
-        naturally out of zoom/viewport size instead of a tuned
-        page-count constant."""
+        -- the real basis for windowed rendering: callers pass the
+        viewport's own bounds expanded by one screenful of slack, so
+        "how many pages" falls naturally out of zoom/viewport size
+        instead of a tuned page-count constant."""
         return [
             page_num for page_num, _x0, y0, _x1, y1 in self._rects
             if y1 >= top_y and y0 <= bottom_y

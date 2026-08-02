@@ -4,10 +4,9 @@ A small, no-bloat PDF editor, composed from proven libraries rather than a
 reimplemented PDF engine. Full feature set: view, annotate/markup,
 merge/split, redact, sign, form-fill, scan for sensitive content.
 
-A byproduct of Cairn, an AI development harness — built to be the document
-reader/editor we always wanted. Adobe is bloated and predatory, Foxit is
-mediocre, Sumatra is nice but limited. Slate is another free, open-source
-option, proof of how good FOSS can really be.
+Built to be the document reader/editor we always wanted. Adobe is bloated
+and predatory, Foxit is mediocre, Sumatra is nice but limited. Slate is
+another free, open-source option, proof of how good FOSS can really be.
 
 ## Licensing posture (real, load-bearing constraint)
 
@@ -20,24 +19,19 @@ letting outside users interact with a *modified* copy over a network as
 a service) — not on purely private/internal use. Slate is a local
 desktop app, not a network service, and isn't modifying PyMuPDF itself.
 
-**Open-source direction (Devin, 2026-07-25): Slate is headed to
-GitHub.** This supersedes the earlier internal-only ruling this
-section used to document, and reopens the AGPL question that ruling
-was avoiding. Real open item, not yet resolved: Slate's own license,
-and whether AGPL's source-disclosure trigger is acceptable for a
-public repo, needs to be settled before (or as part of) the public
-release — this is not a legal ruling (get real legal review before
-shipping publicly if this matters), and a real look at Artifex's
-commercial license (no public pricing — requires contacting their
-sales team directly) may be part of that resolution.
+Slate is public on GitHub under AGPL-3.0-or-later (see LICENSE) --
+this is not a legal ruling (get real legal review before relying on
+this if it matters for a given deployment), and a look at Artifex's
+commercial license (no public pricing -- requires contacting their
+sales team directly) is the alternative if AGPL's source-disclosure
+trigger is ever a problem for a specific use case.
 
 ## Why composition, not a new engine
 
 Full ISO 32000 parity is a multi-year effort even for funded teams
 (PDF.js/MuPDF/Poppler-scale). The right answer isn't reinventing that —
 it's a thin app over libraries that already do each job well, matching this
-project's own "wrap the real tool, don't reimplement" doctrine (same pattern
-as Cairn's markitdown skill).
+project's own "wrap the real tool, don't reimplement" doctrine.
 
 ## Stack
 
@@ -142,11 +136,11 @@ signing cert exists.
 
 ## Scan for sensitive content (`scan.py`)
 
-Started as a one-off scratch audit script (Devin asked to scan his real
-Downloads folder for anything needing redaction), promoted to a real
-feature after it found genuine sensitive content in a real file (a bank
-account + routing number in an actual UMB account-verification letter)
-and, separately, had a real false-negative during its own development.
+Started as a one-off scratch audit script for scanning a real Downloads
+folder for anything needing redaction, promoted to a real feature after
+it found genuine sensitive content in a real file (a bank account +
+routing number in an actual bank account-verification letter) and,
+separately, had a real false-negative during its own development.
 
 **Scope:** number-shaped financial/PII patterns only — SSN
 (`123-45-6789`), ABA routing numbers, labeled account numbers, and
@@ -159,7 +153,7 @@ silently folded into "nothing found" — those are different claims, and
 conflating them is exactly the bug this project caught in itself (next
 paragraph).
 
-**Real bug, caught auditing Devin's actual Downloads folder, not a
+**Real bug, caught auditing a real Downloads folder, not a
 hypothetical:** the first version matched a label and its value on the
 *same line* (`Account Number:\s*(\d+)`). Real PDFs routinely don't lay
 text out that way — the bank letter's own extracted text put `Account
@@ -188,14 +182,13 @@ for the current page, which is the correct non-blocking feedback.
 
 ## Text editing — real v2 feature, gated by design (in progress)
 
-Editing existing body-paragraph text was in Devin's original ask, missed
-in the first pass of this plan (view/annotate/merge-split/redact/sign/
-form-fill/scan only). Real, deliberate scope call from Devin once this
-gap was pointed out: ship it as a **separate, gated capability**, not a
-plain menu item everyone gets — "so not just everyone has PDF text
-editing, but everything else they would need without editing a 'final
-form' of a document." The rest of v1 stays open to everyone; text
-editing sits behind a passphrase gate, off by default.
+Editing existing body-paragraph text was missed in the first pass of
+this plan (view/annotate/merge-split/redact/sign/form-fill/scan only).
+Deliberate scope call once this gap was identified: ship it as a
+**separate, gated capability**, not a plain menu item everyone gets --
+so text editing doesn't ship enabled by default on a document meant to
+stay in its "final form" for most users. The rest of v1 stays open to
+everyone; text editing sits behind a passphrase gate, off by default.
 
 Why this is genuinely a separate feature: editing existing PDF body text
 means re-flowing text runs and matching the original font/kerning
@@ -203,14 +196,14 @@ exactly — PDF is page-fixed glyph positions, not a reflow format. Even
 Adobe/Foxit's own "Edit Text" is imperfect at this. Real approach:
 redact-then-reinsert (`add_redact_annot` + `apply_redactions()` +
 `insert_text` at the same spot) — **with the redaction fill set to
-white/transparent, not black**. Real bug caught live running the slice-0
-experiment below: reusing `redact.py`'s `mark_region()` as-is produced a
+white/transparent, not black**. Reusing `redact.py`'s `mark_region()`
+as-is produces a
 solid black bar instead of new text, because that function is correctly
 built for actual redaction (black fill on purpose) — wrong default for
 this feature. Text-editing's own redact call uses `fill=(1, 1, 1)`.
 
 **Three-tier font-safety approach (refined from the original two-tier
-plan, Devin's idea):** before falling to a crude Base-14 substitute,
+plan):** before falling to a crude Base-14 substitute,
 check whether the same font is already installed as a real system font
 first — most business PDFs use Calibri/Arial/Times New Roman/Segoe UI,
 already sitting on the same Office-standardized Windows machines that
@@ -249,10 +242,9 @@ three tiers after a redact+reinsert cycle:
 
 **Gate mechanism:** `hashlib.pbkdf2_hmac("sha256", ..., 600_000)`, local
 salted hash (not plaintext) at `~/.slate/unlock.json` (same convention
-as `recent.py`), stdlib-only. First-run (Devin confirmed): clicking
-"Edit Text" with none set yet prompts to set one right there, no
-separate admin step. Unlock is session-only. Stated plainly: a local UX
-gate, not real access control.
+as `recent.py`), stdlib-only. First-run: clicking "Edit Text" with none
+set yet prompts to set one right there, no separate admin step. Unlock
+is session-only. Stated plainly: a local UX gate, not real access control.
 
 **Slice 1 (`fontmatch.py`) — done, 6/6 tests, real fc-match substitution
 pitfall confirmed and guarded against.**
@@ -322,9 +314,8 @@ consistency's own sake — that tradeoff would itself be unnecessary bloat.
 
 ## Sumatra-parity backlog — done (v3)
 
-Devin's real question: after using SumatraPDF's TOC/recent-files panel
-as this project's own UX reference already, what else is worth peeling
-from it? Three concrete, real slices, in cheapest-to-most-structural
+SumatraPDF's TOC/recent-files panel is this project's own UX reference;
+three concrete slices peeled from it, in cheapest-to-most-structural
 order:
 
 1. **`search.py` + keyboard nav** — in-document Find (`/` or View >
@@ -358,7 +349,7 @@ order:
    opens all of these natively. Zero new dependency, almost no new
    code — mostly widening `open_file()`'s dialog filter. CHM is *not*
    supported (not in the matrix; would need PyMuPDF Pro) — left out.
-   Devin's call: PDF-only Edit/File menu items (redact, sign, forms,
+   PDF-only Edit/File menu items (redact, sign, forms,
    encrypt, merge/split, save) are disabled whenever the active tab's
    document isn't a real PDF (`doc.is_pdf`), via
    `_update_pdf_only_menu_state()` hooked into the tab-switch path —
@@ -377,8 +368,7 @@ each with a dark variant).
 
 ## Convert — office document utilities (`convert.py`)
 
-Devin's ask: MEG-relevant file converters. New "Convert" menu: PDF ->
-Markdown, PDF -> plain text, PDF -> page images (PNG, chosen DPI), and
+New "Convert" menu: PDF -> Markdown, PDF -> plain text, PDF -> page images (PNG, chosen DPI), and
 images -> PDF (combine scans/photos into one file, in order). All
 read-only exports work on any open document type (PDF or ebook), same
 as Scan — not gated by the PDF-only menu logic. Zero new dependencies:
@@ -412,8 +402,8 @@ the body text" signal.
 any code), one full page per image, in the given order.
 
 **Explicitly out of scope, flagged for later, not built:** DOCX/XLSX
-<-> PDF conversion. Genuinely useful for an Office-standardized shop
-like MEG, but the only real options are heavy/platform-specific
+<-> PDF conversion. Genuinely useful for any Office-standardized
+workplace, but the only real options are heavy/platform-specific
 (headless LibreOffice as an external process dependency, or MS Office
 COM automation via `pywin32` — Windows-only, needs Word/Excel actually
 installed on the machine). Given this session's live-confirmed lesson
@@ -422,24 +412,23 @@ research pass before committing to an approach, not a quick add.
 
 ## Read Aloud — text-to-speech (`tts.py`, `playback.py`)
 
-Devin's ask, after real research into whether a ~250MB size budget for
-"quality (limited), voices of my choice" was workable (it was — see
-the earlier "if we grow to about 250mb" exchange). Piper TTS: engine is
-GPL-3.0-or-later, voices are MIT-licensed, both confirmed live via
-HuggingFace's own package/model metadata, not assumed. Zero-cost, FOSS,
-own-forever — no paid alternative was needed.
+A ~250MB size budget for "quality (limited), voices of choice" is
+workable. Piper TTS: engine is GPL-3.0-or-later, voices are
+MIT-licensed, both confirmed live via HuggingFace's own package/model
+metadata, not assumed. Zero-cost, FOSS, own-forever — no paid
+alternative was needed.
 
-**Voice selection was Devin's own real listening test, not a guess** —
-3 rounds, each testing something different:
+**Voice selection was a real listening test, not a guess** — 3 rounds,
+each testing something different:
 1. A plain sentence, across 25 real named voices (multi-speaker corpora
    like arctic/libritts/vctk excluded — those bundle dozens of speakers
-   per model, not a single named voice, and Devin asked for "named").
+   per model, not a single named voice).
 2. A numbers/punctuation/date/currency stress-test passage, sorted into
    real `like`/`no-like` piles. Found a real, non-obvious pattern:
    quality tier (low vs medium) wasn't the deciding factor at all (2 of
    the "like" picks were low-tier) — British-accented voices had a much
    higher like-rate (4/5) than American ones (3/9) in this voice set,
-   and "robotic"/"choppy" (Devin's own words) explained most rejects.
+   and a "robotic"/"choppy" character explained most rejects.
 3. A public-domain narrative passage (opening of *Pride and Prejudice*)
    across the finalists, to test sustained reading, not just a single
    line.
@@ -451,8 +440,7 @@ low-tier voices both hit a real "missing phoneme from id map" warning
 on round 2's harder passage (a stress-mark symbol) — not disqualifying,
 but a real, live-confirmed quality wrinkle those two specifically carry.
 
-**Distribution, updated 2026-07-25 (Devin's real call, exe/installer
-pass):** `northern_english_male` (~60.3MB) AND `alba` (~60.3MB, GB
+**Distribution:** `northern_english_male` (~60.3MB) AND `alba` (~60.3MB, GB
 Female) both ship bundled in the repo (`voices/`) as the zero-setup
 default -- one male, one female, deliberately the SAME Piper quality
 tier (`medium`, 22050Hz sample rate) so neither sounds worse than the
@@ -480,7 +468,7 @@ parameter (confirmed via `SynthesisConfig`'s actual signature, not
 assumed) rather than needing separate audio time-stretching — the
 UI's speed multiplier maps to `length_scale = 1 / speed`.
 
-**Real bug caught live, before it reached a commit:** the download
+**Thread-safety gotcha:** the download
 progress callback originally called `self.root.after(...)` directly
 from the background download thread — Tkinter is not thread-safe, and
 this raised `main thread is not in main loop` the first time an actual

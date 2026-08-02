@@ -125,9 +125,9 @@ def _make_app(tmp_path, fixture=FIXTURE):
     shutil.copy(fixture, path)
     root = tk.Tk()
     app = slate.SlateApp(root, path)
-    # Real gap surfaced after defaulting view_mode to "continuous"
-    # (2026-07-25): this headless test harness runs Xvfb with NO real
-    # window manager, so nothing ever grants the toplevel real X input
+    # Surfaced after defaulting view_mode to "continuous": this
+    # headless test harness runs Xvfb with NO real window manager, so
+    # nothing ever grants the toplevel real X input
     # focus automatically -- a plain child_widget.focus_set() silently
     # no-ops (root.focus_get() stays None) until something forces real
     # focus onto the toplevel at least once. A real Windows machine
@@ -140,25 +140,23 @@ def _make_app(tmp_path, fixture=FIXTURE):
 
 
 def test_render_recolors_the_page_to_match_the_active_theme_not_just_chrome(tmp_path, monkeypatch):
-    """Real gap Devin caught live, twice: (1) theming Slate's own
-    widgets dark still left the rendered PDF page a blinding white
-    rectangle, and (2) a first-attempt fix (a flat RGB invert) only
-    looked right for the plain built-in "dark" theme -- every OTHER
-    light-toned named theme (Bonepaper Light)
-    still rendered a plain white page that didn't match its own tinted
-    chrome at all ("want document to match", "same as text editors
-    when using themes"). Fixed with ImageOps.colorize: the page's own
-    light<->dark tones map onto the active theme's canvas_bg<->fg pair,
-    one mechanism for every theme, light or dark alike. ImageTk.
-    PhotoImage exposes no way to read pixels back, so this intercepts
-    what gets passed INTO it instead."""
+    """Two related gaps: (1) theming Slate's own widgets dark still
+    left the rendered PDF page a blinding white rectangle, and (2) a
+    first-attempt fix (a flat RGB invert) only looked right for the
+    plain built-in "dark" theme -- every OTHER light-toned named theme
+    (Bonepaper Light) still rendered a plain white page that didn't
+    match its own tinted chrome at all. Fixed with ImageOps.colorize:
+    the page's own light<->dark tones map onto the active theme's
+    canvas_bg<->fg pair, one mechanism for every theme, light or dark
+    alike. ImageTk.PhotoImage exposes no way to read pixels back, so
+    this intercepts what gets passed INTO it instead."""
     import theme
 
     root, app = _make_app(tmp_path)
     try:
-        # colorize_pages now defaults False (2026-07-26, real content
-        # got destroyed twice the same day by the theme-tint flatten) --
-        # this test verifies the recolor MECHANISM itself still works
+        # colorize_pages now defaults False (real document content had
+        # been destroyed by the theme-tint flatten) -- this test
+        # verifies the recolor MECHANISM itself still works
         # correctly across every theme when a reader opts in, unaffected
         # by what the default happens to be.
         app.colorize_pages = True
@@ -212,7 +210,7 @@ def test_named_themes_produce_visibly_distinct_colors(tmp_path):
     built-in light/dark pair.
 
     Checks (canvas_bg, select_bg) pairs rather than canvas_bg alone
-    (loosened 2026-07-29, same reasoning as test_theme.py's own
+    (same reasoning as test_theme.py's own
     test_named_theme_palettes_are_real_and_distinct): this originally
     guarded Boneink Dark deliberately sharing Inkbone Dark's exact
     canvas_bg (#0e0c0a, real "night noir" bones on purpose). Both Inkbone
@@ -297,9 +295,9 @@ def test_toggling_theme_persists_and_a_fresh_launch_starts_dark_no_flash(tmp_pat
 
 
 def test_mode_indicator_turns_red_in_redact_mode_and_resets_after(tmp_path):
-    """Restyled 2026-08-02 (Devin: "'mode: view' looks unprofessional") --
+    """The "mode: view" label looked unprofessional always-visible --
     "view" is ~99% of a reading session, so the label now UNPACKS
-    entirely for it instead of just recoloring to a neutral tone (real
+    entirely for it instead of just recoloring to a neutral tone (the
     always-visible text read as a leftover debug artifact). redact's
     real safety-nudge red badge (DESIGN.md: the one mode where a
     mis-drag is irreversible) is unchanged -- still loud, still resets
@@ -565,14 +563,13 @@ def test_launch_with_no_path_shows_home_screen_not_a_document(tmp_path, monkeypa
 
     monkeypatch.setattr(recent_module, "CONFIG_DIR", tmp_path / ".slate")
     monkeypatch.setattr(recent_module, "RECENT_FILE", tmp_path / ".slate" / "recent.json")
-    # Real gap this test tripped over first (Devin, 2026-07-26): unlike
-    # recent_module above, settings.py was never isolated from Devin's
-    # REAL ~/.slate/settings.json here -- harmless while open_tabs was
-    # always empty in practice, but genuinely wrong the moment session
-    # restore (this same day) started branching on its real content:
-    # a real populated open_tabs list on the actual dev machine made
-    # this "no path -> home screen" test silently open real documents
-    # instead, home_frame staying None. Same CONFIG_DIR/*_FILE pair-patch
+    # Unlike recent_module above, settings.py was never isolated from
+    # the real ~/.slate/settings.json here -- harmless while open_tabs
+    # was always empty in practice, but genuinely wrong once session
+    # restore started branching on its real content: a real populated
+    # open_tabs list on an actual dev machine made this "no path ->
+    # home screen" test silently open real documents instead, instead
+    # of home_frame staying None. Same CONFIG_DIR/*_FILE pair-patch
     # pattern as recent_module, just for the module that was missing it.
     monkeypatch.setattr(settings_module, "CONFIG_DIR", tmp_path / ".slate")
     monkeypatch.setattr(settings_module, "SETTINGS_FILE", tmp_path / ".slate" / "settings.json")
@@ -929,19 +926,17 @@ def test_find_next_jumps_to_match_across_pages(tmp_path):
 
 
 def test_search_highlights_use_theme_colors_not_hardcoded_yellow_red(tmp_path):
-    """Real gap found 2026-08-02 investigating Devin's "Slate feels like
-    it has less colors" report: _draw_search_highlights_for_page's
-    outline was hardcoded plain "yellow"/"red", ignoring the active
-    theme entirely -- true in every theme, not just the one Devin
-    compared. First fix used a thin theme-colored OUTLINE -- Devin,
-    live: "use a highlight" (not an outline), "the lavender rectangle
-    for searching looks weak AF." Rebuilt as a real filled translucent
-    overlay (same RGBA-PhotoImage technique _draw_text_selection_for_page
-    already uses): ordinary matches at colors["select_bg"], the CURRENT
-    match at colors["accent2"] PLUS a solid accent2 outline on top for
-    extra emphasis. Checks the actual PhotoImage pixel color (canvas
-    image items have no itemcget("outline") the way a rectangle does),
-    not just the current match's outline rectangle."""
+    """_draw_search_highlights_for_page's outline was hardcoded plain
+    "yellow"/"red", ignoring the active theme entirely -- true in every
+    theme, not just the one where it was noticed. A first fix used a
+    thin theme-colored OUTLINE, but a plain outline read as too weak
+    for search matches. Rebuilt as a filled translucent overlay (same
+    RGBA-PhotoImage technique _draw_text_selection_for_page already
+    uses): ordinary matches at colors["select_bg"], the CURRENT match
+    at colors["accent2"] PLUS a solid accent2 outline on top for extra
+    emphasis. Checks the actual PhotoImage pixel color (canvas image
+    items have no itemcget("outline") the way a rectangle does), not
+    just the current match's outline rectangle."""
     path = str(tmp_path / "search_colors.pdf")
     doc = fitz.open()
     page = doc.new_page()
@@ -1243,10 +1238,10 @@ def _find_tab_right_edge(app, index, y=10):
 
 
 def test_left_click_near_the_close_glyph_closes_that_tab(tmp_path):
-    """Devin, 2026-07-26: "'x' on last document tab doesn't close it" --
-    real root cause was left-click never having any close behavior at
-    all (only middle-click did); this exercises the new left-click
-    close-zone hit-test on a BACKGROUND tab first (simplest case)."""
+    """Clicking the "x" on a document tab didn't close it -- the root
+    cause was left-click never having any close behavior at all (only
+    middle-click did); this exercises the new left-click close-zone
+    hit-test on a BACKGROUND tab first (simplest case)."""
     root, app = _make_app(tmp_path)
     try:
         second_path = str(tmp_path / "second.pdf")
@@ -1291,9 +1286,9 @@ def test_left_click_away_from_close_glyph_just_selects_the_tab(tmp_path):
 
 
 def test_left_click_on_close_glyph_of_the_last_remaining_tab_returns_to_home(tmp_path):
-    """The actual reported bug, end to end: Devin, 2026-07-26 -- "'x'
-    on last document tab doesn't close it and go to home." Confirms
-    the fix at the real interaction layer (left-click), not just at
+    """The actual reported bug, end to end: clicking "x" on the last
+    document tab didn't close it and return to home. Confirms the fix
+    at the real interaction layer (left-click), not just at
     _close_tab_by_index (already covered, and already correct, by
     test_closing_the_last_tab_returns_to_home_screen below -- the gap
     was purely that nothing routed a left-click there)."""
@@ -1596,8 +1591,8 @@ def test_read_page_synthesizes_with_the_bundled_voice_and_handles_playback_for_r
     Real finding: this environment's dev box (WSL2) has zero audio
     devices (confirmed via sd.query_devices()), so playback there
     fails soft with a real PortAudioError message -- but a real
-    Windows machine WITH actual speakers (confirmed live, Devin heard
-    it) synthesizes AND plays successfully, no error at all. Both are
+    Windows machine with actual speakers synthesizes AND plays
+    successfully, no error at all. Both are
     correct outcomes for their respective machines; this test asserts
     whichever one this machine should actually produce."""
     import sounddevice as sd
@@ -1650,9 +1645,9 @@ def test_read_page_offers_to_download_a_non_bundled_voice(tmp_path, monkeypatch)
     root, app = _make_app(tmp_path)
     try:
         # southern_english_female, not alba -- alba is bundled now
-        # (Devin, 2026-07-25: two bundled voices, male+female same
-        # tier), so it's no longer a genuine "not yet downloaded"
-        # example for this test's premise.
+        # (two bundled voices, male+female same tier), so it's no
+        # longer a genuine "not yet downloaded" example for this
+        # test's premise.
         assert tts_module.is_available("southern_english_female") is False
         app.tts_voice.set("southern_english_female")
         app.do_read_page()  # will still fail at the real play() call (no device) -- that's fine
@@ -1685,13 +1680,14 @@ def test_declining_the_download_prompt_does_not_download_or_crash(tmp_path, monk
 
 
 def test_voice_picker_only_offers_bundled_voices(tmp_path):
-    """Devin, 2026-07-29: "remove the other 2 readback voices that need
-    to be downloaded... leave the 2 defaults there." Applies to BOTH
-    real voice-choosing surfaces (the Read Aloud menu's own Voice
-    submenu, and Settings' Voice radio group) -- southern_english_female/
-    danny still exist in tts.VOICES (their preview clips still ship
-    bundled, sampleable from the new Sample Voices dialog) but must not
-    be offered as a pickable default in either picker."""
+    """The 2 non-bundled readback voices that require a download are
+    removed from the normal pickers, leaving just the 2 bundled
+    defaults. Applies to BOTH voice-choosing surfaces (the Read Aloud
+    menu's own Voice submenu, and Settings' Voice radio group) --
+    southern_english_female/danny still exist in tts.VOICES (their
+    preview clips still ship bundled, sampleable from the Sample Voices
+    dialog) but must not be offered as a pickable default in either
+    picker."""
     root, app = _make_app(tmp_path)
     try:
         readm = app.root.nametowidget(app.root.cget("menu"))
@@ -1731,10 +1727,9 @@ def test_voice_picker_only_offers_bundled_voices(tmp_path):
 
 
 def test_sample_voices_dialog_lists_all_four_voices_with_play_buttons(tmp_path):
-    """The sampler is the one place ALL 4 voices stay visible/sampleable
-    (Devin: "leave the 2 defaults there, but make a page that has a
-    sampler with all the voices") -- including the 2 dropped from the
-    normal pickers, since their preview clips ship bundled either way."""
+    """The sampler is the one place ALL 4 voices stay visible/sampleable,
+    including the 2 dropped from the normal pickers, since their
+    preview clips ship bundled either way."""
     root, app = _make_app(tmp_path)
     try:
         app._show_voice_sampler()
@@ -1782,49 +1777,42 @@ def test_sample_voices_dialog_is_a_single_instance(tmp_path):
 
 
 def test_settings_and_about_are_modal_transient_and_topmost(tmp_path):
-    """Devin, 2026-07-29: "settings/about should both be modal and
-    always on top, should be separate windows, they should be within
-    Slate if possible." transient() is the real "within Slate"
-    mechanism (ties a dialog to its real opener rather than acting like
-    an independent top-level app window); grab_set() is real modality
+    """Settings and About are both modal, always-on-top, separate
+    windows, but tied to Slate rather than acting as independent
+    top-level app windows. transient() is the "within Slate" mechanism
+    (ties a dialog to its real opener); grab_set() is real modality
     (grab_status() reports "local" while held, "none" once released);
     -topmost is queried back through Tk's own attributes() call, not
     just assumed to have taken because we set it.
 
-    Updated 2026-07-30 (first pass) -- real bug found live (Devin's
-    hunch, confirmed via grab_current()): Tk's grab_set() is local to
-    the whole APPLICATION, not to one Toplevel, so About unconditionally
-    grabbing blocked every Settings control the moment About was opened
-    FROM INSIDE Settings. First fix: About skipped its own grab whenever
+    First pass had a bug: Tk's grab_set() is local to the whole
+    APPLICATION, not to one Toplevel, so About unconditionally grabbing
+    blocked every Settings control the moment About was opened FROM
+    INSIDE Settings. First fix: About skipped its own grab whenever
     Settings was open.
 
-    Updated again same day -- that first fix left Settings' own
-    pre-existing grab standing, which now blocked ABOUT instead (a
-    separate Toplevel, not a Settings descendant): About opened, looked
-    normal, and simply never received input until Settings' grab was
-    released by closing Settings first -- reported live as "I have to
-    close Settings before I can close About." Grab-handoff fix built
-    for this (Settings releases, About takes it, hands it back on
-    close) -- superseded by the policy below.
+    That first fix left Settings' own pre-existing grab standing, which
+    now blocked ABOUT instead (a separate Toplevel, not a Settings
+    descendant): About opened, looked normal, and simply never received
+    input until Settings' grab was released by closing Settings first.
+    A grab-handoff fix was built for this (Settings releases, About
+    takes it, hands it back on close) -- superseded by the policy below.
 
-    Grab policy REVISED 2026-08-01 (Devin, live, 1st report): "when
-    About opens from Settings, I cannot change colors/settings at all"
-    -- modal About-from-Settings, even with a clean handoff, still
-    meant Settings was frozen the whole time About stayed open. First
-    revision: About stopped grabbing when opened from Settings, left
-    Settings' own pre-existing grab standing.
+    Grab policy REVISED: modal About-from-Settings, even with a clean
+    handoff, still meant Settings was frozen the whole time About
+    stayed open. First revision: About stopped grabbing when opened
+    from Settings, left Settings' own pre-existing grab standing.
 
-    REVISED AGAIN same day (2nd report): that first revision forgot Tk's
-    grab is local to the whole APPLICATION, not just the widget that set
-    it -- Settings' still-active grab silently blocked ABOUT's input
-    instead, reappearing as "I can no longer close About without closing
-    Settings again" (the ORIGINAL 2026-07-30 bug, just flipped back).
-    Real fix: while About is open FROM Settings, NEITHER window holds
-    the grab -- Settings releases its own, About never takes one either,
-    both stay fully interactive at once. Settings' grab is restored the
-    moment About closes. About opened standalone (Help menu, no Settings
-    open) is UNCHANGED -- still real modal against root, matching the
-    original 2026-07-29 ask for that case."""
+    REVISED AGAIN: that first revision forgot Tk's grab is local to the
+    whole APPLICATION, not just the widget that set it -- Settings'
+    still-active grab silently blocked ABOUT's input instead,
+    reproducing the original bug, just flipped back. Real fix: while
+    About is open FROM Settings, NEITHER window holds the grab --
+    Settings releases its own, About never takes one either, both stay
+    fully interactive at once. Settings' grab is restored the moment
+    About closes. About opened standalone (Help menu, no Settings open)
+    is UNCHANGED -- still real modal against root, matching the
+    original ask for that case."""
     root, app = _make_app(tmp_path)
     try:
         app._show_settings()
@@ -1875,8 +1863,8 @@ def test_settings_and_about_are_modal_transient_and_topmost(tmp_path):
 
 
 def test_theme_switch_refreshes_native_titlebar_for_every_open_dialog(tmp_path):
-    """Real bug (Devin, 2026-07-29, live screenshot): Settings/About's
-    own native OS titlebar never picked up dark mode at all --
+    """Settings/About's own native OS titlebar never picked up dark
+    mode at all --
     _apply_native_titlebar_theme only ever targeted self.root. Content
     colors were already correct (a separate, already-fixed bug), which
     is exactly why this one was easy to miss. Fixed generically via
@@ -1918,11 +1906,11 @@ def test_theme_switch_refreshes_native_titlebar_for_every_open_dialog(tmp_path):
 
 
 def test_dialog_border_is_theme_tinted_and_updates_live(tmp_path):
-    """Devin, 2026-08-02: "i want to capture that same look" (webUI's
-    Bonepaper Dark, using a translucent version of its own accent for
-    every border) -- Settings/About/Sample Voices all used ONE fixed
-    universal gray (#6b6b6b) for their visible border, regardless of
-    theme. Real regression test: the border must actually be
+    """To match webUI's Bonepaper Dark look (a translucent version of
+    its own accent for every border), Settings/About/Sample Voices all
+    used ONE fixed universal gray (#6b6b6b) for their visible border,
+    regardless of theme. Real regression test: the border must actually
+    be
     colors["dialog_border"] (a real fg-toward-select_bg blend, see
     theme.py's own comment for why fg-anchored not bg-anchored), must
     differ between two themes with different accents, and must update
@@ -2110,11 +2098,11 @@ def test_advance_stops_cleanly_at_the_end_of_the_document(tmp_path):
 
 
 def test_changing_voice_restarts_the_current_page_when_something_is_already_loaded(tmp_path, monkeypatch):
-    """Real bug fixed (Devin, 2026-07-25: "changing voices mid-read is
-    not working"): the Voice menu's radiobuttons had no command
-    callback at all, so selecting a different voice never applied
-    until some unrelated independent trigger. With audio already
-    loaded, selecting a voice must restart the current page fresh."""
+    """Changing voices mid-read was not working: the Voice menu's
+    radiobuttons had no command callback at all, so selecting a
+    different voice never applied until some unrelated independent
+    trigger. With audio already loaded, selecting a voice must restart
+    the current page fresh."""
     root, app = _make_app(tmp_path)
     try:
         called = []
@@ -2157,9 +2145,8 @@ def test_pause_resume_and_stop_do_not_raise_with_nothing_loaded(tmp_path):
 
 
 def test_toolbar_has_real_tts_play_and_stop_buttons(tmp_path):
-    """Devin, 2026-07-25: "easier 'audio readback' controls, preferably
-    also available on the main toolbar" -- previously only reachable
-    via the Read Aloud menu."""
+    """Easier audio readback controls, available on the main toolbar --
+    previously only reachable via the Read Aloud menu."""
     root, app = _make_app(tmp_path)
     try:
         assert app.tts_play_button.winfo_ismapped()
@@ -2231,9 +2218,9 @@ def test_tts_toolbar_button_glyph_reflects_playback_state(tmp_path):
 
 
 def test_tts_status_text_shows_voice_and_speed_only_while_loaded(tmp_path):
-    """Devin, 2026-07-25: "is there a way to tell what is the current
-    voice/speed is on readback?" -- real, minimal answer, empty when
-    nothing's loaded so it doesn't clutter the toolbar otherwise."""
+    """Shows the current voice/speed while readback is active -- a
+    minimal answer, empty when nothing's loaded so it doesn't clutter
+    the toolbar otherwise."""
     root, app = _make_app(tmp_path)
     try:
         assert app._tts_status_text() == ""
@@ -2258,16 +2245,15 @@ def test_tts_status_text_shows_voice_and_speed_only_while_loaded(tmp_path):
 
 
 def test_tts_highlight_estimates_position_from_playback_progress(tmp_path):
-    """Real follow-along highlight (Devin, 2026-07-25, same message as
-    the status-text ask) -- estimated from Player.progress against the
-    page's own word list (no per-word timing data exists to do this
+    """Real follow-along highlight, estimated from Player.progress
+    against the page's own word list (no per-word timing data exists to do this
     exactly, an honest, documented approximation). At progress 0.0 the
     highlight should sit on the page's first word."""
     root, app = _make_app(tmp_path)  # basic3page.pdf -- real text, page 1: "Slate fixture page 1"
     try:
         app._tts_reading_page = app.page
         app._tts_reading_page_num = app.viewer.page_num
-        app._tts_reading_words = app.page.get_text("words")  # real word list, see 2026-07-26 highlight-alignment fix
+        app._tts_reading_words = app.page.get_text("words")  # real word list
         app.tts_player.load(b"\x00\x00" * 200, 22050, 1)  # has_audio() True, progress 0.0
 
         app._update_tts_highlight()
@@ -2284,18 +2270,17 @@ def test_tts_highlight_estimates_position_from_playback_progress(tmp_path):
 
 
 def test_tts_highlight_is_one_merged_box_spanning_same_line_words(tmp_path):
-    """Devin, 2026-07-25, real live feedback: "it also looks
-    weird...rasterized or something, not a natural 'highlight'" --
-    the earlier version drew a SEPARATE stippled rectangle per word
-    (2-3 of them), which visibly fragmented and could jump to a
-    disconnected box on the next line mid-window. Real fix: exactly
-    ONE rectangle, merged across every word sharing the anchor's line
-    (basic3page.pdf's page 1 is a real single line: "Slate fixture
-    page 1", all 4 words, block_no=0/line_no=0).
+    """The follow-along highlight used to look wrong -- rasterized, not
+    a natural "highlight" -- because the earlier version drew a
+    SEPARATE stippled rectangle per word (2-3 of them), which visibly
+    fragmented and could jump to a disconnected box on the next line
+    mid-window. Fix: exactly ONE rectangle, merged across every word
+    sharing the anchor's line (basic3page.pdf's page 1 is a real single
+    line: "Slate fixture page 1", all 4 words, block_no=0/line_no=0).
 
     Anchored near the END of the line (progress near 1.0), not the
-    start -- the highlight window became TRAILING (2026-07-26, "TTS
-    indicator too fast" fix: it used to look 5 words AHEAD of the
+    start -- the highlight window became TRAILING (a fix for the
+    indicator running too fast: it used to look 5 words AHEAD of the
     estimate, which visibly read unspoken text). At progress 0.0 a
     trailing window correctly shows just the FIRST word (nothing has
     been read yet, so there's nothing earlier to merge with) -- that's
@@ -2306,7 +2291,7 @@ def test_tts_highlight_is_one_merged_box_spanning_same_line_words(tmp_path):
     try:
         app._tts_reading_page = app.page
         app._tts_reading_page_num = app.viewer.page_num
-        app._tts_reading_words = app.page.get_text("words")  # real word list, see 2026-07-26 highlight-alignment fix
+        app._tts_reading_words = app.page.get_text("words")  # real word list
         app.tts_player.load(b"\x00\x00" * 200, 22050, 1)
         app.tts_player._position = 199  # progress ~1.0 -- anchors on "1", the last word
 
@@ -2342,7 +2327,7 @@ def test_tts_highlight_clears_when_the_read_page_scrolls_out_of_view(tmp_path):
     try:
         app._tts_reading_page = app.page
         app._tts_reading_page_num = app.viewer.page_num
-        app._tts_reading_words = app.page.get_text("words")  # real word list, see 2026-07-26 highlight-alignment fix
+        app._tts_reading_words = app.page.get_text("words")  # real word list
         app.tts_player.load(b"\x00\x00" * 200, 22050, 1)
         app._update_tts_highlight()
         assert len(app.canvas.find_withtag("tts_highlight")) > 0
@@ -2362,8 +2347,8 @@ def _all_descendants(widget):
 
 
 def test_about_dialog_shows_real_version_and_summary(tmp_path):
-    """Real fix, 2026-07-25: the version Label moved one level deeper
-    (top -> header -> Label) when the icon was added alongside the
+    """The version Label moved one level deeper (top -> header -> Label)
+    when the icon was added alongside the
     title -- searches all descendants now, not just direct children,
     so this doesn't re-break on the next layout tweak either."""
     root, app = _make_app(tmp_path)
@@ -2388,10 +2373,9 @@ def test_about_dialog_shows_real_version_and_summary(tmp_path):
 
 
 def test_about_dialog_shows_the_author(tmp_path):
-    """Real gap Devin caught live: the About dialog showed version/
-    summary but never actually credited an author anywhere the app
-    itself surfaces (only README.md had it, invisible while just
-    running the app)."""
+    """The About dialog showed version/summary but never actually
+    credited an author anywhere the app itself surfaces (only
+    README.md had it, invisible while just running the app)."""
     root, app = _make_app(tmp_path)
     try:
         app._show_about()
@@ -2467,28 +2451,27 @@ def test_mouse_wheel_navigates_pages_both_platform_styles(tmp_path):
 
 
 def test_view_mode_drag_selects_text_not_a_rectangle(tmp_path):
-    """Default interaction (Devin, 2026-07-25: "default to arrow/select
-    text over rectangle select") -- a click-drag in the default "view"
-    mode selects real text, it does NOT create a redaction mark or
-    leave a stray drag-rectangle behind. basic3page.pdf page 1's real
-    text: "Slate fixture page 1".
+    """Default interaction: a click-drag in the default "view" mode
+    selects real text, it does NOT create a redaction mark or leave a
+    stray drag-rectangle behind. basic3page.pdf page 1's real text:
+    "Slate fixture page 1".
 
-    Real, continuous text-FLOW selection (Devin, 2026-07-26: "mouse
-    down should be point of highlight start... continuous highlight
-    like you'd expect a highlight tool to do") -- selects every word
-    in READING ORDER between the drag's anchor (mouse-down) and
-    current cursor position, not just words whose bbox literally
-    overlaps the drag rectangle. This specific drag's endpoint lands
-    closer to "page" than to "fixture" in PDF space, so "page" is
-    correctly included even though the old rect-intersection version
-    stopped at "fixture" -- confirmed against the real live app."""
+    Real, continuous text-FLOW selection: mouse-down is the point of
+    highlight start, producing a continuous highlight the way a
+    highlight tool should -- selects every word in READING ORDER
+    between the drag's anchor (mouse-down) and current cursor position,
+    not just words whose bbox literally overlaps the drag rectangle.
+    This specific drag's endpoint lands closer to "page" than to
+    "fixture" in PDF space, so "page" is correctly included even though
+    the old rect-intersection version stopped at "fixture" -- confirmed
+    against the real live app."""
     root, app = _make_app(tmp_path)
     try:
         assert app.mode == "view"  # the actual default, confirmed
         z = app.viewer.zoom
         _drag(app, int(70 * z), int(55 * z), int(148 * z), int(78 * z))
-        # self._selected_words is (page_num, word) pairs now (Devin,
-        # 2026-07-26: cross-page selection) -- unpack accordingly.
+        # self._selected_words is (page_num, word) pairs now (supports
+        # cross-page selection) -- unpack accordingly.
         selected = [w[4] for _pn, w in app._selected_words]
         assert selected == ["Slate", "fixture", "page"]
         assert app._selected_text() == "Slate fixture page"
@@ -2570,9 +2553,9 @@ def test_redact_mode_drag_still_marks_a_rectangle_not_text(tmp_path):
 
 
 def test_toc_panel_toggles_off_then_on_again_stays_left_of_canvas(tmp_path):
-    """Real correctness point for the PanedWindow conversion (Devin,
-    2026-07-25: "TOC should be drag resizeable too please") --
-    PanedWindow.add() appends to the END by default, so re-showing the
+    """Real correctness point for the PanedWindow conversion (needed to
+    make the TOC drag-resizeable) -- PanedWindow.add() appends to the
+    END by default, so re-showing the
     TOC after hiding it would land it AFTER (right of) the canvas pane
     without the explicit before=self.canvas fix in _toggle_toc_panel."""
     root, app = _make_app(tmp_path)
@@ -2616,8 +2599,7 @@ def test_window_icon_ico_generated_from_the_chosen_branding_png(tmp_path):
 
 
 def test_scrollregion_is_set_to_the_rendered_page_size(tmp_path):
-    """Real gap Devin caught, 2026-07-25 ("and a h/v scrollbar"): a
-    zoomed-in page previously had no scrollregion at all -- it just
+    """A zoomed-in page previously had no scrollregion at all -- it just
     silently clipped past the visible canvas with no way to reach the
     rest. render() must always set one to the actual image size."""
     root, app = _make_app(tmp_path)
@@ -2668,7 +2650,7 @@ def test_drag_selection_accounts_for_scroll_offset(tmp_path):
         vx1, vy1 = int(148 * z - offset_x), int(78 * z - offset_y)
         _drag(app, vx0, vy0, vx1, vy1)
 
-        selected = [w[4] for _pn, w in app._selected_words]  # (page_num, word) pairs, see 2026-07-26 cross-page selection
+        selected = [w[4] for _pn, w in app._selected_words]  # (page_num, word) pairs -- supports cross-page selection
         assert selected == ["Slate", "fixture", "page"]
     finally:
         app.doc.close()
@@ -2676,9 +2658,9 @@ def test_drag_selection_accounts_for_scroll_offset(tmp_path):
 
 
 def test_page_entry_box_reflects_current_page_and_total(tmp_path):
-    """Foxit/Acrobat-style centered page box (Devin, 2026-07-25: "move
-    the current page / total page UI element to the top-center...
-    mimic Foxit's UI"). basic3page.pdf has 3 pages."""
+    """Foxit/Acrobat-style centered page box: the current page / total
+    page UI element sits top-center, mimicking Foxit's UI.
+    basic3page.pdf has 3 pages."""
     root, app = _make_app(tmp_path)
     try:
         assert app.page_entry_var.get() == "1"
@@ -2734,7 +2716,8 @@ def test_non_numeric_page_entry_reverts_without_crashing(tmp_path):
 
 
 def test_ctrl_w_closes_the_active_tab(tmp_path):
-    """Devin, 2026-07-25: "ctrl+w close tab (and other CUA keybinds)"."""
+    """Ctrl+W closes the active tab, one of several standard CUA
+    keybinds."""
     root, app = _make_app(tmp_path)
     try:
         second_path = str(tmp_path / "second.pdf")
@@ -2904,7 +2887,7 @@ def test_startup_check_prompts_when_update_is_real(tmp_path, monkeypatch):
 
 
 def test_ctrl_scroll_zooms_instead_of_navigating_pages(tmp_path):
-    """Devin, 2026-07-25: "Ctrl+scroll = zoom in/out"."""
+    """Ctrl+scroll zooms in/out instead of navigating pages."""
     root, app = _make_app(tmp_path)
     try:
         z0 = app.viewer.zoom
@@ -2922,8 +2905,8 @@ def test_ctrl_scroll_zooms_instead_of_navigating_pages(tmp_path):
 
 
 def test_middle_click_drag_pans_the_document(tmp_path):
-    """Devin, 2026-07-26: "middle click/drag should pan the document" --
-    same convention as most PDF viewers/image editors. Tk's canvas.scan_mark/
+    """Middle click/drag pans the document, the same convention as most
+    PDF viewers/image editors. Tk's canvas.scan_mark/
     scan_dragto is the built-in idiom; real check that a scroll fraction
     actually changes, not just that the calls don't raise."""
     root, app = _make_app(tmp_path)
@@ -2963,9 +2946,9 @@ def test_pan_cursor_shows_fleur_while_dragging_and_restores_after(tmp_path):
 
 
 def test_middle_click_without_drag_starts_autoscroll(tmp_path):
-    """Devin, 2026-07-26: "extend the middle click pan to a middle
-    click 'scroll'" -- browser-style click-to-autoscroll, distinct
-    from the drag-to-pan above. A plain click (press+release at
+    """Extends the middle click pan to a middle click "scroll" --
+    browser-style click-to-autoscroll, distinct from the drag-to-pan
+    above. A plain click (press+release at
     essentially the same point) toggles it on."""
     root, app = _make_app(tmp_path)
     try:
@@ -3061,10 +3044,9 @@ def test_autoscroll_tick_scrolls_toward_cursor_drift_and_not_within_the_deadzone
 
 
 def test_autoscroll_cursor_reflects_the_dominant_drift_axis(tmp_path):
-    """Devin, 2026-07-26: "change the 'scroll' cursor to an up/down
-    arrow or left/right arrow for those autoscrolling times" -- the
-    cursor now follows whichever axis is actually dominant each tick,
-    not a fixed fleur the whole time."""
+    """The "scroll" cursor changes to an up/down arrow or left/right
+    arrow while autoscrolling -- the cursor now follows whichever axis
+    is actually dominant each tick, not a fixed fleur the whole time."""
     root, app = _make_app(tmp_path)
     try:
         app._on_pan_press(_FakeEvent(50, 50))
@@ -3092,9 +3074,9 @@ def test_autoscroll_cursor_reflects_the_dominant_drift_axis(tmp_path):
 
 
 def test_cursor_matches_the_active_interaction_mode(tmp_path):
-    """Devin, 2026-07-26: "please use better cursors" -- a drag-to-mark
-    tool (redact) gets crosshair, a click-a-spot tool (forms) gets a
-    pointer hand, plain reading (view) keeps the text I-beam."""
+    """Cursors match the active interaction mode: a drag-to-mark tool
+    (redact) gets crosshair, a click-a-spot tool (forms) gets a pointer
+    hand, plain reading (view) keeps the text I-beam."""
     root, app = _make_app(tmp_path)
     try:
         app._set_mode("view")
@@ -3114,9 +3096,9 @@ def test_cursor_matches_the_active_interaction_mode(tmp_path):
 
 
 def test_chrome_cascade_colors_menubar_tabstrip_toolbar_as_three_real_steps(tmp_path):
-    """Devin, 2026-07-25: "make menu bar cascade down in color from
-    window bar down to tabs, to toolbar making it aesthetic." Real
-    regression guard that the actual running widgets get the actual
+    """The menu bar cascades down in color from window bar to tabs to
+    toolbar for an aesthetic gradient. Real regression guard that the
+    actual running widgets get the actual
     three cascade steps -- menubar=menubar_bg, tabstrip (ttk Notebook's
     own background)=tabstrip_bg, toolbar+scrollbars=toolbar_bg -- not
     just that theme.py's data shape is right (test_theme.py already
@@ -3140,13 +3122,13 @@ def test_chrome_cascade_colors_menubar_tabstrip_toolbar_as_three_real_steps(tmp_
 
 
 def test_active_tab_gets_a_subtle_accent_tint_not_a_full_fill(tmp_path):
-    """Devin, 2026-07-25: "remove the sepia from the tabs... come up
-    with a better, more creative solution" -- the ORIGINAL fix (this
-    test used to guard) dropped color from tabs entirely, distinguishing
-    active/inactive by brightness alone. Revisited 2026-07-31, a fresh
-    ask, not a reversal of the old complaint: "can we also use clever
-    hints of green for our active tabs in all themes of Slate plz?"
-    Real regression guard for the new design: inactive tabs are
+    """The original tab design used a flat sepia fill for the active
+    tab, which read poorly; the ORIGINAL fix (this test used to guard)
+    dropped color from tabs entirely, distinguishing active/inactive by
+    brightness alone. Revisited later, a fresh ask, not a reversal of
+    the old complaint: active tabs should carry a subtle hint of the
+    theme's accent color. Real regression guard for the new design:
+    inactive tabs are
     unchanged (button_bg/muted_fg, no accent at all); the active tab
     uses active_tab_bg (theme.py's own chrome-cascade addition, 35%
     toward select_bg from button_bg) -- a real, visible step toward the
@@ -3195,7 +3177,7 @@ def test_mode_label_survives_the_chrome_theming_pass(tmp_path):
 
 
 def test_toc_panel_is_visible_by_default_on_document_open(tmp_path):
-    """Devin, 2026-07-25: "default TOC view = true.\""""
+    """The TOC panel defaults to visible when a document opens."""
     root, app = _make_app(tmp_path)
     try:
         assert app.toc_visible.get() is True
@@ -3207,8 +3189,7 @@ def test_toc_panel_is_visible_by_default_on_document_open(tmp_path):
 
 
 def test_home_screen_matches_the_active_theme(tmp_path, monkeypatch):
-    """Real bug caught live (Devin's screenshot, 2026-07-25): the home
-    screen never themed itself at all -- __init__ calls _apply_theme()
+    """The home screen never themed itself at all -- __init__ calls _apply_theme()
     BEFORE _show_home_screen() ever builds home_frame, so it always
     rendered plain default Tk light styling regardless of the active
     theme. Covers both real call sites: fresh launch with no path, and
@@ -3240,8 +3221,8 @@ def test_home_screen_matches_the_active_theme(tmp_path, monkeypatch):
 
 
 def test_f12_opens_settings_from_the_home_screen(tmp_path, monkeypatch):
-    """Real bug (Devin, 2026-07-29): "F12 doesn't work on homepage."
-    Root cause -- the F12 binding lived only inside
+    """F12 didn't work on the home screen. Root cause -- the F12
+    binding lived only inside
     _ensure_doc_view_widgets(), which early-returns after its first
     call and only ever runs once a document has been opened at least
     once. A fresh launch sitting on the home screen never registered
@@ -3270,9 +3251,9 @@ def test_f12_opens_settings_from_the_home_screen(tmp_path, monkeypatch):
 
 
 def test_ui_font_scale_grows_the_shared_named_fonts_and_persists(tmp_path, monkeypatch):
-    """Devin, 2026-07-29: "the font needs to be adjustable for the UI,
-    not just the page... pretty small rn." Real mechanism: Slate
-    reconfigures Tk's own shared named fonts (TkDefaultFont etc.), not a
+    """The UI font needed to be adjustable, not just the page's own
+    zoom. Real mechanism: Slate reconfigures Tk's own shared named
+    fonts (TkDefaultFont etc.), not a
     per-widget walk -- this confirms the delta actually reaches the real
     font objects, that the ORIGINAL platform-native size is preserved as
     a floor (not a hardcoded magic number), and that the choice
@@ -3331,10 +3312,10 @@ def test_ui_font_scale_survives_relaunch(tmp_path, monkeypatch):
 
 
 def test_toc_selected_row_uses_theme_highlight_not_ttks_default_blue(tmp_path):
-    """Real bug caught live (Devin, 2026-07-25: "the highlight in TOC
-    is blue, i want that to be inkbone green") -- Treeview's selected-
-    row color was never explicitly styled at all, riding ttk's own
-    'clam' theme built-in default regardless of Slate's actual palette."""
+    """The TOC's selected-row highlight rode ttk's own 'clam' theme
+    default blue instead of the active theme's own accent -- Treeview's
+    selected-row color was never explicitly styled at all, regardless
+    of Slate's actual palette."""
     root, app = _make_app(tmp_path)
     try:
         app.theme_name.set("bonepaper_dark")
@@ -3349,17 +3330,17 @@ def test_toc_selected_row_uses_theme_highlight_not_ttks_default_blue(tmp_path):
 
 
 def test_about_dialog_has_a_fixed_green_accent_regardless_of_theme(tmp_path, monkeypatch):
-    """Devin, 2026-07-25: "please add a permanent, clever hint of
-    inkbone green on the about page please" -- must stay green even
-    under a non-green theme (Slate Dark's real accent is moss,
-    #699d43, not the fixed #62a945 accent bar checked here).
+    """A permanent, clever hint of house green is present on the about
+    page and must stay green even under a non-green theme (Slate Dark's
+    real accent is moss, #699d43, not the fixed #62a945 accent bar
+    checked here).
 
-    Split into two halves 2026-08-01 (Devin: "I meant add it naturally/
-    clever someplace (even the line between Slate and the about
-    text)") -- left half stays this fixed house green (real assertion
-    here, now nested one level deeper in accent_bar_row), right half
-    shows the live theme accent instead of a separate labeled swatch
-    (see test_about_dialog_shows_the_live_theme_accent_color below)."""
+    Later split into two halves so the green hint reads as a natural
+    part of the layout rather than a separate labeled swatch -- left
+    half stays this fixed house green (real assertion here, now nested
+    one level deeper in accent_bar_row), right half shows the live
+    theme accent instead (see
+    test_about_dialog_shows_the_live_theme_accent_color below)."""
     monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
     root, app = _make_app(tmp_path)
     try:
@@ -3384,14 +3365,13 @@ def test_about_dialog_has_a_fixed_green_accent_regardless_of_theme(tmp_path, mon
 
 
 def test_about_dialog_shows_the_live_theme_accent_color(tmp_path, monkeypatch):
-    """Devin, 2026-08-01: "I want about to have theme's accent color
-    displayed" -- then, revising an earlier separate labeled-swatch
-    build: "I meant add it naturally/clever someplace (even the line
-    between Slate and the about text)." Real regression test for the
-    live half of that split line: shows the ACTIVE theme's own
-    select_bg, not the fixed house green, and updates if the theme
-    changes while About stays open (real now that About-from-Settings
-    is non-modal -- see the grab-policy tests)."""
+    """The About dialog displays the active theme's accent color,
+    added naturally into the layout rather than as a separate labeled
+    swatch. Real regression test for the live half of that split line:
+    shows the ACTIVE theme's own select_bg, not the fixed house green,
+    and updates if the theme changes while About stays open (real now
+    that About-from-Settings is non-modal -- see the grab-policy
+    tests)."""
     monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
     root, app = _make_app(tmp_path)
     try:
@@ -3424,8 +3404,8 @@ def test_about_dialog_shows_the_live_theme_accent_color(tmp_path, monkeypatch):
 
 
 def test_f2_opens_command_palette_listing_all_themes(tmp_path):
-    """Devin, 2026-07-25: "is there an easier way for me to change the
-    theme please? f2 command palette or something?\""""
+    """F2 opens a command palette listing all themes, an easier way to
+    change themes than digging through Settings."""
     root, app = _make_app(tmp_path)
     try:
         app._show_command_palette()
@@ -3475,10 +3455,10 @@ def test_selecting_a_theme_in_command_palette_applies_it_and_closes(tmp_path):
 
 
 def test_page_box_prev_next_mini_buttons_navigate(tmp_path):
-    """Devin, 2026-07-25: "easier to change pages, not just text box
-    (which i still like the input to go straight a page number)" --
-    real click-path buttons alongside the entry, typed-number-jump
-    behavior untouched."""
+    """Mini prev/next buttons make it easier to change pages, alongside
+    the existing page-number entry box (which still jumps straight to
+    a typed page number) -- real click-path buttons alongside the
+    entry, typed-number-jump behavior untouched."""
     root, app = _make_app(tmp_path)
     try:
         buttons = [
@@ -3507,9 +3487,9 @@ def test_page_box_prev_next_mini_buttons_navigate(tmp_path):
 
 
 def test_wheel_page_turns_when_page_fits_viewport(tmp_path):
-    """Fable design review, 2026-07-25: the rubber-band wheel must
-    collapse to TODAY's exact unconditional-page-turn behavior when
-    the page already fits the viewport -- real regression guard, not
+    """The rubber-band wheel must collapse to the exact unconditional-
+    page-turn behavior that existed before it when the page already
+    fits the viewport -- real regression guard, not
     just a new-feature test. Default canvas sizing (render() always
     sets canvas width/height to exactly match the image) already IS
     this case, so no viewport-forcing needed here."""
@@ -3529,8 +3509,7 @@ def test_wheel_page_turns_when_page_fits_viewport(tmp_path):
 
 
 def _force_single_mode(app, root):
-    """view_mode defaults to "continuous" now (Devin, 2026-07-25:
-    "default to 'continuous scroll' please"), superseding Slice 2's
+    """view_mode defaults to "continuous" now, superseding Slice 2's
     original "single" default -- tests that deliberately exercise
     single-page-mode-specific behavior (scrollregion == exactly one
     page, wheel's unconditional page-turn, _page_offset always (0,0))
@@ -3569,8 +3548,8 @@ def _force_page_taller_than_viewport(app, root):
 
 
 def test_wheel_scrolls_within_page_before_turning_when_zoomed_past_viewport(tmp_path):
-    """Fable design review, 2026-07-25: real scroll once the page is
-    taller than the viewport, page-turn only at the scroll edge."""
+    """Real scroll once the page is taller than the viewport, page-turn
+    only at the scroll edge."""
     root, app = _make_app(tmp_path)
     try:
         _force_single_mode(app, root)
@@ -3604,7 +3583,7 @@ def test_wheel_down_turns_page_at_the_bottom_edge_landing_at_top(tmp_path):
 
 
 def test_wheel_up_turns_page_at_the_top_edge_landing_at_bottom(tmp_path):
-    """The one asymmetric case in Fable's design: a wheel-driven
+    """The one asymmetric case in this design: a wheel-driven
     prev-page arrives from below and should land at the new page's
     BOTTOM, not top (every other prev-page trigger -- keyboard/j/
     PageUp/TOC -- keeps landing top-left, unchanged)."""
@@ -3625,8 +3604,8 @@ def test_wheel_up_turns_page_at_the_top_edge_landing_at_bottom(tmp_path):
 
 
 def test_button_4_5_route_through_the_same_wheel_dispatch_as_mousewheel(tmp_path):
-    """Real X11/Windows parity gap Fable flagged, 2026-07-25: Button-4/5
-    used to bypass _on_mouse_wheel entirely and call page-nav directly
+    """Real X11/Windows parity gap: Button-4/5 used to bypass
+    _on_mouse_wheel entirely and call page-nav directly
     -- harmless only because both paths did the same unconditional
     thing. Now both real bindings must resolve to the rubber-band
     dispatch methods (_wheel_up/_wheel_down), not the old direct
@@ -3659,14 +3638,13 @@ def test_button_4_5_route_through_the_same_wheel_dispatch_as_mousewheel(tmp_path
 
 
 # ------------------------------------------------------------------
-# Slice 2: continuous-scroll view mode (Fable design review, 2026-07-25)
+# Slice 2: continuous-scroll view mode
 # ------------------------------------------------------------------
 
 def test_continuous_mode_renders_every_page_in_one_scrollable_canvas(tmp_path):
-    """Smallest real continuous-scroll slice per Fable's design review:
-    vertical stack only (no side-by-side yet), scrollregion covers the
-    whole stack. Rendering itself is windowed (Slice 3 perf fix,
-    Fable design review) -- only pages within one screenful of the
+    """Smallest real continuous-scroll slice: vertical stack only (no
+    side-by-side yet), scrollregion covers the whole stack. Rendering
+    itself is windowed (Slice 3 perf fix) -- only pages within one screenful of the
     viewport get a real PhotoImage; page 0 (on screen) is always real,
     a doc long enough that not everything fits is expected to have
     real placeholders too (this fixture's real per-run geometry
@@ -3718,8 +3696,8 @@ def test_page_offset_is_always_zero_for_the_displayed_page_in_single_page_mode(t
 
 
 def test_continuous_mode_redact_drag_lands_on_the_clicked_page_not_page_zero(tmp_path):
-    """Real latent bug Fable flagged in design review: redactions used
-    to record against self.viewer.page_num unconditionally -- invisible
+    """Redactions used to record against self.viewer.page_num
+    unconditionally -- invisible
     in single-page mode (always the same page), real the instant a
     drag can land on any visible page. A drag near page 2's own
     top-left corner must resolve to page 1 (0-indexed) with PDF-space
@@ -3769,8 +3747,7 @@ def test_continuous_mode_click_in_the_gap_between_pages_is_a_safe_no_op(tmp_path
 
 
 def test_continuous_mode_next_prev_scroll_to_the_real_page_position(tmp_path):
-    """Real bug caught live building this slice: render()'s own
-    geometry-settling update_idletasks() fired the scroll-sync
+    """render()'s own geometry-settling update_idletasks() fired the scroll-sync
     callback with the STALE pre-navigation scroll position, clobbering
     viewer.page_num right back to the old page before next()'s own
     _scroll_to_page() call ever ran. Fixed with a suppression guard
@@ -3800,8 +3777,8 @@ def test_continuous_mode_next_prev_scroll_to_the_real_page_position(tmp_path):
 
 
 def test_continuous_mode_wheel_is_real_scroll_with_no_page_turn_concept(tmp_path):
-    """Fable design review: page boundaries are a soft concept once
-    every page is stacked in one scrollable canvas -- wheel is just
+    """Page boundaries are a soft concept once every page is stacked
+    in one scrollable canvas -- wheel is just
     real scroll (or a no-op at the very top/bottom), no edge-landing
     logic, no page-turn branch."""
     root, app = _make_app(tmp_path)
@@ -3836,9 +3813,8 @@ def test_continuous_mode_wheel_is_real_scroll_with_no_page_turn_concept(tmp_path
 def test_continuous_mode_sync_page_num_tracks_organic_scroll(tmp_path):
     """The page-number box must track whatever page is at the
     viewport's top edge during real (scrollbar-drag-style) scrolling,
-    not just programmatic navigation -- Devin: "Devin will notice
-    immediately if this is missing." Real gap found live building this
-    slice: yscrollcommand does NOT reliably fire on a plain
+    not just programmatic navigation -- an easily-noticed gap if
+    missing. Real gap: yscrollcommand does NOT reliably fire on a plain
     yview_moveto() in this headless test harness (confirmed: manually
     invoking the sync function works fine, so the sync logic itself
     was never the bug -- the callback trigger was), so the real
@@ -3888,8 +3864,8 @@ def test_toc_select_scrolls_to_real_page_position_in_continuous_mode(tmp_path):
 
 
 # ------------------------------------------------------------------
-# Slice 3: windowed continuous-scroll rendering (Fable design review,
-# 2026-07-25, after Devin hit a real lockup on PageUp/PageDown)
+# Slice 3: windowed continuous-scroll rendering (added after a real
+# lockup was hit on PageUp/PageDown)
 # ------------------------------------------------------------------
 
 def _make_large_doc(tmp_path, page_count=60):
@@ -3929,8 +3905,8 @@ def test_scrolling_shifts_the_window_evicting_far_pages_lazily_filling_near_ones
     """_shift_window's whole job: scrolling deep into a long document
     must evict pages that scrolled far away (real memory bound) and
     lazily render pages newly entering the window -- without a full
-    canvas.delete('all') rebuild (Fable design review: pure-scroll
-    updates only touch the window boundary's own diff)."""
+    canvas.delete('all') rebuild (pure-scroll updates only touch the
+    window boundary's own diff)."""
     root, app = _make_app(tmp_path, fixture=_make_large_doc(tmp_path))
     try:
         app.continuous_scroll_var.set(True)
@@ -3991,15 +3967,14 @@ def test_theme_change_invalidates_the_whole_page_cache(tmp_path):
 
 
 # ------------------------------------------------------------------
-# Slice 4: side-by-side view (Fable design review, 2026-07-25) --
-# an independent checkbox combinable with continuous scroll, not a
-# third radio option (Devin: "side by side option (both can be turned
-# on, checkbox in menu)").
+# Slice 4: side-by-side view -- an independent checkbox combinable
+# with continuous scroll, not a third radio option, so both can be
+# turned on at once.
 # ------------------------------------------------------------------
 
 def test_fit_width_divides_viewport_across_columns_in_side_by_side(tmp_path):
-    """Real bug (Devin, 2026-07-29: "'fit width' should center bookview,
-    not the left half of bookview"): fit_width() always fit ONE page's
+    """"Fit width" should center bookview, not the left half of
+    bookview: fit_width() always fit ONE page's
     width to the FULL viewport, ignoring side_by_side -- in Book View
     (2 columns) that zoomed the spread to twice the width that actually
     fits, so only the left page's left portion showed without
@@ -4037,8 +4012,8 @@ def test_fit_width_divides_viewport_across_columns_in_side_by_side(tmp_path):
 
 
 def test_fit_width_uses_the_cropped_content_width_not_the_full_page(tmp_path):
-    """Real bug (Devin, 2026-07-29: "crop to content doesn't seem to do
-    anything"). Root cause: viewer.fit_width() always measured the
+    """Crop to content didn't seem to do anything. Root cause:
+    viewer.fit_width() always measured the
     page's FULL native width, even with crop_to_content on -- so Fit
     Width (including Book View's own auto-fit-on-toggle) kept sizing
     zoom to the uncropped page, and the margin space crop is supposed to
@@ -4072,9 +4047,9 @@ def test_fit_width_uses_the_cropped_content_width_not_the_full_page(tmp_path):
 
 
 def test_side_by_side_static_shows_two_pages_with_no_scroll_needed(tmp_path):
-    """Devin's own framing: "a spread fits the viewport by definition
-    at normal zoom" -- side-by-side alone (continuous_scroll off) is a
-    static two-page row, canvas sized exactly to it, no scrollbar."""
+    """A spread fits the viewport by definition at normal zoom --
+    side-by-side alone (continuous_scroll off) is a static two-page
+    row, canvas sized exactly to it, no scrollbar."""
     root, app = _make_app(tmp_path)  # basic3page.pdf -- 3 pages
     try:
         app.continuous_scroll_var.set(False)
@@ -4178,8 +4153,8 @@ def test_side_by_side_deep_page_still_resolves_clicks_at_row_origin(tmp_path):
 
 
 def test_crop_to_content_shrinks_the_rendered_page_and_layout_geometry(tmp_path):
-    """Devin, 2026-07-29: "build the crop feature... don't like big page
-    margins." Toggling it on must shrink BOTH the actual rendered pixmap
+    """The crop feature exists so big page margins can be trimmed away.
+    Toggling it on must shrink BOTH the actual rendered pixmap
     AND the layout geometry that positions/click-hit-tests it -- a
     mismatch between the two (e.g. a cropped image drawn at an uncropped
     rect_of() position) would be a real, silent bug, not just cosmetic."""
@@ -4218,17 +4193,18 @@ def test_crop_to_content_shrinks_the_rendered_page_and_layout_geometry(tmp_path)
 
 
 def test_book_view_toggle_sets_both_axes_and_stays_in_sync(tmp_path):
-    """Devin, 2026-07-29: "roll that up into Book View" -- F8/the
-    checkbutton is a derived preset over the two real axes, not a third
+    """Book View rolls continuous scroll and side-by-side up into one
+    toggle -- F8/the checkbutton is a derived preset over the two real
+    axes, not a third
     independent one. Toggling it on sets both; toggling either underlying
     checkbox by hand afterward must keep book_view_var honest too (only
     checked when both really agree), never a stale display."""
     root, app = _make_app(tmp_path)
     try:
         # Force a known starting state -- don't assume the fixture's own
-        # defaults (continuous_scroll defaults True per Devin's standing
-        # preference), this test cares about the toggle logic, not what
-        # a fresh app happens to boot with.
+        # defaults (continuous_scroll defaults True), this test cares
+        # about the toggle logic, not what a fresh app happens to boot
+        # with.
         app.continuous_scroll_var.set(False)
         app.side_by_side_var.set(False)
         app._set_view_mode()
@@ -4268,9 +4244,10 @@ def test_book_view_toggle_sets_both_axes_and_stays_in_sync(tmp_path):
 
 
 def test_f4_toggles_colorize_pages(tmp_path):
-    """Devin, 2026-07-29: "colorize pages is so hard to find sometimes
-    and i toggle that one the most... make F4 the toggle hotkey."
-    Same raw-keypress-needs-a-manual-flip-first pattern as F8/Book View
+    """F4 is a hotkey for the colorize-pages toggle, a setting that's
+    otherwise buried in a menu and toggled often enough to deserve a
+    dedicated key. Same raw-keypress-needs-a-manual-flip-first pattern
+    as F8/Book View
     -- a bare key event doesn't flip a Tk variable itself the way an
     actual Checkbutton click does."""
     root, app = _make_app(tmp_path)
@@ -4292,8 +4269,8 @@ def test_f4_toggles_colorize_pages(tmp_path):
 
 
 def test_settings_header_shows_the_real_running_version(tmp_path):
-    """Devin, 2026-07-31: "along with the current Slate version in the
-    settings pane?" Real value, not a hardcoded string -- must match
+    """The Settings pane shows the current Slate version. Real value,
+    not a hardcoded string -- must match
     version.VERSION exactly, same source About's own header already
     uses."""
     root, app = _make_app(tmp_path)
@@ -4321,13 +4298,12 @@ def test_settings_header_shows_the_real_running_version(tmp_path):
 
 
 def test_settings_columns_control_pins_the_count_and_survives_resize(tmp_path):
-    """Devin, 2026-07-31: first wanted this read-only/auto-only ("you
-    just worry about zooming nicely and rendering right based on window
-    size"), then reversed same session: "it's easier for you to focus
-    on that when I am the one who tells you how many columns... though."
-    "Auto" button REMOVED 2026-08-01 (Devin: "just use columns and get
-    rid of 'auto' columns") -- manual -/+ is the only Settings-facing
-    control now; this test covers the real regression it still needs to
+    """The column count control was originally read-only/auto-only,
+    then changed to give manual control instead, since it's easier to
+    reason about column count when it's explicitly set rather than
+    auto-computed. The "Auto" button was later removed entirely --
+    manual -/+ is the only Settings-facing control now; this test
+    covers the real regression it still needs to
     guard: clicking + must set num_columns AND pin it (self._columns_
     pinned), and -- the actual point of pinning -- a subsequent
     width-based resize check must NOT silently overwrite the manual
@@ -4368,7 +4344,7 @@ def test_settings_columns_control_pins_the_count_and_survives_resize(tmp_path):
         assert label.cget("text") == "Columns: 3"
 
         # The real point: a resize-driven width recheck must leave a
-        # pinned count alone, not silently overwrite Devin's own choice.
+        # pinned count alone, not silently overwrite the manual choice.
         root.geometry("6000x1200")  # would compute 6 columns if NOT pinned
         root.update()
         app._apply_width_based_side_by_side()
@@ -4382,9 +4358,9 @@ def test_settings_columns_control_pins_the_count_and_survives_resize(tmp_path):
 
 
 def test_settings_dialog_mode_group_collapses_to_continuous_or_book_view(tmp_path):
-    """Devin, 2026-07-29, live screenshot review: "the top 3 should be
-    grouped, and really only 2 modes bookview and continuous." The View
-    MENU keeps all 3 real checkboxes (Continuous Scroll/Side by Side/
+    """The top 3 view-mode controls are grouped in Settings, collapsed
+    to really just 2 modes: bookview and continuous. The View MENU
+    keeps all 3 real checkboxes (Continuous Scroll/Side by Side/
     Book View) as independent axes, unchanged -- this only covers the
     Settings dialog's own simplified 2-radio collapse
     (_select_view_mode_continuous/_select_view_mode_book), and that
@@ -4418,23 +4394,20 @@ def test_settings_dialog_mode_group_collapses_to_continuous_or_book_view(tmp_pat
 
 
 def test_settings_toggle_buttons_use_each_themes_own_accent_not_one_fixed_color(tmp_path):
-    """Devin, 2026-07-29, live screenshot review: "the button color in
-    is interesting... better visibility UX color pass." Real fix: the
+    """A visibility/UX color pass fixed the toggle-button color: the
     Mode/Display/Voice/Speed indicatoron=False toggle buttons fill with
     the ACTIVE theme's own select_bg (the same accent already reserved
     for "selection roles only" everywhere else), not one universal
     fixed green.
 
-    Scope narrowed 2026-07-31 (Devin, live): "i don't like the button
-    style we've swapped and landed on for a while... i like the cleaner
-    style you had before with the radio buttons" -- the Theme grid
-    itself reverted to plain standard radio buttons (see
+    Scope narrowed: the Theme grid style didn't land well and was
+    reverted to plain standard radio buttons for a cleaner look (see
     test_settings_theme_picker_is_plain_radio_buttons_no_accent below
     for its own coverage), so this test now only covers the OTHER
     toggle-button groups (Mode/Display/Voice/Speed) that are unchanged.
 
-    Scope narrowed again 2026-08-01: the Mode box (Continuous/Book View)
-    was removed from Settings entirely (Devin: "just use columns") --
+    Scope narrowed again: the Mode box (Continuous/Book View) was
+    removed from Settings entirely in favor of the columns control --
     this test now covers Display (the one remaining indicatoron=False
     toggle-button group) instead of Mode."""
     root, app = _make_app(tmp_path)
@@ -4463,16 +4436,14 @@ def test_settings_toggle_buttons_use_each_themes_own_accent_not_one_fixed_color(
 
 
 def test_settings_theme_picker_is_a_dropdown_with_light_dark_radios(tmp_path):
-    """Devin, 2026-07-31, live, after 2 prior redesigns same day (plain
-    radio grid, then colored swatches + a moving selection ring that
-    "isn't cutting it"): "redesign as dropdown but include the color
-    palette somewhere in a classy way. please have radio buttons for
-    light/dark." Real structural test: a real ttk.Combobox lists exactly
-    the 4 families (readonly -- can't type an invalid one).
+    """The theme picker went through 2 prior redesigns (plain radio
+    grid, then colored swatches + a moving selection ring that didn't
+    read well) before landing on: a dropdown that includes the color
+    palette in a classy way, with radio buttons for light/dark. Real
+    structural test: a real ttk.Combobox lists exactly the 4 families
+    (readonly -- can't type an invalid one).
 
-    Light/Dark control rebuilt AGAIN 2026-08-01 (Devin: "the radio
-    buttons are not working... maybe we can use a single toggle form
-    object, light on left, dark on right?"): plain indicatoron=True
+    Light/Dark control rebuilt AGAIN: plain indicatoron=True
     Radiobuttons relied on Tk's own default selectcolor for the
     indicator dot, which _paint_widget's generic repaint never touched
     -- reads as broken on a themed dark background. Now indicatoron=False
@@ -4517,8 +4488,8 @@ def test_settings_theme_picker_is_a_dropdown_with_light_dark_radios(tmp_path):
         assert {r.cget("text") for r in radios} == {"Light", "Dark"}
         for r in radios:
             # Segmented-toggle style now, not a plain radio dot -- see
-            # the docstring's 2026-08-01 update. Real selectcolor (the
-            # theme's own accent), not indicatoron's default gray.
+            # the docstring above. Real selectcolor (the theme's own
+            # accent), not indicatoron's default gray.
             assert bool(r.cget("indicatoron")) is False
             assert r.cget("selectcolor") == theme.THEMES["slate_dark"]["select_bg"]
     finally:
@@ -4576,8 +4547,8 @@ def test_settings_theme_picker_selects_the_right_theme_from_family_plus_mode(tmp
 
 
 def test_settings_palette_preview_shows_the_real_current_theme_colors(tmp_path):
-    """Devin, 2026-07-31: "include the color palette somewhere in a
-    classy way." Real regression test: the 3 preview chips must show
+    """The Theme picker includes a preview of the color palette in a
+    classy way. Real regression test: the 3 preview chips must show
     the CURRENT theme's actual bg/button_bg/select_bg (not a stale
     snapshot from dialog-open time), and must update when the picker
     changes theme -- a palette preview that doesn't track the real
@@ -4640,15 +4611,14 @@ def test_settings_palette_preview_shows_the_real_current_theme_colors(tmp_path):
 
 
 def test_mode_display_voice_speed_selectcolor_follows_a_live_theme_switch(tmp_path):
-    """Real bug caught live (Devin's screenshot, 2026-07-29): Settings is
-    a singleton dialog (built once, reused via deiconify) -- selectcolor
-    was only ever set at CONSTRUCTION time, under whatever theme was
-    active when the dialog was first opened. Switching themes later, in
-    that same still-open dialog, repainted bg/fg everywhere via
-    _paint_widget, but selectcolor itself (a separate Tk widget option
-    _paint_widget never touched) stayed frozen on the OLD theme's
-    accent -- Devin's real screenshot showed the Voice group still
-    jade (Bonepaper's accent) while the Theme grid's own "Dark" swatch
+    """Settings is a singleton dialog (built once, reused via
+    deiconify) -- selectcolor was only ever set at CONSTRUCTION time,
+    under whatever theme was active when the dialog was first opened.
+    Switching themes later, in that same still-open dialog, repainted
+    bg/fg everywhere via _paint_widget, but selectcolor itself (a
+    separate Tk widget option _paint_widget never touched) stayed
+    frozen on the OLD theme's accent -- the Voice group stayed jade
+    (Bonepaper's accent) while the Theme grid's own "Dark" swatch
     correctly showed Slate's lime green, an obvious mismatch. Fixed:
     _wire_toggle_button_contrast's own _refresh (already invoked by
     _paint_widget on every repaint) now also reconfigures selectcolor
@@ -4682,7 +4652,7 @@ def test_mode_display_voice_speed_selectcolor_follows_a_live_theme_switch(tmp_pa
         app._on_theme_changed()
         app._paint_widget(top, theme.get_palette("slate_dark"))
 
-        # Mode group removed 2026-08-01 (Devin: "just use columns") --
+        # Mode group removed (in favor of the columns control) --
         # Voice/Display are the remaining groups this test can cover.
         for btn, label in ((voice_btn, "Voice"), (toc_btn, "Display")):
             assert btn.cget("selectcolor") == theme.THEMES["slate_dark"]["select_bg"], (
@@ -4694,8 +4664,8 @@ def test_mode_display_voice_speed_selectcolor_follows_a_live_theme_switch(tmp_pa
 
 
 def test_every_theme_clears_a_real_wcag_contrast_floor_for_checked_toggle_text(tmp_path):
-    """Devin, 2026-07-29: "check all themes and color selections plz,
-    make sure there's no collisions." Real audit, not a guess -- computed
+    """All themes and color selections were audited for collisions.
+    Real audit, not a guess -- computed
     actual WCAG 2.x contrast ratios for all 6 themes and found Bonepaper
     Light specifically failed (2.61:1, below the 3:1 UI-text floor) when
     checked-state text always used colors["bg"] the way the TOC's own
@@ -4716,8 +4686,8 @@ def test_every_theme_clears_a_real_wcag_contrast_floor_for_checked_toggle_text(t
 
 
 def test_continuous_and_side_by_side_combine_into_a_scrolling_two_column_layout(tmp_path):
-    """Both checkboxes on at once (Devin: "both can be turned on") --
-    real scroll through page PAIRS, windowing still applies."""
+    """Both checkboxes can be turned on at once -- real scroll through
+    page PAIRS, windowing still applies."""
     root, app = _make_app(tmp_path)
     try:
         app.continuous_scroll_var.set(True)
@@ -4739,9 +4709,8 @@ def test_continuous_and_side_by_side_combine_into_a_scrolling_two_column_layout(
 
 
 # ------------------------------------------------------------------
-# Width-based auto side-by-side (Devin, 2026-07-25: "if the
-# horizontal size reaches 'side by side' size, Slate automatically
-# toggles it")
+# Width-based auto side-by-side: if the window's horizontal size
+# reaches "side by side" size, Slate automatically toggles it on.
 # ------------------------------------------------------------------
 
 def test_auto_toggle_enables_side_by_side_when_window_wide_enough(tmp_path):
@@ -4780,9 +4749,8 @@ def test_auto_toggle_disables_side_by_side_when_window_too_narrow(tmp_path):
 
 
 def test_auto_toggle_never_touches_continuous_scroll(tmp_path):
-    """continuous_scroll stays the default regardless (Devin, same
-    thread: "continuous scroll stays a default") -- this auto-toggle
-    only ever touches the side_by_side axis."""
+    """continuous_scroll stays the default regardless -- this
+    auto-toggle only ever touches the side_by_side axis."""
     root, app = _make_app(tmp_path)
     try:
         assert app.continuous_scroll is True
@@ -4801,9 +4769,9 @@ def test_auto_toggle_never_touches_continuous_scroll(tmp_path):
 
 
 def test_auto_column_goes_past_two_on_an_ultrawide_viewport(tmp_path):
-    """Devin, 2026-07-31, live on a 3440x1440 ultrawide: "can we do more
-    than 2 columns automatically... based on how wide your viewport
-    is." Real regression test for the hardcoded 2-column cap being
+    """More than 2 columns can be used automatically, based on how wide
+    the viewport is (tested against a 3440x1440 ultrawide). Real
+    regression test for the hardcoded 2-column cap being
     lifted to N -- an absurdly wide window must land on num_columns=6,
     the deliberate ceiling (see _apply_width_based_side_by_side's own
     docstring for why 6), not just flip a boolean to True."""
@@ -4881,10 +4849,10 @@ def test_configure_event_debounces_the_width_check(tmp_path):
 
 
 def test_colorize_pages_defaults_off(tmp_path):
-    """Devin, 2026-07-26: real content got destroyed twice the same day
-    by the theme-tint flatten (a categorical diagram's legend, then a
-    real blue/orange bake-off comparison) -- flipped from opt-out to
-    opt-in so a color-coded document isn't silently wrecked by default."""
+    """Real document content was destroyed by the theme-tint flatten
+    on more than one occasion (a categorical diagram's legend, then a
+    blue/orange comparison) -- flipped from opt-out to opt-in so a
+    color-coded document isn't silently wrecked by default."""
     root, app = _make_app(tmp_path)
     try:
         assert app.colorize_pages is False

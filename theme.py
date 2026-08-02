@@ -31,10 +31,11 @@ from pathlib import Path
 CONFIG_DIR = Path.home() / ".slate"
 PREF_FILE = CONFIG_DIR / "theme.json"
 
-# theme_data/*.json are pulled copies of devs-themes/palettes/*.json (the
-# central source of truth, /mnt/c/bin/projects/devs-themes/README.md) --
-# run pull_themes.sh to refresh. Copy, not symlink, on purpose: Slate is
-# free to tweak its own copy independently without touching the shared repo.
+# theme_data/*.json are pulled copies of devs-themes/palettes/*.json
+# (https://github.com/devinscodex/devs-themes, the central source of
+# truth) -- run pull_themes.sh to refresh. Copy, not symlink, on
+# purpose: Slate is free to tweak its own copy independently without
+# touching the shared repo.
 _THEME_DATA_DIR = Path(__file__).parent / "theme_data"
 
 

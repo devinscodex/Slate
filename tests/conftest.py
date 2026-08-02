@@ -1,37 +1,33 @@
 """Autouse fixture: isolate recent.py's and gate.py's storage for EVERY
 test in the suite, not just the ones that explicitly assert on it.
 
-Real bug caught live during development: only the tests that directly
-asserted on recent-files behavior monkeypatched recent.CONFIG_DIR/
-RECENT_FILE. Every other integration test that opens a document via
-SlateApp also calls recent.add_recent() as a side effect (that's the
-whole point of the feature) -- and every one of those tests was quietly
-writing real tmp-path test fixtures into the actual ~/.slate/recent.json
-on the machine running the tests, polluting real local config with test
-artifacts. Caught by literally looking at Slate's home screen after a
-test run and seeing pytest tmp-dir paths in the "recently viewed" list.
-gate.py's unlock.json, theme.py's theme.json, and tts.py's downloaded-
-voices cache all share the same ~/.slate/ directory and the same risk
-(a stray test download/preference/passphrase would otherwise land in
-real local config), so all are isolated here too, pre-emptively.
+Only the tests that directly asserted on recent-files behavior
+monkeypatched recent.CONFIG_DIR/RECENT_FILE would otherwise be safe --
+every other integration test that opens a document via SlateApp also
+calls recent.add_recent() as a side effect (that's the whole point of
+the feature), which without this fixture would quietly write real
+tmp-path test fixtures into the actual ~/.slate/recent.json on the
+machine running the tests, polluting real local config with test
+artifacts. gate.py's unlock.json, theme.py's theme.json, and tts.py's
+downloaded-voices cache all share the same ~/.slate/ directory and the
+same risk (a stray test download/preference/passphrase would otherwise
+land in real local config), so all are isolated here too, pre-emptively.
 
-settings.py's settings.json shared this exact same risk and was missed
-here originally -- caught live 2026-07-29 the same way recent.json was
-caught the first time (a real test run left a dead pytest tmp-path in
-the actual ~/.slate/settings.json's open_tabs, and left continuous_scroll/
-side_by_side however the last test happened to set them). Same fixture,
-same fix, no new pattern needed.
+settings.py's settings.json carries this exact same risk (a test run
+can leave a dead pytest tmp-path in the actual ~/.slate/settings.json's
+open_tabs, and leave continuous_scroll/side_by_side however the last
+test happened to set them) -- same fixture, same fix, no new pattern
+needed.
 
-Real bug caught on an actual Windows smoke test, a different flavor of
-the same class of problem: tts._voice_cache (a module-level dict
-caching loaded PiperVoice objects across calls, added as a real perf
-fix) is never reset between tests either -- a test that downloads a
-FAKE/invalid "alba" model and caches whatever (possibly broken) object
-that produces can leave a later, unrelated test using the same voice_id
-stuck reusing that broken cached object instead of loading a fresh
-one, hanging deep inside onnxruntime on Windows specifically (ran fine
-standalone; only hung as part of the full suite -- the tell that this
-was cross-test contamination, not a real product bug).
+tts._voice_cache (a module-level dict caching loaded PiperVoice objects
+across calls, added as a real perf fix) is never reset between tests
+either -- a test that downloads a FAKE/invalid "alba" model and caches
+whatever (possibly broken) object that produces can leave a later,
+unrelated test using the same voice_id stuck reusing that broken
+cached object instead of loading a fresh one, hanging deep inside
+onnxruntime on Windows specifically (a cross-test contamination bug,
+not a real product bug -- runs fine standalone, only hangs as part of
+the full suite).
 """
 import pytest
 

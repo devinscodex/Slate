@@ -17,11 +17,10 @@ def test_every_voice_has_the_same_metadata_shape():
 
 
 def test_exactly_two_voices_are_bundled_one_male_one_female_same_tier():
-    """Devin, 2026-07-25 (exe/installer pass): "bundled default male/
-    female voice (same freq)... option to DL the other two." One male
-    (northern_english_male) + one female (alba), both real Piper
-    "medium" quality / 22050Hz -- deliberately the same tier so
-    neither sounds like the "downgraded" option out of the box."""
+    """One male (northern_english_male) + one female (alba) voice ship
+    bundled, both real Piper "medium" quality / 22050Hz -- deliberately
+    the same tier so neither sounds like the "downgraded" option out
+    of the box, with the other two voices available as downloads."""
     bundled = {v for v, info in tts.VOICES.items() if info["bundled"]}
     assert bundled == {"northern_english_male", "alba"}
     assert tts.VOICES["northern_english_male"]["sample_rate"] == tts.VOICES["alba"]["sample_rate"]
@@ -63,9 +62,9 @@ def test_download_voice_writes_onnx_and_json_then_becomes_available(tmp_path, mo
 
     monkeypatch.setattr(tts.urllib.request, "urlretrieve", fake_urlretrieve)
 
-    # southern_english_female, not alba -- alba is bundled now (Devin,
-    # 2026-07-25: two bundled voices, male+female same tier), so it's
-    # no longer a genuine "not yet downloaded" example.
+    # southern_english_female, not alba -- alba is bundled now (two
+    # bundled voices, male+female same tier), so it's no longer a
+    # genuine "not yet downloaded" example.
     assert tts.is_available("southern_english_female") is False
     result_path = tts.download_voice("southern_english_female")
     assert tts.is_available("southern_english_female") is True
@@ -106,7 +105,7 @@ def test_synthesize_bundled_voice_produces_real_audio():
     assert sample_rate == 22050
     assert sample_width == 2  # 16-bit PCM
     assert channels == 1
-    assert chunk_sample_counts  # real per-sentence durations, added 2026-07-26
+    assert chunk_sample_counts  # real per-sentence durations
     assert sum(chunk_sample_counts) == len(audio) // (sample_width * channels)
 
 
@@ -120,11 +119,11 @@ def test_synthesize_length_scale_changes_audio_duration():
 
 
 def test_synthesize_caches_the_loaded_voice_across_calls():
-    """Real perf bug caught live: PiperVoice.load() alone takes ~1.2s
-    (loading the ~60MB model + building an onnxruntime session) --
-    reloading it on every call meant every 'Read this page' repaid
-    that cost even for the same voice back-to-back. Confirms the same
-    PiperVoice object is reused, not a fresh one built each time."""
+    """PiperVoice.load() alone takes ~1.2s (loading the ~60MB model +
+    building an onnxruntime session) -- reloading it on every call
+    meant every 'Read this page' repaid that cost even for the same
+    voice back-to-back. Confirms the same PiperVoice object is reused,
+    not a fresh one built each time."""
     tts._voice_cache.clear()  # isolate from whatever earlier tests already warmed
     tts.synthesize("First call.", "northern_english_male")
     assert "northern_english_male" in tts._voice_cache
@@ -135,12 +134,11 @@ def test_synthesize_caches_the_loaded_voice_across_calls():
 
 
 def test_speed_to_length_scale_calibrates_around_a_slower_natural_default():
-    """Devin, 2026-07-25: "make the default audio reading voice
-    slower, more natural pace... that is '1.0x' speed, base other
-    speeds around that." "1.0x" (user_speed=1.0) must map to
-    BASE_LENGTH_SCALE, not Piper's raw native 1.0 -- and every other
-    speed preset must scale proportionally FROM that new baseline,
-    not from Piper's raw default."""
+    """The default audio reading voice is calibrated to a slower, more
+    natural pace than Piper's raw native rate: "1.0x" (user_speed=1.0)
+    must map to BASE_LENGTH_SCALE, not Piper's raw native 1.0 -- and
+    every other speed preset must scale proportionally FROM that new
+    baseline, not from Piper's raw default."""
     assert tts.speed_to_length_scale(1.0) == tts.BASE_LENGTH_SCALE
     assert tts.BASE_LENGTH_SCALE > 1.0  # a real, deliberate slowdown from Piper's native rate
 

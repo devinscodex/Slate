@@ -19,8 +19,8 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('soundfile')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
-# Real bug found 2026-08-02, first-ever Linux PyInstaller build attempt:
-# opening any real document crashed with "ModuleNotFoundError: No module
+# A Linux PyInstaller build crashes opening any real document with
+# "ModuleNotFoundError: No module
 # named 'PIL._tkinter_finder'" -- PIL/Pillow was never in this file's own
 # collect_all list (only fitz/pikepdf/pyhanko/piper/onnxruntime/
 # sounddevice/soundfile), so PyInstaller's automatic PIL hook missed this

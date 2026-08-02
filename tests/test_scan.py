@@ -45,8 +45,9 @@ def test_luhn_valid_card_found_invalid_card_not_flagged():
 
 
 def test_label_and_value_on_separate_lines_regression(tmp_path):
-    """Real bug, caught live auditing an actual bank letter: PyMuPDF's
-    text extraction put 'Account Number:' and the digits on DIFFERENT
+    """Real-world PDFs routinely put a label and its value on different
+    lines: PyMuPDF's text extraction put 'Account Number:' and the digits
+    on DIFFERENT
     lines with a blank line between them. The first version of this
     scanner used a same-line regex and silently reported the file
     clean. This test builds that exact layout (label / blank / value,

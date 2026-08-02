@@ -1,6 +1,5 @@
-# Slate rebuild + reinstall (Devin, 2026-07-26: "do this each time you
-# update Slate"). Freezes slate.py with PyInstaller, compiles the Inno
-# Setup installer, closes any running instance, and silently
+# Slate rebuild + reinstall. Freezes slate.py with PyInstaller, compiles
+# the Inno Setup installer, closes any running instance, and silently
 # reinstalls over the Start Menu / AppData\Local\Programs copy so that
 # shortcut always launches whatever's currently in slate.py.
 #
@@ -11,22 +10,21 @@ param(
 # Deliberately NOT $ErrorActionPreference = "Stop" -- pip/PyInstaller/
 # ISCC all write normal progress/warning text to stderr as part of
 # ordinary operation, and Stop treats ANY stderr output from a native
-# command as fatal (Cairn's own gotchas.md, hit live building this).
-# Real failures are caught explicitly below via $LASTEXITCODE instead.
+# command as fatal. Real failures are caught explicitly below via
+# $LASTEXITCODE instead.
 $ErrorActionPreference = "Continue"
 Set-Location $PSScriptRoot
 
 # MUST use .venv-win's python, not bare `python` off PATH -- `where
 # python` resolves to a nearly-empty standalone Python312 install
-# (only PyInstaller/pipx tooling, none of Slate's real deps). Real
-# gap caught live 2026-07-26: a build using the wrong interpreter
-# "succeeded" (PyInstaller silently reused stale cached Analysis
-# artifacts from an earlier correct build for modules it couldn't
-# find fresh) and produced a Frankenstein EXE that crashed on launch
-# with "cannot import name '_as_fz_document' from 'pymupdf'" -- a
-# version-mismatched fitz/pymupdf binary, not a real code bug.
-# .venv-win (Lib\site-packages has fitz/pymupdf/pikepdf/pyhanko/
-# piper/onnxruntime all present) is the real, complete build env.
+# (only PyInstaller/pipx tooling, none of Slate's real deps). A build
+# using the wrong interpreter can "succeed" (PyInstaller silently
+# reuses stale cached Analysis artifacts from an earlier correct build
+# for modules it can't find fresh) and produce a Frankenstein EXE that
+# crashes on launch with "cannot import name '_as_fz_document' from
+# 'pymupdf'" -- a version-mismatched fitz/pymupdf binary, not a real
+# code bug. .venv-win (Lib\site-packages has fitz/pymupdf/pikepdf/
+# pyhanko/piper/onnxruntime all present) is the real, complete build env.
 $venvPython = Join-Path $PSScriptRoot ".venv-win\Scripts\python.exe"
 if (-not (Test-Path $venvPython)) { throw ".venv-win not found at $venvPython -- real build env missing" }
 
@@ -49,10 +47,10 @@ if (-not (Test-Path $iscc)) {
     $cmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
     if ($cmd) { $iscc = $cmd.Source } else { throw "ISCC.exe not found -- Inno Setup 6 expected at $iscc" }
 }
-# Real version.py is the single source of truth -- slate.iss's own
+# version.py is the single source of truth -- slate.iss's own
 # MyAppVersion is just a fallback default now (see its #ifndef comment).
 # Without this, the installer's filename/AppVersion can silently drift
-# from what actually got frozen into dist\Slate\ (real gap, 2026-07-29).
+# from what actually got frozen into dist\Slate\.
 $versionLine = Select-String -Path "version.py" -Pattern '^VERSION = "([^"]+)"'
 if (-not $versionLine) { throw "Could not read VERSION from version.py" }
 $slateVersion = $versionLine.Matches[0].Groups[1].Value
@@ -73,15 +71,14 @@ if ($SkipInstall) {
     Write-Host "Reinstalled. New Slate.exe timestamp:"
     (Get-Item "$env:LOCALAPPDATA\Programs\Slate\Slate.exe").LastWriteTime
 
-    # Real smoke test, not a blind "exit 0 = done" (a real gap caught
-    # live 2026-07-26: a prior rebuild "succeeded" per every exit code
-    # in this script yet crashed on first launch with an ImportError --
-    # a version-mismatched fitz/pymupdf binary from a stale build
-    # cache). Launches hidden (never a visible window, per Devin's
-    # standing "don't flash Slate on my desktop" rule) with no file
-    # argument, waits briefly, and checks whether it's still running
-    # (real success) vs already exited (a launch-time crash, most
-    # likely an unhandled Tkinter exception dialog same as this one).
+    # Real smoke test, not a blind "exit 0 = done" -- every exit code in
+    # this script can be 0 while the frozen EXE still crashes on first
+    # launch with an ImportError (a version-mismatched fitz/pymupdf
+    # binary from a stale build cache is the usual cause). Launches
+    # hidden (never a visible window) with no file argument, waits
+    # briefly, and checks whether it's still running (real success) vs
+    # already exited (a launch-time crash, most likely an unhandled
+    # Tkinter exception dialog same as this one).
     Write-Host "=== smoke test (hidden launch, no visible window) ==="
     $exePath = "$env:LOCALAPPDATA\Programs\Slate\Slate.exe"
     $proc = Start-Process -FilePath $exePath -WindowStyle Hidden -PassThru

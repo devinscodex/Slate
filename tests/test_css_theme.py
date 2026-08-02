@@ -5,7 +5,7 @@ live-file consistency check at the bottom is skipped when Runestone
 isn't present -- it exists to catch a hand-tuned theme.py dict drifting
 from its real CSS source, the exact bug this whole module exists to
 prevent (see theme.py's own _SLATE_DARK comment for the real instance
-this caught, 2026-07-29).
+this caught).
 """
 import os
 import tempfile
@@ -15,7 +15,7 @@ import pytest
 import css_theme
 import theme
 
-_RUNESTONE_SNIPPETS = "/mnt/c/bin/projects/runestone/.obsidian/snippets"
+_RUNESTONE_SNIPPETS = os.environ.get("SLATE_TEST_RUNESTONE_SNIPPETS", "")
 
 
 def _write(tmp_path, content):
@@ -137,7 +137,7 @@ def test_shipped_theme_dicts_match_the_real_current_css_file(filename, dark_key,
     """The real point of this whole module: theme.py's hand-tuned dicts
     must not silently drift from the CSS files they were copied from.
     This is the automated version of the manual check that caught
-    _MOSSCAIRN_DARK's muted_fg mistake (2026-07-29) -- runs every time
+    _MOSSCAIRN_DARK's muted_fg mistake -- runs every time
     the suite runs on a machine with Runestone present, so the next
     drift gets caught by CI/local test runs instead of a live look."""
     path = os.path.join(_RUNESTONE_SNIPPETS, filename)
@@ -154,18 +154,14 @@ def test_shipped_theme_dicts_match_the_real_current_css_file(filename, dark_key,
     # which _with_chrome_cascade() computes, never sourced from the CSS.
     skip_keys = {"entry_bg"}
     # Slate Dark's canvas_bg and Bonepaper Dark's select_bg/highlight_bg
-    # both went through same-day 2026-07-31 experiments (a body/sidebar
-    # invert; a Catppuccin Mocha accent swap) that were reverted again
-    # 2026-08-01 when this checkout synced theme_data/*.json against
-    # devs-themes's own canonical values (secondary's reconciliation
-    # pass) -- both keys are back to matching this CSS snapshot exactly,
-    # so no skip is needed for them anymore. button_bg is the one real,
-    # still-live divergence: webUI already moved Bonepaper Dark's
-    # button_bg off the old warm-olive #0a0d09 to a cool near-black
-    # #07080a (Devin: "look to bonepaper dark webUI... they look vastly
-    # different"), confirmed correct and KEPT through the 2026-08-01
-    # sync -- Runestone's own CSS file here just hasn't caught up to
-    # that fix yet, a real pending sync gap, not drift on Slate's side.
+    # previously diverged from this CSS snapshot but have since been
+    # reconciled against theme_data/*.json's canonical values, so no skip
+    # is needed for them anymore. button_bg is the one real, still-live
+    # divergence: Bonepaper Dark's button_bg moved off the old warm-olive
+    # #0a0d09 to a cool near-black #07080a to look consistent with the
+    # rest of the dark palette, and that change is correct and kept --
+    # Runestone's own CSS file here just hasn't caught up to that fix
+    # yet, a real pending sync gap, not drift on Slate's side.
     if dark_key == "bonepaper_dark":
         skip_keys.add("button_bg")
     for key in parsed["dark"]:
