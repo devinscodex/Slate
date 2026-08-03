@@ -611,6 +611,14 @@ class SlateApp:
                 pass
         if hasattr(self, "toolbar"):
             self._paint_chrome_subtree(self.toolbar, colors["toolbar_bg"], colors["toolbar_fg"])
+            # Real per-family border (theme.py's authored `border` key,
+            # not computed) -- for most families a subtle neutral step,
+            # for bonepaper dark specifically the accent-tinted "glow"
+            # webUI's own --line uses there. highlightthickness=1 draws
+            # on all 4 edges, reading as a real bordered panel rather
+            # than a bare color-block, same as webUI's own bordered
+            # toolbar/inputrow chrome.
+            self.toolbar.configure(highlightthickness=1, highlightbackground=colors["border"], highlightcolor=colors["border"])
         for scrollbar in (getattr(self, "_vscroll", None), getattr(self, "_hscroll", None)):
             if scrollbar is not None:
                 try:
@@ -940,36 +948,39 @@ class SlateApp:
         convertm.add_command(label="Import images as PDF...", command=self.do_import_images)
         menubar.add_cascade(label="Convert", menu=convertm)
 
-        readm = tk.Menu(menubar, tearoff=0)
-        voicem = tk.Menu(readm, tearoff=0)
-        # Bundled voices only -- southern_english_female/danny still
-        # exist in tts.VOICES (their preview clips ship bundled either
-        # way, see load_preview_audio) and can still be sampled from the
-        # Sample Voices dialog below, just not offered as a pickable
-        # default here or in Settings.
-        for voice_id, info in tts.VOICES.items():
-            if not info.get("bundled"):
-                continue
-            voicem.add_radiobutton(
-                label=info["label"], variable=self.tts_voice, value=voice_id,
-                command=self._on_tts_voice_changed, selectcolor=radio_select_color,
-            )
-        readm.add_cascade(label="Voice", menu=voicem)
-        speedm = tk.Menu(readm, tearoff=0)
-        for speed in (0.75, 1.0, 1.25, 1.5, 2.0):
-            speedm.add_radiobutton(
-                label=f"{speed}x", variable=self.tts_speed, value=speed,
-                command=self._on_tts_speed_changed, selectcolor=radio_select_color,
-            )
-        readm.add_cascade(label="Speed", menu=speedm)
-        readm.add_separator()
-        readm.add_command(label="Sample Voices...", command=self._show_voice_sampler)
-        readm.add_separator()
-        readm.add_command(label="Read this page", command=self.do_read_page)
-        readm.add_command(label="Read entire document", command=self.do_read_document)
-        readm.add_command(label="Pause / Resume", command=self.do_tts_pause_resume)
-        readm.add_command(label="Stop", command=self.do_tts_stop)
-        menubar.add_cascade(label="Read Aloud", menu=readm)
+        # Whole menu omitted, not just disabled, when this build excludes
+        # the synthesis engine (see tts.ENGINE_AVAILABLE, Slate.spec) --
+        # a visible menu that crashes on first click is worse than no
+        # menu at all.
+        if tts.ENGINE_AVAILABLE:
+            readm = tk.Menu(menubar, tearoff=0)
+            voicem = tk.Menu(readm, tearoff=0)
+            # Bundled voices only -- southern_english_female/danny still
+            # exist in tts.VOICES but aren't offered as a pickable
+            # default here or in Settings. Downloading one is the only
+            # way to try it, left to the user, not a built-in sampler.
+            for voice_id, info in tts.VOICES.items():
+                if not info.get("bundled"):
+                    continue
+                voicem.add_radiobutton(
+                    label=info["label"], variable=self.tts_voice, value=voice_id,
+                    command=self._on_tts_voice_changed, selectcolor=radio_select_color,
+                )
+            readm.add_cascade(label="Voice", menu=voicem)
+            speedm = tk.Menu(readm, tearoff=0)
+            for speed in (0.75, 1.0, 1.25, 1.5, 2.0):
+                speedm.add_radiobutton(
+                    label=f"{speed}x", variable=self.tts_speed, value=speed,
+                    command=self._on_tts_speed_changed, selectcolor=radio_select_color,
+                )
+            readm.add_cascade(label="Speed", menu=speedm)
+            readm.add_separator()
+            readm.add_separator()
+            readm.add_command(label="Read this page", command=self.do_read_page)
+            readm.add_command(label="Read entire document", command=self.do_read_document)
+            readm.add_command(label="Pause / Resume", command=self.do_tts_pause_resume)
+            readm.add_command(label="Stop", command=self.do_tts_stop)
+            menubar.add_cascade(label="Read Aloud", menu=readm)
 
         # Check for Updates lives on the About dialog, not a separate
         # menu item.
@@ -1158,29 +1169,38 @@ class SlateApp:
             header, text=f"Slate {version.VERSION}", font=self._ui_header_font(extra=5)
         ).pack(side=tk.LEFT)
 
-        # Left half: FIXED hex, Slate's own house color on the About
-        # page regardless of which theme is active. slate_fixed_bg (not
-        # a direct bg=) so _paint_widget's own generic walk leaves it
-        # alone -- see its comment.
-        #
-        # Right half: the ACTIVE theme's own accent, live, via
-        # slate_accent_swatch (see _paint_widget's own branch). Most
-        # useful precisely because About-from-Settings is non-modal --
-        # flip themes in Settings, watch this half update live.
+        # The ACTIVE theme's own accent, live, via slate_accent_swatch
+        # (see _paint_widget's own branch) -- useful precisely because
+        # About-from-Settings is non-modal: flip themes in Settings,
+        # watch this bar update live.
         accent_bar_row = tk.Frame(top)
         accent_bar_row.pack(fill=tk.X, padx=24, pady=(0, 10))
-        house_accent = tk.Frame(accent_bar_row, bg="#62a945", height=2)
-        house_accent.slate_fixed_bg = "#62a945"
-        house_accent.pack(side=tk.LEFT, fill=tk.X, expand=True)
         theme_accent = tk.Frame(accent_bar_row, height=2)
         theme_accent.slate_accent_swatch = True
-        theme_accent.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 0))
+        theme_accent.pack(fill=tk.X, expand=True)
         tk.Label(
             top, text=version.SUMMARY, wraplength=360, justify="left"
         ).pack(padx=24, pady=(0, 12))
-        author_label = tk.Label(top, text=f"© 2026 {version.AUTHOR}", fg="gray40")
-        author_label.slate_muted = True
-        author_label.pack(padx=24, pady=(0, 18))
+        author_row = tk.Frame(top)
+        author_row.pack(padx=24, pady=(0, 18), anchor="w")
+        prefix_label = tk.Label(author_row, text="© 2026 ", fg="gray40")
+        prefix_label.slate_muted = True
+        prefix_label.pack(side=tk.LEFT)
+        # Real hyperlink, not just colored text -- underline + hand
+        # cursor is the universal "this is clickable" signal, same
+        # convention a browser uses, independent of theme color.
+        # tkfont.Font(font=...) properly resolves the widget's actual
+        # current default font before adding underline -- cget("font")
+        # alone returns a named-font string ("TkDefaultFont"), not
+        # something safe to splice into a literal (family, size, style)
+        # tuple.
+        author_link = tk.Label(author_row, text=version.AUTHOR, fg="gray40", cursor="hand2")
+        link_font = tkfont.Font(font=author_link.cget("font"))
+        link_font.configure(underline=True)
+        author_link.configure(font=link_font)
+        author_link.slate_muted = True
+        author_link.pack(side=tk.LEFT)
+        author_link.bind("<Button-1>", lambda e: webbrowser.open(f"https://github.com/{version.AUTHOR}"))
         button_row = tk.Frame(top)
         button_row.pack(pady=(0, 14))
         # Check for Updates lives here, not a separate Help menu item.
@@ -1201,87 +1221,6 @@ class SlateApp:
         x = root_x + (root_w - dlg_w) // 2
         y = root_y + (root_h - dlg_h) // 2
         top.geometry(f"+{x}+{y}")
-
-    def _show_voice_sampler(self):
-        """Read Aloud > Sample Voices... Lists ALL 4 voices (not just
-        the bundled default the Voice picker itself offers -- see
-        _build_menu's own comment on why the non-bundled ones were
-        dropped from the picker) with a Play button each, playing that voice's bundled
-        preview clip (tts.load_preview_audio) -- every voice can be
-        sampled without downloading anything, since preview WAVs ship
-        bundled regardless of whether the full ~60MB model is
-        installed. Modeled on _show_about's own Toplevel/single-
-        instance/border/centering pattern."""
-        existing = getattr(self, "_voice_sampler_window", None)
-        if existing is not None and existing.winfo_exists():
-            existing.deiconify()
-            existing.lift()
-            existing.focus_force()
-            return
-        colors = theme.get_palette(self.theme_name.get())
-        top = tk.Toplevel(self.root)
-        self._voice_sampler_window = top
-        top.title("Sample Voices")
-        top.resizable(False, False)
-        top.bind("<Escape>", lambda e: top.destroy())
-        top.configure(highlightthickness=2, highlightbackground=colors["dialog_border"], highlightcolor=colors["dialog_border"])
-
-        header = tk.Frame(top)
-        header.pack(padx=24, pady=(18, 6), anchor="w")
-        tk.Label(
-            header, text="Sample Voices", font=self._ui_header_font(extra=5)
-        ).pack(side=tk.LEFT)
-        accent_bar = tk.Frame(top, bg="#62a945", height=2)
-        accent_bar.slate_fixed_bg = "#62a945"
-        accent_bar.pack(fill=tk.X, padx=24, pady=(0, 10))
-
-        for voice_id, info in tts.VOICES.items():
-            row = tk.Frame(top)
-            row.pack(fill=tk.X, padx=24, pady=4)
-            tk.Label(row, text=info["label"], anchor="w").pack(side=tk.LEFT)
-            if not info.get("bundled"):
-                # Preview clip still ships bundled -- only the FULL
-                # model needs a download, and this dialog's whole point
-                # is sampling without committing to that yet.
-                tk.Label(row, text="(not downloaded)", fg="gray40").pack(side=tk.LEFT, padx=(6, 0))
-            tk.Button(
-                row, text="Play", width=6,
-                command=lambda vid=voice_id: self._play_voice_preview(vid),
-            ).pack(side=tk.RIGHT)
-
-        btn_row = tk.Frame(top)
-        btn_row.pack(pady=(6, 14))
-        tk.Button(btn_row, text="Close", command=top.destroy).pack()
-
-        self._paint_widget(top, colors)
-
-        top.update_idletasks()
-        root_x, root_y = self.root.winfo_rootx(), self.root.winfo_rooty()
-        root_w, root_h = self.root.winfo_width(), self.root.winfo_height()
-        dlg_w, dlg_h = top.winfo_width(), top.winfo_height()
-        x = root_x + (root_w - dlg_w) // 2
-        y = root_y + (root_h - dlg_h) // 2
-        top.geometry(f"+{x}+{y}")
-
-    def _play_voice_preview(self, voice_id):
-        """Plays voice_id's bundled preview clip through the same
-        tts_player used for real reads -- load() already stops whatever
-        was previously playing first, so sampling a second voice mid-
-        preview just cuts to the new one, no separate audio path to
-        keep in sync.
-
-        Same try/except-then-"Playback failed" convention as the real
-        read path (_read_current_page's own poll()) -- sounddevice's
-        play() raises a real PortAudioError when no output device
-        exists, and a Settings-adjacent preview button should fail soft
-        with a message, not an uncaught exception freezing the
-        dialog."""
-        audio, sample_rate, channels = tts.load_preview_audio(voice_id)
-        self.tts_player.load(audio, sample_rate, channels)
-        try:
-            self.tts_player.play()
-        except Exception as e:
-            messagebox.showinfo("Playback failed", str(e))
 
     def _show_settings(self):
         """Settings dialog: a single place to see and change every
@@ -1425,8 +1364,7 @@ class SlateApp:
 
         # Palette preview -- "include the color palette somewhere in a
         # classy way." 3 small real color chips (background, chrome,
-        # accent -- the 3 tones that actually define a theme's look),
-        # not a big grid, updating live with the picker above. Same
+        # accent), updating live with the picker above. Same
         # slate_fixed_bg convention as every other permanently-colored
         # swatch in this app (About's accent bar, the old theme-grid
         # swatches) -- keeps _paint_widget's generic repaint walk from
@@ -1445,7 +1383,8 @@ class SlateApp:
 
         def _refresh_palette_preview():
             palette = theme.THEMES[self.theme_name.get()]
-            for chip, color in zip(_preview_chips, (palette["bg"], palette["button_bg"], palette["select_bg"])):
+            colors = (palette["bg"], palette["button_bg"], palette["select_bg"])
+            for chip, color in zip(_preview_chips, colors):
                 chip.configure(bg=color, highlightbackground=palette["fg"], highlightcolor=palette["fg"])
                 chip.slate_fixed_bg = color
 
@@ -1602,35 +1541,37 @@ class SlateApp:
             font_btns, text="Reset", command=lambda: _ui_font_change_and_refresh(-self.ui_font_scale)
         ).pack(side=tk.LEFT, padx=(4, 0))
 
-        # -- Read Aloud --
-        tts_frame = tk.LabelFrame(top, text="Read Aloud")
-        tts_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
-        tk.Label(tts_frame, text="Voice:").pack(anchor="w", padx=10, pady=(6, 0))
-        voice_row = tk.Frame(tts_frame)
-        voice_row.pack(fill=tk.X, padx=10)
-        # Bundled voices only here too, same reasoning as the Read Aloud
-        # menu's own Voice submenu -- see _build_menu's comment.
-        for voice_id, info in tts.VOICES.items():
-            if not info.get("bundled"):
-                continue
-            btn = tk.Radiobutton(
-                voice_row, text=info["label"], variable=self.tts_voice, value=voice_id,
-                command=self._on_tts_voice_changed, selectcolor=colors["select_bg"],
-                indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
-            )
-            btn.pack(fill=tk.X, pady=1)
-            self._wire_toggle_button_contrast(btn, self.tts_voice, value=voice_id)
-        tk.Label(tts_frame, text="Speed:").pack(anchor="w", padx=10, pady=(6, 0))
-        speed_row = tk.Frame(tts_frame)
-        speed_row.pack(fill=tk.X, padx=10, pady=(0, 6))
-        for speed in (0.75, 1.0, 1.25, 1.5, 2.0):
-            btn = tk.Radiobutton(
-                speed_row, text=f"{speed}x", variable=self.tts_speed, value=speed,
-                command=self._on_tts_speed_changed, selectcolor=colors["select_bg"],
-                indicatoron=False, relief=tk.RAISED, padx=6, pady=2,
-            )
-            btn.pack(side=tk.LEFT, padx=(0, 4))
-            self._wire_toggle_button_contrast(btn, self.tts_speed, value=speed)
+        # -- Read Aloud -- omitted entirely when this build excludes the
+        # synthesis engine, same reasoning as _build_menu's Read Aloud cascade.
+        if tts.ENGINE_AVAILABLE:
+            tts_frame = tk.LabelFrame(top, text="Read Aloud")
+            tts_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
+            tk.Label(tts_frame, text="Voice:").pack(anchor="w", padx=10, pady=(6, 0))
+            voice_row = tk.Frame(tts_frame)
+            voice_row.pack(fill=tk.X, padx=10)
+            # Bundled voices only here too, same reasoning as the Read Aloud
+            # menu's own Voice submenu -- see _build_menu's comment.
+            for voice_id, info in tts.VOICES.items():
+                if not info.get("bundled"):
+                    continue
+                btn = tk.Radiobutton(
+                    voice_row, text=info["label"], variable=self.tts_voice, value=voice_id,
+                    command=self._on_tts_voice_changed, selectcolor=colors["select_bg"],
+                    indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
+                )
+                btn.pack(fill=tk.X, pady=1)
+                self._wire_toggle_button_contrast(btn, self.tts_voice, value=voice_id)
+            tk.Label(tts_frame, text="Speed:").pack(anchor="w", padx=10, pady=(6, 0))
+            speed_row = tk.Frame(tts_frame)
+            speed_row.pack(fill=tk.X, padx=10, pady=(0, 6))
+            for speed in (0.75, 1.0, 1.25, 1.5, 2.0):
+                btn = tk.Radiobutton(
+                    speed_row, text=f"{speed}x", variable=self.tts_speed, value=speed,
+                    command=self._on_tts_speed_changed, selectcolor=colors["select_bg"],
+                    indicatoron=False, relief=tk.RAISED, padx=6, pady=2,
+                )
+                btn.pack(side=tk.LEFT, padx=(0, 4))
+                self._wire_toggle_button_contrast(btn, self.tts_speed, value=speed)
 
         btn_row = tk.Frame(top)
         btn_row.pack(pady=(0, 16))
@@ -2064,19 +2005,19 @@ class SlateApp:
         toolbar.grid_columnconfigure(0, weight=1)
         toolbar.grid_columnconfigure(2, weight=1)
 
-        # "< Prev"/"Next >" removed -- duplicates of the ◀/▶ glyph buttons
+        # Columns is the FIRST tool in the toolbar (minus, editable count,
+        # plus), Fit Width right after it -- the most frequent controls
+        # reading a multi-column document, ahead of page-nav/TTS. "<
+        # Prev"/"Next >" removed -- duplicates of the ◀/▶ glyph buttons
         # already flanking the page-number box in toolbar_center below
         # (same self.prev/next commands). "Zoom -"/"Zoom +" removed --
         # still reachable via Settings' own Zoom row -/+ buttons and
-        # Ctrl+scroll. Columns -/+ added next to Fit Width (same control
-        # Settings' Zoom section has, duplicated here since it's a
-        # frequent action reading a multi-column document) -- both call
-        # fit_width() after changing num_columns, same re-fit-on-column-
-        # change behavior as Settings' own controls.
+        # Ctrl+scroll. All three column controls call fit_width() after
+        # changing num_columns, same re-fit-on-column-change behavior as
+        # Settings' own controls.
         toolbar_left = tk.Frame(toolbar)
         toolbar_left.grid(row=0, column=0, sticky="w")
-        tk.Button(toolbar_left, text="Fit Width", command=self.fit_width).pack(side=tk.LEFT)
-        tk.Label(toolbar_left, text="Columns:").pack(side=tk.LEFT, padx=(12, 4))
+        tk.Label(toolbar_left, text="Columns:").pack(side=tk.LEFT, padx=(0, 4))
 
         def _toolbar_columns_dec():
             self._columns_pinned = True
@@ -2089,7 +2030,17 @@ class SlateApp:
             self.fit_width()
 
         tk.Button(toolbar_left, text="-", width=2, command=_toolbar_columns_dec).pack(side=tk.LEFT)
-        tk.Button(toolbar_left, text="+", width=2, command=_toolbar_columns_inc).pack(side=tk.LEFT, padx=(2, 0))
+        # Real, editable count, not a read-only label -- Enter applies a
+        # typed value directly (same "type a number, Enter jumps/applies"
+        # convention as the page-number box in toolbar_center). Synced
+        # to self.num_columns on every render() (see its own tail), same
+        # place page_entry_var/page_total_label already refresh from.
+        self.columns_entry_var = tk.StringVar(value=str(self.num_columns))
+        columns_entry = tk.Entry(toolbar_left, textvariable=self.columns_entry_var, width=3, justify="center")
+        columns_entry.pack(side=tk.LEFT, padx=2)
+        columns_entry.bind("<Return>", self._on_columns_entry)
+        tk.Button(toolbar_left, text="+", width=2, command=_toolbar_columns_inc).pack(side=tk.LEFT, padx=(0, 12))
+        tk.Button(toolbar_left, text="Fit Width", command=self.fit_width).pack(side=tk.LEFT)
         # See _set_mode below: only packs itself into the toolbar for a
         # non-view mode, unpacking (not just blanking text) back to
         # view, so the common case shows nothing here at all.
@@ -2124,18 +2075,24 @@ class SlateApp:
         # Aloud menu. Two buttons: one smart play/pause/resume toggle
         # (do_tts_toggle_play decides which action makes sense for the
         # current state) plus a stop, same real actions the menu
-        # already exposes, not a separate mechanism.
-        self.tts_stop_button = tk.Button(toolbar_right, text="⏹", width=2, padx=0, command=self.do_tts_stop)
-        self.tts_stop_button.pack(side=tk.RIGHT, padx=(0, 6))
-        self.tts_play_button = tk.Button(
-            toolbar_right, text="▶", width=2, padx=0, command=self.do_tts_toggle_play,
-        )
-        self.tts_play_button.pack(side=tk.RIGHT, padx=(0, 2))
-        # Fixed green accent regardless of theme -- same convention as
-        # the About dialog's permanent accent bar, empty text (so no
-        # layout gap) whenever nothing's actually loaded.
-        self.tts_status_label = tk.Label(toolbar_right, text="", fg="#62a945")
-        self.tts_status_label.pack(side=tk.RIGHT, padx=(0, 8))
+        # already exposes, not a separate mechanism. Omitted entirely
+        # when this build excludes the synthesis engine -- every caller
+        # (_update_tts_toolbar_button, _update_tts_ui) already guards on
+        # hasattr(self, "tts_play_button"/"tts_status_label") for the
+        # home-screen-has-no-toolbar-yet case, so their absence here is
+        # already a handled state, not a new one.
+        if tts.ENGINE_AVAILABLE:
+            self.tts_stop_button = tk.Button(toolbar_right, text="⏹", width=2, padx=0, command=self.do_tts_stop)
+            self.tts_stop_button.pack(side=tk.RIGHT, padx=(0, 6))
+            self.tts_play_button = tk.Button(
+                toolbar_right, text="▶", width=2, padx=0, command=self.do_tts_toggle_play,
+            )
+            self.tts_play_button.pack(side=tk.RIGHT, padx=(0, 2))
+            # Fixed green accent regardless of theme -- same convention as
+            # the About dialog's permanent accent bar, empty text (so no
+            # layout gap) whenever nothing's actually loaded.
+            self.tts_status_label = tk.Label(toolbar_right, text="", fg="#62a945")
+            self.tts_status_label.pack(side=tk.RIGHT, padx=(0, 8))
 
         self.find_frame = tk.Frame(self.body_frame)
         tk.Label(self.find_frame, text="Find:").pack(side=tk.LEFT, padx=(6, 4))
@@ -2558,6 +2515,22 @@ class SlateApp:
         n = max(1, min(self.viewer.page_count, n))
         self._go_to_page(n - 1)
 
+    def _on_columns_entry(self, event=None):
+        """Same fail-soft convention as _goto_page_entry: invalid/out-of-
+        range input reverts the box to the real current count rather
+        than crashing or silently doing nothing. A typed value is a
+        manual pick same as the -/+ buttons -- pins columns and re-fits."""
+        if self.viewer is None:
+            return
+        try:
+            n = int(self.columns_entry_var.get())
+        except ValueError:
+            n = self.num_columns  # not a number -- revert, see below
+        n = max(1, min(6, n))
+        self._columns_pinned = True
+        self.num_columns = n
+        self.fit_width()
+
     def _kb_first_page(self, event=None):
         if self._typing_in_entry() or self.viewer is None:
             return
@@ -2952,6 +2925,8 @@ class SlateApp:
         )
         self.page_entry_var.set(str(self.viewer.page_num + 1))
         self.page_total_label.config(text=f"of {self.viewer.page_count}")
+        if hasattr(self, "columns_entry_var"):
+            self.columns_entry_var.set(str(self.num_columns))
 
     def _colorize_for_theme(self, img):
         # A raw invert only reads right for the plain built-in "dark"
@@ -3406,8 +3381,15 @@ class SlateApp:
         return rects
 
     def _highlight_selection(self):
+        # Pass the active theme's real highlight_bg at the same ~35%
+        # opacity the live selection overlay already uses
+        # (_draw_text_selection_for_page) so a saved highlight looks
+        # like what was on screen before saving it.
+        colors = theme.get_palette(self.theme_name.get())
+        hexc = colors["highlight_bg"].lstrip("#")
+        rgb = tuple(int(hexc[i:i + 2], 16) / 255 for i in (0, 2, 4))
         for page_num, rect in self._selection_line_rects():
-            annotate.add_highlight(self.doc[page_num], rect)
+            annotate.add_highlight(self.doc[page_num], rect, color=rgb, opacity=0.35)
         self._selected_words = []
         self.render()
 
@@ -3601,6 +3583,17 @@ class SlateApp:
         settings.save({"zoom": self.viewer.zoom})
 
     def fit_width(self):
+        # Cancel any pending debounced _apply_width_based_side_by_side
+        # (see _on_canvas_frame_configure) -- without this, a resize
+        # shortly before this call can leave that 150ms timer still
+        # armed; it fires AFTER this method returns, using stale
+        # pre-fit geometry, and its own _render_current_layout() call
+        # can re-render at a different column count than what was just
+        # explicitly fitted, silently undoing it. Real bug: "clicking
+        # Fit Width often doesn't render at the new size."
+        if self._autolayout_after_id is not None:
+            self.root.after_cancel(self._autolayout_after_id)
+            self._autolayout_after_id = None
         # Manual command, not an auto-apply-on-open default: auto-fitting
         # on every open broke 131 existing tests that hardcode
         # DEFAULT_ZOOM as document-open's fixed, predictable starting
@@ -4799,7 +4792,7 @@ def main():
     # iconify/deiconify in lockstep -- winfo_exists() guards each one
     # since any of them may not be open, or may have been closed
     # (destroyed) independently of a minimize/restore cycle.
-    _child_dialog_attrs = ("_settings_window", "_about_window", "_voice_sampler_window")
+    _child_dialog_attrs = ("_settings_window", "_about_window")
 
     def _sync_children_to_root_state(event=None):
         if event is not None and event.widget is not root:

@@ -8,7 +8,11 @@
     "select_bg": "#33762d",
     "muted_fg": "#4e4434",
     "highlight_bg": "#33762d",
-    "external_link": "#5b3fa6"
+    "external_link": "#5b3fa6",
+    "faint_fg": "#7a5843",
+    "bg2": "#aa9776",
+    "bg3": "#a88f68",
+    "border": "#8b6e50"
   },
   "dark": {
     "bg": "#030302",
@@ -19,6 +23,10 @@
     "select_bg": "#b4e4bc",
     "muted_fg": "#7d7d78",
     "highlight_bg": "#b4e4bc",
-    "external_link": "#9d8cf0"
+    "external_link": "#9d8cf0",
+    "faint_fg": "#62705c",
+    "bg2": "#07080a",
+    "bg3": "#0d0f12",
+    "border": "#415243"
   }
 }
