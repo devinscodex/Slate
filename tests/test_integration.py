@@ -13,11 +13,12 @@ import zipfile
 import fitz
 import pytest
 import tkinter as tk
-from tkinter import ttk
+from tkinter import font as tkfont, ttk
 from PIL import ImageColor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import gate  # noqa: E402
+import settings  # noqa: E402
 import slate  # noqa: E402
 import sign  # noqa: E402
 import theme  # noqa: E402
@@ -611,9 +612,6 @@ def test_home_screen_shows_real_version_and_summary(tmp_path, monkeypatch):
     root = tk.Tk()
     app = slate.SlateApp(root, path=None)
     try:
-        labels = [
-            w for w in app.home_frame.winfo_children()
-        ]
         all_text = []
 
         def collect(widget):
@@ -1680,10 +1678,8 @@ def test_voice_picker_only_offers_bundled_voices(tmp_path):
     removed from the normal pickers, leaving just the 1 bundled
     default. Applies to BOTH voice-choosing surfaces (the Read Aloud
     menu's own Voice submenu, and Settings' Voice radio group) --
-    alba/southern_english_female/danny still exist in tts.VOICES (their
-    preview clips still ship bundled, sampleable from the Sample Voices
-    dialog) but must not be offered as a pickable default in either
-    picker."""
+    alba/southern_english_female/danny still exist in tts.VOICES but
+    must not be offered as a pickable default in either picker."""
     root, app = _make_app(tmp_path)
     try:
         readm = app.root.nametowidget(app.root.cget("menu"))
@@ -1717,56 +1713,6 @@ def test_voice_picker_only_offers_bundled_voices(tmp_path):
             return set(results)
 
         assert find_voice_radiobutton_texts() == {"Northern English Male"}
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_sample_voices_dialog_lists_all_four_voices_with_play_buttons(tmp_path):
-    """The sampler is the one place ALL 4 voices stay visible/sampleable,
-    including the 3 dropped from the normal pickers, since their
-    preview clips ship bundled either way."""
-    root, app = _make_app(tmp_path)
-    try:
-        app._show_voice_sampler()
-        top = app._voice_sampler_window
-
-        def collect_labels_and_buttons():
-            labels, buttons = [], []
-            def walk(w):
-                if isinstance(w, tk.Label):
-                    labels.append(w.cget("text"))
-                if isinstance(w, tk.Button) and w.cget("text") == "Play":
-                    buttons.append(w)
-                for c in w.winfo_children():
-                    walk(c)
-            walk(top)
-            return labels, buttons
-
-        labels, play_buttons = collect_labels_and_buttons()
-        for name in ("Northern English Male", "Alba (GB Female)",
-                     "Southern English Female", "Danny (US Male)"):
-            assert any(name in label for label in labels), f"{name} missing from sampler"
-        assert len(play_buttons) == 4
-        # The 2 non-bundled voices get an explicit "(not downloaded)"
-        # marker so it's clear a preview plays but committing to the
-        # voice for real reading still requires the download prompt.
-        assert any("not downloaded" in label for label in labels)
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_sample_voices_dialog_is_a_single_instance(tmp_path):
-    """Same singleton pattern as Settings/About -- repeated opens
-    re-focus the existing dialog instead of stacking a second one."""
-    root, app = _make_app(tmp_path)
-    try:
-        assert getattr(app, "_voice_sampler_window", None) is None
-        app._show_voice_sampler()
-        first = app._voice_sampler_window
-        app._show_voice_sampler()
-        assert app._voice_sampler_window is first
     finally:
         app.doc.close()
         root.destroy()
@@ -1903,10 +1849,9 @@ def test_theme_switch_refreshes_native_titlebar_for_every_open_dialog(tmp_path):
 
 def test_dialog_border_is_theme_tinted_and_updates_live(tmp_path):
     """To match webUI's Bonepaper Dark look (a translucent version of
-    its own accent for every border), Settings/About/Sample Voices all
-    used ONE fixed universal gray (#6b6b6b) for their visible border,
-    regardless of theme. Real regression test: the border must actually
-    be
+    its own accent for every border), Settings/About used ONE fixed
+    universal gray (#6b6b6b) for their visible border, regardless of
+    theme. Real regression test: the border must actually be
     colors["dialog_border"] (a real fg-toward-select_bg blend, see
     theme.py's own comment for why fg-anchored not bg-anchored), must
     differ between two themes with different accents, and must update
@@ -1932,33 +1877,6 @@ def test_dialog_border_is_theme_tinted_and_updates_live(tmp_path):
         root.destroy()
 
 
-def test_play_voice_preview_loads_the_bundled_clip_for_any_of_the_four_voices(tmp_path, monkeypatch):
-    """Real audio LOAD, not just "button exists" -- confirms
-    _play_voice_preview actually reaches tts.load_preview_audio and
-    hands real samples to tts_player for EVERY voice, including the 2
-    that aren't offered in the normal picker anymore (the whole point
-    of the sampler: previewable without downloading).
-
-    tts_player.play() itself is mocked out here on purpose -- calling
-    the REAL sounddevice-backed play() 4 times in a row in this
-    no-audio-device dev environment was confirmed to genuinely HANG
-    (not just fail fast with PortAudioError the way a single call does;
-    see test_read_page_synthesizes_with_the_bundled_voice_and_handles_
-    playback_for_real, already one of this suite's known-flaky real-
-    hardware tests). What this test actually needs to verify --
-    _play_voice_preview loading the RIGHT bytes per voice -- doesn't
-    require the real device call at all, so mocking it out here avoids
-    compounding that existing flakiness for no correctness gain."""
-    for voice_id in tts.VOICES:
-        root, app = _make_app(tmp_path)
-        try:
-            monkeypatch.setattr(app.tts_player, "play", lambda: None)
-            assert app.tts_player.has_audio() is False
-            app._play_voice_preview(voice_id)
-            assert app.tts_player.has_audio() is True
-        finally:
-            app.doc.close()
-            root.destroy()
 
 
 def _make_doc_with_a_blank_middle_page(tmp_path):
@@ -2368,20 +2286,37 @@ def test_about_dialog_shows_real_version_and_summary(tmp_path):
         root.destroy()
 
 
-def test_about_dialog_shows_the_author(tmp_path):
+def test_about_dialog_shows_the_author_as_a_real_hyperlink(tmp_path, monkeypatch):
     """The About dialog showed version/summary but never actually
     credited an author anywhere the app itself surfaces (only
-    README.md had it, invisible while just running the app)."""
+    README.md had it, invisible while just running the app). The
+    author name is a real hyperlink (underlined, hand cursor, real
+    <Button-1> binding), not just plain text -- clicking it opens the
+    real GitHub profile."""
+    opened = []
+    monkeypatch.setattr(slate.webbrowser, "open", lambda url: opened.append(url))
     root, app = _make_app(tmp_path)
     try:
         app._show_about()
-        found_author = False
-        for child in root.winfo_children():
-            if isinstance(child, tk.Toplevel):
-                for widget in child.winfo_children():
-                    if isinstance(widget, tk.Label) and version.AUTHOR in widget.cget("text"):
-                        found_author = True
-        assert found_author, "About dialog should credit version.AUTHOR"
+        about = app._about_window
+
+        def find_author_label(w):
+            if isinstance(w, tk.Label) and w.cget("text") == version.AUTHOR:
+                return w
+            for c in w.winfo_children():
+                found = find_author_label(c)
+                if found is not None:
+                    return found
+            return None
+
+        link = find_author_label(about)
+        assert link is not None, "About dialog should credit version.AUTHOR"
+        assert link.cget("cursor") == "hand2"
+        assert tkfont.Font(font=link.cget("font")).actual("underline")
+
+        link.event_generate("<Button-1>")
+        root.update()
+        assert opened == [f"https://github.com/{version.AUTHOR}"]
     finally:
         app.doc.close()
         root.destroy()
@@ -2795,6 +2730,31 @@ def test_startup_schedules_a_silent_update_check(tmp_path, monkeypatch):
     try:
         _wait_until(lambda: len(calls) > 0, root, timeout=5)
         assert calls == [version.VERSION]
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_check_updates_on_start_setting_disables_the_startup_check(tmp_path, monkeypatch):
+    """Settings > "Check for updates on start" must actually gate the
+    2s-delayed startup check -- not just exist cosmetically."""
+    calls = []
+    monkeypatch.setattr(
+        "updatecheck.check_for_update",
+        lambda current, timeout=5.0: (calls.append(current) or
+                                       {"checked": False, "update_available": False,
+                                        "latest_version": None, "url": None, "error": "not configured"}),
+    )
+    settings.save({"check_updates_on_start": False})
+    root, app = _make_app(tmp_path)
+    try:
+        assert app.check_updates_on_start is False
+        assert app.check_updates_on_start_var.get() is False
+        root.update()
+        import time
+        time.sleep(2.3)  # past the real 2s startup delay
+        root.update()
+        assert calls == []
     finally:
         app.doc.close()
         root.destroy()
@@ -3325,46 +3285,10 @@ def test_toc_selected_row_uses_theme_highlight_not_ttks_default_blue(tmp_path):
         root.destroy()
 
 
-def test_about_dialog_has_a_fixed_green_accent_regardless_of_theme(tmp_path, monkeypatch):
-    """A permanent, clever hint of house green is present on the about
-    page and must stay green even under a non-green theme (Slate Dark's
-    real accent is moss, #699d43, not the fixed #62a945 accent bar
-    checked here).
-
-    Later split into two halves so the green hint reads as a natural
-    part of the layout rather than a separate labeled swatch -- left
-    half stays this fixed house green (real assertion here, now nested
-    one level deeper in accent_bar_row), right half shows the live
-    theme accent instead (see
-    test_about_dialog_shows_the_live_theme_accent_color below)."""
-    monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
-    root, app = _make_app(tmp_path)
-    try:
-        app.theme_name.set("slate_dark")
-        app._apply_theme()
-        app._show_about()
-        about = root.winfo_children()[-1]  # the just-opened Toplevel
-
-        def find_frames(w, out):
-            if w.winfo_class() == "Frame":
-                out.append(w)
-            for c in w.winfo_children():
-                find_frames(c, out)
-        frames = []
-        find_frames(about, frames)
-        accent_bars = [w for w in frames if str(w.cget("bg")) == "#62a945"]
-        assert len(accent_bars) == 1
-        about.destroy()
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
 def test_about_dialog_shows_the_live_theme_accent_color(tmp_path, monkeypatch):
-    """The About dialog displays the active theme's accent color,
-    added naturally into the layout rather than as a separate labeled
-    swatch. Real regression test for the live half of that split line:
-    shows the ACTIVE theme's own select_bg, not the fixed house green,
+    """The About dialog displays the active theme's accent color as a
+    single bar, added naturally into the layout rather than as a
+    separate labeled swatch: shows the ACTIVE theme's own select_bg,
     and updates if the theme changes while About stays open (real now
     that About-from-Settings is non-modal -- see the grab-policy
     tests)."""
@@ -3968,6 +3892,39 @@ def test_theme_change_invalidates_the_whole_page_cache(tmp_path):
 # turned on at once.
 # ------------------------------------------------------------------
 
+def test_toolbar_columns_entry_shows_count_and_accepts_typed_values(tmp_path):
+    """Columns is the first tool group in the toolbar (minus, editable
+    count, plus, then Fit Width) -- the entry is a real editable field,
+    not a read-only label: typing a value and pressing Enter applies it
+    the same way the -/+ buttons do (pins columns, re-fits), and the
+    displayed value stays in sync with self.num_columns on every
+    render(), including changes made elsewhere (e.g. the -/+ buttons
+    themselves)."""
+    root, app = _make_app(tmp_path)
+    try:
+        assert app.columns_entry_var.get() == str(app.num_columns)
+
+        app.columns_entry_var.set("3")
+        app._on_columns_entry()
+        assert app.num_columns == 3
+        assert app._columns_pinned is True
+        assert app.columns_entry_var.get() == "3"
+
+        # Fail-soft: invalid/out-of-range input reverts to the real
+        # current count instead of crashing or silently doing nothing.
+        app.columns_entry_var.set("not a number")
+        app._on_columns_entry()
+        assert app.num_columns == 3
+        assert app.columns_entry_var.get() == "3"
+
+        app.columns_entry_var.set("99")
+        app._on_columns_entry()
+        assert app.num_columns == 6  # clamped to the real max
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_fit_width_divides_viewport_across_columns_in_side_by_side(tmp_path):
     """"Fit width" should center bookview, not the left half of
     bookview: fit_width() always fit ONE page's
@@ -4037,6 +3994,31 @@ def test_fit_width_uses_the_cropped_content_width_not_the_full_page(tmp_path):
 
         assert app._get_crop_rect() is not None  # fixture has real detectable content
         assert cropped_zoom > uncropped_zoom
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_fit_width_cancels_a_pending_autolayout_so_it_cant_undo_the_fit(tmp_path):
+    """Real bug: "clicking Fit Width often doesn't render at the new
+    size." Root cause: _on_canvas_frame_configure debounces
+    _apply_width_based_side_by_side via a 150ms root.after() timer on
+    every canvas-frame resize. If Fit Width is clicked while that timer
+    is still pending (e.g. right after resizing the window), the timer
+    fires AFTER fit_width() returns, using its own (possibly different)
+    column-count math, and its _render_current_layout() call can
+    silently re-render at a different column count -- undoing the fit
+    the user just explicitly asked for. fit_width() must cancel any
+    pending timer itself, the same way an actually-fired
+    _apply_width_based_side_by_side already clears it (sets
+    self._autolayout_after_id = None)."""
+    root, app = _make_app(tmp_path)
+    try:
+        # Simulate the race: a real pending after() id, standing in for
+        # one _on_canvas_frame_configure would have armed moments ago.
+        app._autolayout_after_id = root.after(150, lambda: None)
+        app.fit_width()
+        assert app._autolayout_after_id is None
     finally:
         app.doc.close()
         root.destroy()
@@ -4599,7 +4581,8 @@ def test_settings_palette_preview_shows_the_real_current_theme_colors(tmp_path):
         chips_after = []
         find_chips(theme_frame, chips_after)
         assert {c.slate_fixed_bg for c in chips_after} == {
-            martin_palette["bg"], martin_palette["button_bg"], martin_palette["select_bg"]
+            martin_palette["bg"], martin_palette["button_bg"],
+            martin_palette["select_bg"],
         }
     finally:
         app.doc.close()

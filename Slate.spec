@@ -1,7 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('branding', 'branding'), ('voices', 'voices'), ('theme_data', 'theme_data')]
+# voices/ (bundled TTS model) and the piper/onnxruntime/sounddevice/
+# soundfile collect_all calls below are deliberately OFF -- Read Aloud is
+# excluded from this build entirely (tts.ENGINE_AVAILABLE gates the UI in
+# slate.py) to keep the binary lean. Re-enable by un-commenting these four
+# lines, adding back ('voices', 'voices') to datas, and dropping the
+# excludes= entries below -- nothing else needs to change, tts.py's own
+# lazy-import already tolerates either state.
+datas = [('branding', 'branding'), ('theme_data', 'theme_data')]
 binaries = []
 hiddenimports = []
 tmp_ret = collect_all('fitz')
@@ -10,14 +17,14 @@ tmp_ret = collect_all('pikepdf')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('pyhanko')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('piper')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('onnxruntime')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('sounddevice')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('soundfile')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+# tmp_ret = collect_all('piper')
+# datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+# tmp_ret = collect_all('onnxruntime')
+# datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+# tmp_ret = collect_all('sounddevice')
+# datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+# tmp_ret = collect_all('soundfile')
+# datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 # A Linux PyInstaller build crashes opening any real document with
 # "ModuleNotFoundError: No module

@@ -35,6 +35,15 @@ _PROPERTY_MAP = {
 # handled as a post-step below, not through _PROPERTY_MAP, since they
 # alias rather than read a distinct property.
 
+# Optional: resolved if present, silently omitted if not -- unlike
+# _PROPERTY_MAP above, missing one of these is NOT an error. Keeps small
+# test fixtures (deliberately minimal CSS snippets exercising one thing
+# at a time) working without needing to define every property a real
+# theme file happens to also carry.
+_OPTIONAL_PROPERTY_MAP = {
+    "faint_fg": "--text-faint",
+}
+
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 _RGB_VAR_RE = re.compile(r"^rgba?\(\s*var\(\s*(--[\w-]+)\s*\)\s*(?:,\s*[\d.]+\s*)?\)$")
 _VAR_RE = re.compile(r"^var\(\s*(--[\w-]+)\s*\)$")
@@ -126,6 +135,10 @@ def _build_palette(root_vars: dict, block_vars: dict, is_dark: bool) -> dict:
         if raw is None:
             raise ValueError(f"theme block is missing required property {css_var!r}")
         palette[slate_key] = _resolve(raw, scope)
+    for slate_key, css_var in _OPTIONAL_PROPERTY_MAP.items():
+        raw = block_vars.get(css_var)
+        if raw is not None:
+            palette[slate_key] = _resolve(raw, scope)
     palette["entry_bg"] = palette["bg"]
     palette["canvas_bg"] = palette["bg"]
     palette["is_dark"] = is_dark

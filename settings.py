@@ -23,6 +23,7 @@ DEFAULTS = {
     "colorize_pages": False,
     "crop_to_content": False,
     "toc_visible": True,
+    "check_updates_on_start": True,
     # Integer POINT delta from whatever size Tk picked as the platform's
     # native default at first launch (theme.py._UI_FONT_BASE_SIZES,
     # captured once) -- not an absolute point size or raw pixel count,

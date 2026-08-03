@@ -17,13 +17,14 @@ platform.
 Roster: 4 families (Slate/Bonepaper/Flexoki/Martin), light+dark each,
 8 variants total.
 
-Chrome cascade: one consistent rule across every variant, not a
-per-theme special case -- menubar_bg = bg (closest to the OS title
-bar), toolbar_bg = 16% toward fg (closest to the content/card level),
-tabstrip_bg = 8% toward fg (the midpoint step), a real 3-step visual
-gradient top to bottom. menubar_fg/toolbar_fg both use the theme's own
-fg -- readable against either cascade extreme given a theme's
-guaranteed bg/fg contrast.
+Chrome cascade: menubar_bg = bg (closest to the OS title bar),
+tabstrip_bg/toolbar_bg = each family's own authored bg2/bg3 (real,
+hand-tuned per-family steps pulled from webUI's own CSS, not a generic
+computed lerp -- a family whose identity is "true black, color reserved
+for the accent" (bonepaper dark) authors a near-invisible step here on
+purpose, which a generic percentage-toward-fg formula can't reproduce).
+menubar_fg/toolbar_fg both use the theme's own fg -- readable against
+either cascade extreme given a theme's guaranteed bg/fg contrast.
 """
 import json
 from pathlib import Path
@@ -42,11 +43,15 @@ _THEME_DATA_DIR = Path(__file__).parent / "theme_data"
 _BASE_KEYS = (
     "bg", "fg", "button_bg", "entry_bg", "canvas_bg",
     "select_bg", "muted_fg", "highlight_bg",
+    # faint_fg/bg2/bg3/border: real authored values pulled from webUI's
+    # own CSS (--text-faint, --bg-2, --bg-3, --line) -- a third, dimmer
+    # text tier and real per-family chrome/border steps, not computed.
+    "faint_fg", "bg2", "bg3", "border",
 )
 
 
 def _load_base(family: str, mode: str) -> dict:
-    """Loads one family's base 8-key palette (_BASE_KEYS) for the given
+    """Loads one family's base palette (_BASE_KEYS) for the given
     mode ("light" or "dark") from theme_data/<family>.json, plus is_dark
     (not stored in the JSON itself, derived from which mode was asked
     for). Whitelisted to _BASE_KEYS on purpose: devs-themes is a shared
@@ -85,12 +90,9 @@ def _lerp_toward_fg(bg: str, fg: str, fraction: float) -> str:
 
 
 def _with_chrome_cascade(palette: dict) -> dict:
-    """menubar_bg=bg (0% toward fg, right against the OS title bar),
-    tabstrip_bg=8% toward fg, toolbar_bg=16% toward fg (closest to the
-    content/card level) -- one consistent, self-computing rule for
-    every family, riding the theme's own guaranteed bg<->fg contrast
-    rather than button_bg (which keeps its own original role: tab
-    fills, general Button widgets).
+    """menubar_bg=bg (right against the OS title bar). tabstrip_bg/
+    toolbar_bg use the family's own authored bg2/bg3 directly -- real
+    per-family values (see module docstring), not computed.
 
     active_tab_bg: 35% of the way from button_bg (the plain tab fill
     every other tab uses) toward the theme's own select_bg -- a tint,
@@ -101,13 +103,17 @@ def _with_chrome_cascade(palette: dict) -> dict:
     fg toward select_bg at 35% (not bg toward select_bg -- a bg-anchored
     blend only cleared ~3:1 contrast in some themes per
     _wcag_contrast_ratio, real risk of reading as near-invisible against
-    its own dialog fill; fg-anchored clears 3.7:1+ everywhere)."""
+    its own dialog fill; fg-anchored clears 3.7:1+ everywhere). Kept as
+    its own computed value, separate from the authored `border` key --
+    `border` is a real per-family chrome accent (can read as near-
+    invisible against a THEMED dialog's own fill in some families) where
+    dialog_border specifically needs guaranteed contrast."""
     palette = dict(palette)
     bg, fg = palette["bg"], palette["fg"]
     palette["menubar_bg"] = bg
     palette["menubar_fg"] = fg
-    palette["tabstrip_bg"] = _lerp_toward_fg(bg, fg, 0.08)
-    palette["toolbar_bg"] = _lerp_toward_fg(bg, fg, 0.16)
+    palette["tabstrip_bg"] = palette["bg2"]
+    palette["toolbar_bg"] = palette["bg3"]
     palette["toolbar_fg"] = fg
     palette["active_tab_bg"] = _lerp_toward_fg(palette["button_bg"], palette["select_bg"], 0.35)
     palette["dialog_border"] = _lerp_toward_fg(fg, palette["select_bg"], 0.35)
@@ -134,19 +140,24 @@ _STANDARD_LIGHT = _load_base("flexoki", "light") | {
     "accent2": "#5e409d",
 }
 
-# Slate: dark built on official Solarized neutrals (bg/button_bg/
-# muted_fg/fg, ethanschoonover.com/solarized) with the accent replaced
-# by a desaturated true moss (h:95 s:40% l:44% -> #699d43).
+# Slate Dark: the real published Nord palette (nordtheme.com) --
+# Polar Night bg/button_bg/entry_bg (nord0/nord2/nord1), Snow Storm fg
+# (nord4), Frost select_bg/highlight_bg (nord8/nord9, two distinct
+# blues), muted_fg/border (nord3).
 _SLATE_DARK = _load_base("slate", "dark") | {
-    # accent2: real Solarized magenta (#d33682) -- same spec Slate's own
-    # primary neutrals come from. Solarized's real orange was tried
-    # first but trips test_no_dark_theme_has_brown_tones. Solarized's
-    # accent hues are identical across light and dark by the spec's own
-    # design, so light/dark share this value.
-    "accent2": "#d33682",
+    # accent2: real Nord Aurora purple (nord15, #B48EAD) -- distinct
+    # hue from the Frost blues above, satisfies the no-repeat-colors
+    # rule without leaving the real published palette.
+    "accent2": "#b48ead",
 }
+# Slate Light: Flexoki's own real base-300/400/500/600 gray ramp
+# (stephango.com/flexoki), landing at nearly the same lightness as the
+# original stone tones but genuinely desaturated -- less tan, more
+# gray. accent2 shares Dark's real Nord purple for a consistent look
+# across the light/dark toggle, same principle the old Solarized
+# pairing used.
 _SLATE_LIGHT = _load_base("slate", "light") | {
-    "accent2": "#d33682",  # same real Solarized magenta as Dark above
+    "accent2": "#b48ead",
 }
 
 # Bonepaper: light = Boneink's real light half (bone-paper, fixed
@@ -181,6 +192,10 @@ _MARTIN_LIGHT = _load_base("martin", "light") | {
 _MARTIN_DARK = _load_base("martin", "dark") | {
     "accent2": "#7cc25a",  # martin.css's own dark-mode link-color-hover
 }
+# border (both modes) = accent2's own value, not a neutral gray -- the
+# real WCAG contrast against bg was only 2.24:1 for dark's old neutral
+# border, genuinely weak; accent2 gives 7.47:1 dark / 6.76:1 light,
+# real green presence instead of gray, same already-vetted color.
 
 THEMES = {
     "light": _with_chrome_cascade(_STANDARD_LIGHT),

@@ -15,7 +15,7 @@ AUTHOR = "devinscodex"
 # a split-license codebase. See LICENSE for full text.
 LICENSE = "AGPL-3.0-or-later"
 
-VERSION = "1.5.4"
+VERSION = "1.6.0"
 # 1.0.0 -- core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (Flexoki/Bonepaper/Slate, default Slate
@@ -94,16 +94,37 @@ VERSION = "1.5.4"
 # 1.5.4 -- Only northern_english_male ships bundled now (alba moved to
 #          download-on-first-use, same as the other 2 optional voices)
 #          -- installer/tarball ~60MB smaller. Removed unused icon-
-#          concept draft files from branding/.
+#          concept draft files from branding/. New Settings > Display
+#          checkbox: "Check for updates on start" (default on).
+#          DESIGN.md trimmed (build-log/slice-tracking narration cut,
+#          technical content kept).
+# 1.6.0 -- Theme overhaul: Bonepaper Dark, Slate Light/Dark, and Martin
+#          all given real per-family faint_fg/bg2/bg3/border colors
+#          (authored, not computed) -- Slate Light re-based on Flexoki's
+#          gray ramp (less tan), Slate Dark rebuilt on the real Nord
+#          palette, Martin's border fixed to real WCAG contrast with
+#          more green accent throughout. Fixed: saved highlight
+#          annotations rendered as solid opaque blocks instead of
+#          translucent marks (MuPDF's rasterizer doesn't honor the
+#          Multiply blend mode Highlight annots are spec'd to use --
+#          fixed with real alpha instead). Fixed: Fit Width sometimes
+#          didn't re-render at the new size (a pending debounced
+#          auto-relayout could fire after and silently undo it).
+#          Voice Sampler dialog removed. Toolbar: Columns control moved
+#          to the front, now has an editable count field. About dialog:
+#          single accent-color bar, content mirrors README, author name
+#          is a real hyperlink to the GitHub profile.
 
+# Mirrors README.md's own prose (minus headers and purely-navigational
+# lines like the Download/DESIGN.md pointers, which don't make sense
+# repeated inside the app itself) -- keep these in sync by hand when
+# either changes; no live file-read of README.md at runtime.
 SUMMARY = (
-    "Slate liberates all the editing.\n"
     "Slate liberates a trapped ecosystem.\n\n"
-    "View, annotate, merge/split, redact, sign, fill forms, correct text. "
-    "Reads PDF, ebooks, text, Markdown, HTML, images, and code -- one "
-    "lightweight tool, not ten apps for ten formats. Built on proven "
-    "libraries (PyMuPDF, pikepdf, pyHanko), not reinvented.\n\n"
-    "Free and open-source, forever, under the GNU AGPL-3.0-or-later -- "
-    "because software should serve the file, not the company selling it. "
-    "Why pay for Adobe?"
+    "A small, capable PDF editor. View, annotate, merge/split, redact, "
+    "sign, and fill forms.\n\n"
+    "Built from proven libraries (PyMuPDF, pikepdf, pyHanko), not "
+    "reinvented. Made to replace Adobe Pro and other licensed tools for "
+    "daily use.\n\n"
+    "The document reader and editor we always wanted."
 )

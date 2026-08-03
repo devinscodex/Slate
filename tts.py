@@ -16,6 +16,31 @@ import os
 import urllib.request
 from pathlib import Path
 
+# True only if the real synthesis engine is actually importable -- False in
+# any build that deliberately excludes piper/onnxruntime from Slate.spec to
+# keep the binary small (Read Aloud UI checks this to hide itself entirely
+# rather than exposing menu items that would crash on first click).
+#
+# A real try/import, not importlib.util.find_spec("piper") -- find_spec
+# walks every meta_path finder including PyInstaller's own frozen
+# importer, and hung for real (not just slow -- a genuine app-startup
+# freeze, confirmed live, no window ever created) probing for a module
+# deliberately excluded from a frozen build.
+#
+# Real tradeoff, accepted for now: this imports piper (and transitively
+# onnxruntime) at Slate's own startup in a build where the engine IS
+# bundled, not on first actual Read Aloud use -- the opposite of this
+# module's own stated lazy-import doctrine above. Fine while Read Aloud
+# stays excluded from the shipped build (this raises ImportError almost
+# instantly, no real module to load); worth revisiting (e.g. an
+# importlib.metadata.version() probe instead, which reads package
+# metadata without executing the module) if/when the engine comes back.
+try:
+    import piper  # noqa: F401
+    ENGINE_AVAILABLE = True
+except ImportError:
+    ENGINE_AVAILABLE = False
+
 CONFIG_DIR = Path.home() / ".slate"
 DOWNLOADED_VOICES_DIR = CONFIG_DIR / "tts-voices"
 BUNDLED_VOICES_DIR = Path(__file__).parent / "voices"

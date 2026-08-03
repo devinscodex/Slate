@@ -253,23 +253,20 @@ def test_every_theme_has_a_real_second_accent_distinct_from_the_primary():
 
 def test_chrome_cascade_is_a_real_three_step_gradient():
     """The menu bar cascades down in color from window bar to tabs to
-    toolbar for an aesthetic gradient effect, consistent across every
-    core theme. The original bg/button_bg-anchored formula produced a
-    mathematically-real but PERCEPTUALLY INVISIBLE step for
-    inkbone_dark (both tones too close to pure black). Fix: interpolate
-    toward fg instead (0%/8%/16%), which rides the theme's own
-    guaranteed bg<->fg contrast -- one consistent rule for all 6
-    variants, and this test proves the 3 steps are ACTUALLY distinct by
-    a real, non-trivial margin, not just non-equal."""
+    toolbar for an aesthetic gradient effect. tabstrip_bg/toolbar_bg are
+    each family's own authored bg2/bg3 (real values pulled from webUI's
+    own CSS, not a generic computed lerp) -- a family whose identity is
+    "true black, color reserved for the accent" (bonepaper dark)
+    authors a near-invisible step here on purpose, so this test checks
+    the cascade actually READS the authored values (not a stale
+    computed fallback), plus a real perceptual guard that catches a
+    theme accidentally shipping a technically-distinct but visually-
+    identical step."""
     for name, colors in theme.THEMES.items():
         assert colors["menubar_bg"] == colors["bg"], name
-        assert colors["tabstrip_bg"] == theme._lerp_toward_fg(colors["bg"], colors["fg"], 0.08), name
-        assert colors["toolbar_bg"] == theme._lerp_toward_fg(colors["bg"], colors["fg"], 0.16), name
+        assert colors["tabstrip_bg"] == colors["bg2"], name
+        assert colors["toolbar_bg"] == colors["bg3"], name
 
-        # Real perceptual guard, not just "the 3 hex strings differ" --
-        # every step's total RGB distance from the previous one must
-        # clear a real minimum, catching the exact class of bug this
-        # pass fixed (technically-distinct but visually-identical steps).
         def rgb_distance(hex_a, hex_b):
             a, b = theme._hex_to_rgb(hex_a), theme._hex_to_rgb(hex_b)
             return sum(abs(x - y) for x, y in zip(a, b))
@@ -289,43 +286,24 @@ def test_lerp_toward_fg_computes_a_real_fractional_step():
     assert theme._lerp_toward_fg("#000000", "#ffffff", 0.5) == "#808080"
 
 
-def test_slate_dark_matches_the_real_official_solarized_bones():
-    """Originally test_solarized_matches_the_real_official_palette,
-    checking against the official Solarized values (ethanschoonover.com/
-    solarized): base03:base0 for bg:fg, base02 for the secondary/UI
-    surface.
+def test_slate_dark_matches_the_real_official_nord_palette():
+    """Slate Dark was rebuilt on the real published Nord palette
+    (nordtheme.com) -- Polar Night bg/button_bg/entry_bg (nord0/nord2/
+    nord1), Snow Storm fg (nord4), Frost select_bg/highlight_bg (nord8/
+    nord9, two distinct blues so the two roles don't collide), Polar
+    Night nord3 for muted_fg/border. Checked against the real published
+    hex values, not re-derived or approximated.
 
-    Solarized itself was later retired once this family existed (named
-    Mosscairn at the time, then renamed to Slate), carrying these exact
-    same official neutrals with a moss accent instead of blue -- this
-    test moved with the values rather than being deleted, so official-
-    palette fidelity for bg/button_bg/fg/muted_fg is still checked
-    live. Only select_bg differs on purpose now: Slate's own moss
-    accent (#699d43), not Solarized's official blue -- that
-    substitution IS the whole point of this theme, not a regression.
-
-    muted_fg was corrected (#586e75 -> #657b83): css_theme.py's parser,
-    reading the real slate.css (named mosscairn.css at the time), caught
-    that Slate's own muted_fg had been hand-copied from --text-faint
-    (base01) instead of the property it's actually meant to mirror,
-    --text-muted (base00) -- see theme.py's own _SLATE_DARK comment for
-    the full story.
-
-    bg/canvas_bg later moved off stock Solarized toward Solarized Osaka
-    (craftzdog/solarized-osaka.nvim). Osaka's `black` (#073642) and
-    `foreground` (#839496) already matched Slate Dark's button_bg/fg
-    exactly -- only Osaka's deeper primary background (#001a1d vs stock
-    Solarized's #002b36) actually differs, so that's the only value that
-    moved at the time.
-
-    bg/button_bg moved AGAIN in a later "Bluish-gray Slate Dark" pass,
-    landing #2c3640/#414f5a, moving further off both stock Solarized and
-    Osaka toward a cooler blue-gray. fg/muted_fg/select_bg are still the
-    same official Solarized-lineage/moss values as before, unchanged by
-    this pass."""
+    Previously built on Solarized/Solarized-Osaka neutrals with a moss
+    accent (that lineage is gone now, not just re-hued) -- see git
+    history for the prior Solarized-fidelity version of this test if
+    that lineage is ever needed again."""
     dark = theme.THEMES["slate_dark"]
-    assert dark["bg"] == "#2c3640"  # bluish-gray Slate Dark reconciliation
-    assert dark["button_bg"] == "#414f5a"  # same pass, moved with bg
-    assert dark["fg"] == "#839496"  # Solarized base0 (== Osaka's own "foreground")
-    assert dark["muted_fg"] == "#657b83"  # Solarized base00 (--text-muted, not --text-faint)
-    assert dark["select_bg"] == "#699d43"  # Slate's own moss accent, not Solarized's blue
+    assert dark["bg"] == "#2e3440"  # Nord0 (Polar Night)
+    assert dark["button_bg"] == "#434c5e"  # Nord2
+    assert dark["entry_bg"] == "#3b4252"  # Nord1
+    assert dark["fg"] == "#d8dee9"  # Nord4 (Snow Storm)
+    assert dark["muted_fg"] == "#4c566a"  # Nord3
+    assert dark["select_bg"] == "#88c0d0"  # Nord8 (Frost)
+    assert dark["highlight_bg"] == "#81a1c1"  # Nord9 (Frost) -- distinct from select_bg
+    assert dark["accent2"] == "#b48ead"  # Nord15 (Aurora purple)
