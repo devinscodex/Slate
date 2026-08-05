@@ -13,7 +13,24 @@ pause logic is still fully tested by calling it directly with synthetic
 buffers, bypassing the need for a real device.
 """
 import numpy as np
-import sounddevice as sd
+
+# Guarded the same way tts.py guards `import piper` -- sounddevice is
+# excluded from this build (Slate.spec) whenever Read Aloud itself is
+# (tts.ENGINE_AVAILABLE gates every real call site that constructs a
+# Player and invokes play()/_callback()/stop(), all in slate.py). Player
+# itself is instantiated unconditionally at app startup though (a real,
+# separate object-existence vs. feature-availability split from tts.py's
+# own pattern), so THIS import must survive sounddevice's absence -- sd
+# only gets touched inside methods those call sites already never reach
+# when the engine is unavailable. An unguarded import here crashed the
+# whole app at launch once sounddevice actually stopped being bundled
+# (real regression, caught live 2026-08-03: "ModuleNotFoundError: No
+# module named 'sounddevice'" at slate.py's own top-level import chain,
+# before any gating logic ever ran).
+try:
+    import sounddevice as sd
+except ImportError:
+    sd = None
 
 
 class Player:

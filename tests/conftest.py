@@ -28,7 +28,34 @@ cached object instead of loading a fresh one, hanging deep inside
 onnxruntime on Windows specifically (a cross-test contamination bug,
 not a real product bug -- runs fine standalone, only hangs as part of
 the full suite).
+
+theme.THEMES/THEME_LABELS/_chrome_overrides are also module-level and
+mutated IN PLACE by save_as_new_theme/update_live/reload_from_disk (by
+design -- a live color editor needs the running app's real dicts to
+change under it, no separate "preview" copy). A test that calls any of
+those (or exercises the color editor through SlateApp) would otherwise
+leave a custom theme, a THEME_LABELS entry, or a cascade override
+sitting in the shared module dict for every later test in the same
+process -- exactly the kind of cross-test contamination this file
+already guards against for tts._voice_cache above. Snapshotting and
+restoring both dicts plus clearing overrides after every test closes
+that gap the same way.
+
+theme._THEME_DATA_DIR and theme._DEVS_THEMES_PALETTES are a REAL, live
+version of that same gap, caught only by actually finding the damage on
+disk after a test run (not proactively): save_family_values()/
+reload_from_disk() read/write those two paths directly, and neither was
+in the isolation list above -- test_theme_editor.py's own override-
+round-trip tests wrote a genuine `slate_chrome_overrides` key straight
+into the real, fossil-tracked `theme_data/bonepaper.json` (and its
+sibling in the neighboring devs-themes checkout), silently, on a normal
+test run. Copying the real theme_data/*.json into the isolated tmp dir
+and pointing both module paths at copies closes this for good -- every
+theme-family file a test could plausibly touch is covered, not just the
+one that happened to get caught this time.
 """
+import shutil
+
 import pytest
 
 import gate
@@ -36,6 +63,8 @@ import recent
 import settings
 import theme
 import tts
+
+_REAL_THEME_DATA_DIR = theme._THEME_DATA_DIR
 
 
 @pytest.fixture(autouse=True)
@@ -47,7 +76,33 @@ def isolate_recent_files_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(gate, "UNLOCK_FILE", cfg / "unlock.json")
     monkeypatch.setattr(theme, "CONFIG_DIR", cfg)
     monkeypatch.setattr(theme, "PREF_FILE", cfg / "theme.json")
+    monkeypatch.setattr(theme, "CUSTOM_THEMES_FILE", cfg / "custom_themes.json")
+    # Real theme_data/*.json copied fresh into the isolated tmp dir each
+    # test -- save_family_values()/reload_from_disk() are free to read
+    # and write these like the real thing without ever touching the
+    # actual fossil-tracked files (see this file's own module docstring
+    # for the real incident that made this necessary). devs-themes gets
+    # the identical copies at a separate path -- save_family_values()
+    # writes both independently, both need to exist for a save to
+    # succeed at all.
+    fake_theme_data = cfg / "theme_data"
+    fake_theme_data.mkdir(parents=True)
+    fake_devs_palettes = cfg / "devs-themes-palettes"
+    fake_devs_palettes.mkdir(parents=True)
+    for f in _REAL_THEME_DATA_DIR.glob("*.json"):
+        shutil.copy(f, fake_theme_data / f.name)
+        shutil.copy(f, fake_devs_palettes / f.name)
+    monkeypatch.setattr(theme, "_THEME_DATA_DIR", fake_theme_data)
+    monkeypatch.setattr(theme, "_DEVS_THEMES_PALETTES", fake_devs_palettes)
     monkeypatch.setattr(settings, "CONFIG_DIR", cfg)
     monkeypatch.setattr(settings, "SETTINGS_FILE", cfg / "settings.json")
     monkeypatch.setattr(tts, "DOWNLOADED_VOICES_DIR", cfg / "tts-voices")
     tts._voice_cache.clear()
+    _themes_snapshot = dict(theme.THEMES)
+    _labels_snapshot = dict(theme.THEME_LABELS)
+    yield
+    theme.THEMES.clear()
+    theme.THEMES.update(_themes_snapshot)
+    theme.THEME_LABELS.clear()
+    theme.THEME_LABELS.update(_labels_snapshot)
+    theme._chrome_overrides.clear()

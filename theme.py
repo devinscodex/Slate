@@ -49,6 +49,19 @@ _BASE_KEYS = (
     "faint_fg", "bg2", "bg3", "border",
 )
 
+# The keys _with_chrome_cascade computes from _BASE_KEYS rather than
+# storing directly. A built-in theme's color editor can still edit these
+# directly (Devin's explicit ask: "full control of the colors of every
+# component") -- doing so records a per-theme override (_chrome_overrides
+# below) so a later _BASE_KEYS edit re-derives the cascade without
+# clobbering it. A custom theme (see is_custom()) has no formula at all;
+# every one of its keys, base or cascade, is just a flat stored value.
+_CASCADE_KEYS = (
+    "menubar_bg", "menubar_fg", "tabstrip_bg", "toolbar_bg", "toolbar_fg",
+    "active_tab_bg", "dialog_border",
+)
+_EDITABLE_KEYS = _BASE_KEYS + _CASCADE_KEYS
+
 
 def _load_base(family: str, mode: str) -> dict:
     """Loads one family's base palette (_BASE_KEYS) for the given
@@ -89,7 +102,7 @@ def _lerp_toward_fg(bg: str, fg: str, fraction: float) -> str:
     return _rgb_to_hex(tuple(round(x + fraction * (y - x)) for x, y in zip(a, b)))
 
 
-def _with_chrome_cascade(palette: dict) -> dict:
+def _with_chrome_cascade(palette: dict, overrides: dict = None) -> dict:
     """menubar_bg=bg (right against the OS title bar). tabstrip_bg/
     toolbar_bg use the family's own authored bg2/bg3 directly -- real
     per-family values (see module docstring), not computed.
@@ -107,7 +120,12 @@ def _with_chrome_cascade(palette: dict) -> dict:
     its own computed value, separate from the authored `border` key --
     `border` is a real per-family chrome accent (can read as near-
     invisible against a THEMED dialog's own fill in some families) where
-    dialog_border specifically needs guaranteed contrast."""
+    dialog_border specifically needs guaranteed contrast.
+
+    overrides: optional dict of already-computed _CASCADE_KEYS values
+    (from a live per-theme edit, see update_live) applied AFTER the
+    formula above -- a real hand-set value always wins over the
+    computed default it would otherwise get."""
     palette = dict(palette)
     bg, fg = palette["bg"], palette["fg"]
     palette["menubar_bg"] = bg
@@ -117,6 +135,8 @@ def _with_chrome_cascade(palette: dict) -> dict:
     palette["toolbar_fg"] = fg
     palette["active_tab_bg"] = _lerp_toward_fg(palette["button_bg"], palette["select_bg"], 0.35)
     palette["dialog_border"] = _lerp_toward_fg(fg, palette["select_bg"], 0.35)
+    if overrides:
+        palette.update({k: v for k, v in overrides.items() if k in _CASCADE_KEYS})
     return palette
 
 
@@ -237,6 +257,141 @@ def get_palette(name: str) -> dict:
     return THEMES.get(name, THEMES[DEFAULT_THEME])
 
 
+# THEMES key -> (devs-themes palette family, mode) -- irregular for
+# Flexoki specifically (bare "light"/"dark" keys, see THEME_LABELS'
+# own comment), so this is a real explicit table, not derived by
+# splitting the key string.
+_FAMILY_JSON = {
+    "slate_light": ("slate", "light"), "slate_dark": ("slate", "dark"),
+    "bonepaper_light": ("bonepaper", "light"), "bonepaper_dark": ("bonepaper", "dark"),
+    "light": ("flexoki", "light"), "dark": ("flexoki", "dark"),
+    "martin_light": ("martin", "light"), "martin_dark": ("martin", "dark"),
+}
+
+# devs-themes is Slate's sibling checkout (see pull_themes.sh's own
+# comment for the same assumption) -- the real source of truth every
+# consumer (Slate, webUI, Runestone) pulls from.
+_DEVS_THEMES_PALETTES = Path(__file__).parent.parent / "devs-themes" / "palettes"
+
+
+def family_and_mode(theme_name: str) -> tuple:
+    """(family, mode) for a THEMES key, e.g. "martin_dark" ->
+    ("martin", "dark") -- for locating that theme's real source JSON.
+    Raises KeyError for an unrecognized name rather than guessing."""
+    return _FAMILY_JSON[theme_name]
+
+
+def is_custom(theme_name: str) -> bool:
+    """True for a user-created theme (save_as_new_theme). Every built-in
+    theme has a real devs-themes family/mode mapping in _FAMILY_JSON; a
+    custom theme doesn't -- its full palette is a standalone saved
+    snapshot, never re-derived from a base+cascade formula."""
+    return theme_name not in _FAMILY_JSON
+
+
+# Per-built-in-theme overrides of _CASCADE_KEYS values (a live edit to a
+# normally-computed key like menubar_bg). Session state, restored at
+# startup by load_saved_chrome_overrides() and persisted by
+# save_family_values(); never touched for a custom theme (is_custom()),
+# which has no formula to protect an override from in the first place.
+_chrome_overrides: dict = {}
+
+
+def update_live(theme_name: str, key: str, hexval: str):
+    """Mutates THEMES[theme_name] in place and, for a built-in theme,
+    recomputes every OTHER chrome-cascade-derived key from it -- a live
+    color editor calls this then triggers a normal repaint, same as any
+    other theme change. No special-cased 'preview' palette: the running
+    app's real THEMES dict just changes under it.
+
+    key may be any of _EDITABLE_KEYS (_BASE_KEYS or _CASCADE_KEYS) for a
+    built-in theme -- editing a _BASE_KEYS value re-derives the cascade
+    (preserving any earlier _CASCADE_KEYS overrides on this same theme);
+    editing a _CASCADE_KEYS value directly records it as an override so
+    a later _BASE_KEYS edit won't silently overwrite it again. A custom
+    theme has no formula at all -- every key is just a flat stored value,
+    key may be anything already present in its palette."""
+    if is_custom(theme_name):
+        if key not in THEMES[theme_name]:
+            raise ValueError(f"{key!r} is not a key in this theme's palette")
+        THEMES[theme_name] = dict(THEMES[theme_name]) | {key: hexval}
+        return
+    if key not in _EDITABLE_KEYS:
+        raise ValueError(f"{key!r} is not an editable key")
+    if key in _CASCADE_KEYS:
+        _chrome_overrides.setdefault(theme_name, {})[key] = hexval
+    palette = dict(THEMES[theme_name])
+    palette[key] = hexval
+    if key in _BASE_KEYS:
+        THEMES[theme_name] = _with_chrome_cascade(palette, _chrome_overrides.get(theme_name))
+    else:
+        THEMES[theme_name] = palette
+
+
+def save_family_values(theme_name: str) -> Path:
+    """Writes THEMES[theme_name]'s current _BASE_KEYS values, plus any
+    live _CASCADE_KEYS overrides (_chrome_overrides), back into
+    devs-themes/palettes/<family>.json's <mode> section AND Slate's own
+    theme_data/<family>.json pulled copy, so both stay in sync the
+    instant you save (no separate pull_themes.sh run needed). Overrides
+    are stored under a "slate_chrome_overrides" sub-key -- an extra,
+    Slate-only key devs-themes' shared schema already tolerates (see
+    bonepaper.json's own external_link, same convention). Keeps every
+    other key in either file untouched. Returns the devs-themes path
+    written, for the caller to report."""
+    family, mode = family_and_mode(theme_name)
+    live = THEMES[theme_name]
+    values = {k: live[k] for k in _BASE_KEYS}
+    overrides = _chrome_overrides.get(theme_name, {})
+
+    def _write(path):
+        data = json.loads(path.read_text())
+        mode_data = data.setdefault(mode, {})
+        mode_data.update(values)
+        if overrides:
+            mode_data["slate_chrome_overrides"] = overrides
+        else:
+            mode_data.pop("slate_chrome_overrides", None)
+        path.write_text(json.dumps(data, indent=2) + "\n")
+
+    devs_path = _DEVS_THEMES_PALETTES / f"{family}.json"
+    _write(devs_path)
+    _write(_THEME_DATA_DIR / f"{family}.json")
+    return devs_path
+
+
+def _load_chrome_overrides(family: str, mode: str) -> dict:
+    data = json.loads((_THEME_DATA_DIR / f"{family}.json").read_text())
+    return data.get(mode, {}).get("slate_chrome_overrides", {})
+
+
+def reload_from_disk(theme_name: str):
+    """Discards live in-memory edits for one theme (both _BASE_KEYS AND
+    any _CASCADE_KEYS overrides), reloading its real last-saved-or-
+    pulled state straight from Slate's own theme_data/<family>.json --
+    the color editor's "Reset" action."""
+    family, mode = family_and_mode(theme_name)
+    base = _load_base(family, mode)
+    accent2 = THEMES[theme_name].get("accent2")
+    palette = base if accent2 is None else base | {"accent2": accent2}
+    overrides = _load_chrome_overrides(family, mode)
+    if overrides:
+        _chrome_overrides[theme_name] = overrides
+    else:
+        _chrome_overrides.pop(theme_name, None)
+    THEMES[theme_name] = _with_chrome_cascade(palette, overrides)
+
+
+def load_saved_chrome_overrides():
+    """Call once at app startup (not at import -- keeps `import theme`
+    side-effect-free for tests). Restores every built-in theme's
+    previously-saved _CASCADE_KEYS overrides, if any, so a hand-tuned
+    menubar/toolbar/etc color survives a relaunch, not just the session
+    that set it."""
+    for name in _FAMILY_JSON:
+        reload_from_disk(name)
+
+
 def load_preference() -> str:
     """Persisted across launches (~/.slate/theme.json, same convention
     as recent.py/gate.py) -- without this, every launch starts on the
@@ -255,3 +410,95 @@ def load_preference() -> str:
 def save_preference(name: str):
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     PREF_FILE.write_text(json.dumps({"theme": name}))
+
+
+# --- custom (user-created) themes -------------------------------------
+# A custom theme is a standalone flat-palette snapshot -- no family/mode,
+# no formula, no _FAMILY_JSON entry (that absence IS is_custom()'s test).
+# Stored as its own file rather than folded into devs-themes: it's a
+# personal Slate-only theme, not a shared cross-app palette.
+CUSTOM_THEMES_FILE = CONFIG_DIR / "custom_themes.json"
+
+
+def load_custom_themes():
+    """Call once at app startup (not at import -- keeps `import theme`
+    side-effect-free for tests). Populates THEMES/THEME_LABELS with any
+    themes previously saved via save_as_new_theme, so they show up in
+    the Settings theme picker exactly like a built-in family."""
+    if not CUSTOM_THEMES_FILE.exists():
+        return
+    try:
+        data = json.loads(CUSTOM_THEMES_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return
+    for key, entry in data.items():
+        THEMES[key] = entry["palette"]
+        THEME_LABELS[entry["label"]] = key
+
+
+def _slugify(text: str) -> str:
+    slug = "".join(c if c.isalnum() else "_" for c in text.strip().lower())
+    while "__" in slug:
+        slug = slug.replace("__", "_")
+    return slug.strip("_") or "custom"
+
+
+def _write_custom_themes():
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    label_by_key = {v: k for k, v in THEME_LABELS.items()}
+    data = {
+        key: {"label": label_by_key[key], "palette": THEMES[key]}
+        for key in THEMES if is_custom(key)
+    }
+    CUSTOM_THEMES_FILE.write_text(json.dumps(data, indent=2) + "\n")
+
+
+def save_as_new_theme(source_theme_name: str, display_name: str) -> str:
+    """Snapshots THEMES[source_theme_name]'s current full live palette
+    (base + cascade + any overrides + accent2) under a brand-new theme
+    key/label derived from display_name -- the source theme itself is
+    untouched, edited in place or not. Mode suffix ("Light"/"Dark") is
+    added automatically from the source palette's own is_dark, matching
+    THEME_LABELS' existing "<Family> Light"/"<Family> Dark" convention
+    (see slate.py's Settings dialog, which groups by that exact suffix)
+    so the new theme's single mode slots into the picker the same way
+    any other single-mode family would. Returns the new internal key.
+    Raises ValueError if display_name is empty or already taken."""
+    display_name = display_name.strip()
+    if not display_name:
+        raise ValueError("Name can't be empty.")
+    mode = "dark" if THEMES[source_theme_name]["is_dark"] else "light"
+    label = f"{display_name} {mode.title()}"
+    if label in THEME_LABELS:
+        raise ValueError(f'"{label}" already exists -- pick a different name.')
+    base_key = _slugify(display_name)
+    key = f"{base_key}_{mode}"
+    suffix = 2
+    while key in THEMES:
+        key = f"{base_key}{suffix}_{mode}"
+        suffix += 1
+    THEMES[key] = dict(THEMES[source_theme_name])
+    THEME_LABELS[label] = key
+    _write_custom_themes()
+    return key
+
+
+def save_custom_theme(theme_name: str):
+    """Re-saves an already-custom theme's current live (edited) palette
+    back to disk in place -- the color editor's Save action when the
+    theme being edited is itself a custom one, not a built-in family."""
+    if not is_custom(theme_name):
+        raise ValueError(f'"{theme_name}" is a built-in theme, not custom.')
+    _write_custom_themes()
+
+
+def reload_custom_theme(theme_name: str):
+    """Discards live in-memory edits for a custom theme, reloading its
+    last-saved palette from CUSTOM_THEMES_FILE -- the color editor's
+    "Reset" action, custom-theme counterpart to reload_from_disk."""
+    if not CUSTOM_THEMES_FILE.exists():
+        raise KeyError(theme_name)
+    data = json.loads(CUSTOM_THEMES_FILE.read_text())
+    if theme_name not in data:
+        raise KeyError(theme_name)
+    THEMES[theme_name] = data[theme_name]["palette"]

@@ -5,7 +5,8 @@
 *Slate liberates a trapped ecosystem.*
 
 A small, capable PDF editor.
-View, annotate, merge/split, redact, sign, and fill forms.
+View, annotate, merge/split, redact, sign, fill forms, and scan for
+sensitive content.
 
 Built from proven libraries (PyMuPDF, pikepdf, pyHanko), not reinvented.
 Made to replace Adobe Pro and other licensed tools for daily use.

@@ -4,12 +4,16 @@ annotate, merge_split, forms, sign, security, scan, recent, io_pdf
 together into one menu-driven app. Business logic lives in the
 per-feature modules; this file is glue + Tkinter widgets only.
 """
+import colorsys
+import math
 import os
 import platform
 import queue
+import subprocess
 import sys
 import threading
 import tkinter as tk
+import traceback
 import webbrowser
 from tkinter import filedialog, font as tkfont, messagebox, simpledialog, ttk
 
@@ -114,6 +118,14 @@ _EDIT_PDF_ONLY_LABELS = [
 class SlateApp:
     def __init__(self, root, path=None):
         self.root = root
+        # Loaded once here, before anything below reads THEMES/
+        # THEME_LABELS (including the very next line) -- not at module
+        # import time, so `import theme` stays side-effect-free for
+        # tests. Restores any user-saved custom themes (save_as_new_theme)
+        # and per-theme chrome-key overrides (the Edit Colors dialog's
+        # "derived" fields, when hand-edited) into the live roster.
+        theme.load_custom_themes()
+        theme.load_saved_chrome_overrides()
         # Set before any other widget exists (even before root.title())
         # so the very first paint already uses the right color, not a
         # visible flash from light to a saved dark preference a moment
@@ -1395,6 +1407,12 @@ class SlateApp:
 
         _refresh_palette_preview()  # initial state -- matches theme_name at dialog-open time
 
+        edit_colors_btn = tk.Button(
+            theme_frame, text="Edit Colors...",
+            command=lambda: self._show_color_editor(_on_theme_changed_and_repaint),
+        )
+        edit_colors_btn.pack(anchor="w", padx=10, pady=(0, 8))
+
         # Mode box (Continuous/Book View radio) removed -- Columns
         # (below, under Zoom) is the sole layout control this dialog
         # exposes; continuous scroll stays the permanent, only reading
@@ -1587,6 +1605,508 @@ class SlateApp:
         x = root_x + (root_w - dlg_w) // 2
         y = root_y + (root_h - dlg_h) // 2
         top.geometry(f"+{x}+{y}")
+
+    # Human-readable label per editable base key, in the order shown --
+    # _BASE_KEYS' own order grouped roughly bg-family/text-family/
+    # chrome-family instead of alphabetical, easier to scan.
+    _COLOR_EDITOR_FIELDS = (
+        ("bg", "Background"),
+        ("bg2", "Chrome Background (tabs)"),
+        ("bg3", "Chrome Background (toolbar)"),
+        ("button_bg", "Button Background"),
+        ("entry_bg", "Input Field Background"),
+        ("canvas_bg", "Page Canvas Background"),
+        ("fg", "Text"),
+        ("muted_fg", "Muted Text"),
+        ("faint_fg", "Faint Text"),
+        ("select_bg", "Accent / Selection"),
+        ("highlight_bg", "Highlight"),
+        ("border", "Border"),
+    )
+
+    # theme._CASCADE_KEYS -- normally computed FROM the fields above, but
+    # directly editable too (Devin's explicit ask: "full control of the
+    # colors of every component of Slate"). Editing one records a live
+    # override (theme.update_live) so a later base-color edit above
+    # doesn't silently recompute it back. Shown as their own section,
+    # below a divider, in _show_color_editor.
+    _CHROME_COLOR_EDITOR_FIELDS = (
+        ("menubar_bg", "Menu Bar Background"),
+        ("menubar_fg", "Menu Bar Text"),
+        ("tabstrip_bg", "Tab Strip Background"),
+        ("toolbar_bg", "Toolbar Background"),
+        ("toolbar_fg", "Toolbar Text"),
+        ("active_tab_bg", "Active Tab Background"),
+        ("dialog_border", "Dialog Border"),
+    )
+
+    _HSL_WHEEL_SIZE = 190
+    _HSL_WHEEL_RING = 0.32  # inner-radius fraction -- annulus thickness
+    _HSL_BOX_SIZE = 190
+
+    def _hsl_wheel_image(self):
+        """Precomputed once (pure hue -> RGB annulus, no S/L dependence)
+        and cached on the class -- every color row's picker reuses the
+        same wheel image, only the SL box needs regenerating per hue."""
+        cached = getattr(SlateApp, "_hsl_wheel_cache", None)
+        if cached is not None:
+            return cached
+        n = self._HSL_WHEEL_SIZE
+        cx = cy = n / 2
+        outer = n / 2 - 1
+        inner = outer * self._HSL_WHEEL_RING
+        img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+        px = img.load()
+        for y in range(n):
+            dy = y - cy
+            for x in range(n):
+                dx = x - cx
+                dist = math.hypot(dx, dy)
+                if dist < inner or dist > outer:
+                    continue
+                hue = (math.degrees(math.atan2(dy, dx)) + 360) % 360
+                r, g, b = colorsys.hls_to_rgb(hue / 360, 0.5, 1.0)
+                px[x, y] = (int(r * 255), int(g * 255), int(b * 255), 255)
+        photo = ImageTk.PhotoImage(img)
+        SlateApp._hsl_wheel_cache = photo
+        return photo
+
+    def _hsl_box_image(self, hue_deg: float):
+        """Saturation (x) x Lightness (y, inverted -- top=light) square
+        for one fixed hue. Regenerated on every hue change (cheap at
+        this size, no caching needed -- a stale cached box for the
+        previous hue would be a real correctness bug, not just a
+        perf miss)."""
+        n = self._HSL_BOX_SIZE
+        img = Image.new("RGB", (n, n))
+        px = img.load()
+        h = hue_deg / 360
+        for y in range(n):
+            light = 1.0 - y / (n - 1)
+            for x in range(n):
+                sat = x / (n - 1)
+                r, g, b = colorsys.hls_to_rgb(h, light, sat)
+                px[x, y] = (int(r * 255), int(g * 255), int(b * 255))
+        return ImageTk.PhotoImage(img)
+
+    def _show_hsl_picker(self, initial_hex: str, label: str, on_pick):
+        """Real wheel (hue, drag around the ring) + box (saturation x
+        lightness, drag inside it, recolored live per the current hue)
+        picker -- Devin's explicit ask ("HSL is truly the language of
+        colors", "full wheel/box"), not Tk's generic native OS dialog.
+        on_pick(hexval) fires on every drag motion, live, same
+        continuous-apply philosophy as the rest of this editor -- no
+        OK/Cancel, just Close, since every intermediate value is already
+        real and already applied by the time you see it."""
+        top = tk.Toplevel(self.root)
+        top.title(f"Pick: {label}")
+        top.resizable(False, False)
+        top.transient(self.root)
+
+        r, g, b = self._hex_to_rgb01(initial_hex)
+        h, l, s = colorsys.rgb_to_hls(r, g, b)
+        state = {"h": h * 360, "s": s, "l": l}
+
+        canvas_frame = tk.Frame(top)
+        canvas_frame.pack(padx=16, pady=(16, 8))
+
+        wheel_photo = self._hsl_wheel_image()
+        wheel_n = self._HSL_WHEEL_SIZE
+        wheel = tk.Canvas(canvas_frame, width=wheel_n, height=wheel_n, highlightthickness=0)
+        wheel.grid(row=0, column=0, padx=(0, 16))
+        wheel.create_image(0, 0, anchor="nw", image=wheel_photo)
+        wheel.image = wheel_photo
+        wheel_cursor = wheel.create_oval(0, 0, 0, 0, outline="white", width=2)
+
+        box_n = self._HSL_BOX_SIZE
+        box = tk.Canvas(canvas_frame, width=box_n, height=box_n, highlightthickness=0)
+        box.grid(row=0, column=1)
+        box_image_id = box.create_image(0, 0, anchor="nw")
+        # outline flips dark/light by the box cursor's OWN lightness --
+        # a fixed white ring (the original build) all but disappears
+        # once you drag into the box's own bright top edge, real bug
+        # caught in review, not cosmetic (contrast-target discipline
+        # this app already holds itself to elsewhere).
+        box_cursor = box.create_oval(0, 0, 0, 0, outline="white", width=2)
+
+        preview = tk.Frame(top, height=36, highlightthickness=1)
+        preview.pack(fill=tk.X, padx=16, pady=(0, 8))
+
+        readout_var = tk.StringVar()
+        tk.Label(top, textvariable=readout_var, font=("Consolas", 10)).pack(padx=16, pady=(0, 12), anchor="w")
+
+        def _current_hex():
+            rr, gg, bb = colorsys.hls_to_rgb(state["h"] / 360, state["l"], state["s"])
+            return "#" + "".join(f"{round(c * 255):02x}" for c in (rr, gg, bb))
+
+        # Debounces the EXPENSIVE half of on_pick (theme.update_live ->
+        # _on_theme_changed -> full app repaint + page cache invalidate +
+        # re-render if a doc is open) -- B1-Motion fires far faster than a
+        # page re-render can keep up with, and _on_theme_changed's own
+        # comment already documents that a theme change is "same cost as
+        # a zoom change." The cheap, purely-local half of _redraw (cursor
+        # position, preview chip, hex/rgb/hsl readout) stays fully
+        # synchronous below -- only the app-wide propagation is throttled,
+        # so the picker itself never feels laggy even though the real app
+        # behind it updates a beat behind the cursor during a fast drag.
+        # ButtonRelease forces one final immediate call so the released
+        # value is never left stale by a skipped/cancelled timer.
+        _debounce = {"after_id": None}
+        _DEBOUNCE_MS = 60
+
+        def _flush_pick(hexval):
+            if _debounce["after_id"] is not None:
+                top.after_cancel(_debounce["after_id"])
+                _debounce["after_id"] = None
+            on_pick(hexval)
+
+        def _schedule_pick(hexval):
+            if _debounce["after_id"] is not None:
+                top.after_cancel(_debounce["after_id"])
+            _debounce["after_id"] = top.after(_DEBOUNCE_MS, lambda: _flush_pick(hexval))
+
+        def _redraw(update_box_image=True, immediate=False):
+            hexval = _current_hex()
+            if update_box_image:
+                box_photo = self._hsl_box_image(state["h"])
+                box.itemconfigure(box_image_id, image=box_photo)
+                box.image = box_photo  # keep a real reference -- Tk drops the image silently otherwise
+
+            outer = wheel_n / 2 - 1
+            mid_r = outer * (1 + self._HSL_WHEEL_RING) / 2
+            ang = math.radians(state["h"])
+            wx = wheel_n / 2 + mid_r * math.cos(ang)
+            wy = wheel_n / 2 + mid_r * math.sin(ang)
+            wheel.coords(wheel_cursor, wx - 6, wy - 6, wx + 6, wy + 6)
+
+            bx = state["s"] * (box_n - 1)
+            by = (1 - state["l"]) * (box_n - 1)
+            box.coords(box_cursor, bx - 6, by - 6, bx + 6, by + 6)
+            box.itemconfigure(box_cursor, outline="#1a1a1a" if state["l"] > 0.6 else "white")
+
+            preview.configure(bg=hexval)
+            preview.slate_fixed_bg = hexval
+            rr, gg, bb = (round(c * 255) for c in colorsys.hls_to_rgb(state["h"] / 360, state["l"], state["s"]))
+            readout_var.set(
+                f"{hexval}   rgb({rr}, {gg}, {bb})   "
+                f"hsl({round(state['h'])}°, {round(state['s'] * 100)}%, {round(state['l'] * 100)}%)"
+            )
+            (_flush_pick if immediate else _schedule_pick)(hexval)
+
+        def _wheel_pick(event, immediate=False):
+            dx, dy = event.x - wheel_n / 2, event.y - wheel_n / 2
+            state["h"] = (math.degrees(math.atan2(dy, dx)) + 360) % 360
+            _redraw(update_box_image=True, immediate=immediate)
+
+        def _box_pick(event, immediate=False):
+            state["s"] = min(1.0, max(0.0, event.x / (box_n - 1)))
+            state["l"] = min(1.0, max(0.0, 1 - event.y / (box_n - 1)))
+            _redraw(update_box_image=False, immediate=immediate)
+
+        wheel.bind("<Button-1>", _wheel_pick)
+        wheel.bind("<B1-Motion>", _wheel_pick)
+        wheel.bind("<ButtonRelease-1>", lambda e: _wheel_pick(e, immediate=True))
+        box.bind("<Button-1>", _box_pick)
+        box.bind("<B1-Motion>", _box_pick)
+        box.bind("<ButtonRelease-1>", lambda e: _box_pick(e, immediate=True))
+
+        tk.Button(top, text="Close", command=top.destroy).pack(pady=(0, 16))
+        _redraw(update_box_image=True, immediate=True)
+
+        top.update_idletasks()
+        px, py = self.root.winfo_pointerxy()
+        top.geometry(f"+{px + 12}+{py + 12}")
+
+    @staticmethod
+    def _hex_to_rgb01(hexval: str):
+        hexval = hexval.lstrip("#")
+        return tuple(int(hexval[i:i + 2], 16) / 255 for i in (0, 2, 4))
+
+    def _show_color_editor(self, on_change=None):
+        """Live theme color editor -- edits theme.THEMES[current name] in
+        place and repaints the whole running app on every change (same
+        _on_theme_changed() path a normal theme switch already uses, see
+        theme.update_live's own docstring). Deliberately NOT modal (no
+        grab_set/topmost) -- Devin's explicit ask: the main window must
+        stay fully interactable (scroll a real page, switch tabs) while
+        this is open, to actually judge a color live against real
+        content, not just against this dialog's own preview chips.
+        Single-instance like Settings/About: re-focus rather than stack.
+
+        Covers every _BASE_KEYS AND _CASCADE_KEYS color (Devin's explicit
+        ask: "full control of the colors of every component of Slate"),
+        plus a "Save As New Theme..." action that snapshots the current
+        live palette under a brand-new name (theme.save_as_new_theme) --
+        the source theme/family is never touched by that action.
+
+        The whole build below is wrapped in a try/except that surfaces
+        any exception via messagebox.showerror instead of leaving a
+        half-built, blank Toplevel: real pinned bug, Windows-frozen-exe-
+        only, not reproducible on Linux/Xvfb (personal/NOW.md, tertiary,
+        2026-08-03) -- title bar paints correctly but the content area
+        never does. Two earlier theories (slow PIL swatch generation;
+        a non-modal-Toplevel paint-timing quirk) were both tried and
+        ruled out live. If a real exception is what's actually eating
+        the dialog on Windows, this makes it visible instead of another
+        guess; if it's something else, this at least rules exceptions
+        out for good."""
+        existing = getattr(self, "_color_editor_window", None)
+        if existing is not None and existing.winfo_exists():
+            existing.deiconify()
+            existing.lift()
+            existing.focus_force()
+            return
+
+        name = self.theme_name.get()
+        is_custom = theme.is_custom(name)
+        family = None
+        if not is_custom:
+            try:
+                family, _mode = theme.family_and_mode(name)
+            except KeyError:
+                # A future theme family added to THEMES/THEME_LABELS
+                # without a matching _FAMILY_JSON entry would otherwise
+                # raise here silently -- Tk swallows exceptions from a
+                # button command to stderr, invisible in a frozen build
+                # with no console. Fail loud and specific instead of a
+                # dead button click. (A genuinely custom/user-saved
+                # theme is NOT this case -- is_custom() above already
+                # routed it around this check; this is only a real gap.)
+                messagebox.showerror(
+                    "Edit Colors",
+                    f"\"{name}\" has no known devs-themes source file mapping "
+                    "(theme.py's _FAMILY_JSON table) -- can't open the color "
+                    "editor for it. This is a real gap in theme.py, not a "
+                    "user error.",
+                    parent=self.root,
+                )
+                return
+        label = next((l for l, n in theme.THEME_LABELS.items() if n == name), name)
+        colors = theme.get_palette(name)
+        all_fields = self._COLOR_EDITOR_FIELDS + self._CHROME_COLOR_EDITOR_FIELDS
+
+        top = None
+        try:
+            top = tk.Toplevel(self.root)
+            self._color_editor_window = top
+            top.title(f"Edit Colors — {label}")
+            top.resizable(False, False)
+            top.bind("<Escape>", lambda e: top.destroy())
+            top.configure(highlightthickness=2, highlightbackground=colors["dialog_border"], highlightcolor=colors["dialog_border"])
+
+            header = tk.Frame(top)
+            header.pack(padx=24, pady=(18, 6), anchor="w")
+            tk.Label(
+                header, text=f"Edit Colors — {label}",
+                font=self._ui_header_font(extra=5),
+            ).pack(side=tk.LEFT)
+            accent_bar = tk.Frame(top, bg="#62a945", height=2)
+            accent_bar.slate_fixed_bg = "#62a945"
+            accent_bar.pack(fill=tk.X, padx=24, pady=(0, 10))
+
+            grid = tk.Frame(top)
+            grid.pack(fill=tk.X, padx=24)
+
+            entries = {}
+            swatches = {}
+
+            def _apply(key, hexval):
+                hexval = hexval.strip()
+                if not (hexval.startswith("#") and len(hexval) == 7):
+                    return False
+                try:
+                    int(hexval[1:], 16)
+                except ValueError:
+                    return False
+                theme.update_live(name, key, hexval)
+                # Repaints self.root AND every open Toplevel this app
+                # owns, including `top` itself -- _paint_widget's
+                # recursion through winfo_children() is unconditional,
+                # so a second explicit self._paint_widget(top, ...) here
+                # would just repaint this dialog twice on every single
+                # edit (real, caught in review, not just a style nit --
+                # doubles the cost of every keystroke for zero visible
+                # difference).
+                self._on_theme_changed()
+                swatches[key].configure(bg=hexval)
+                swatches[key].slate_fixed_bg = hexval
+                if on_change is not None:
+                    on_change()
+                return True
+
+            def _make_row(r, key, label):
+                tk.Label(grid, text=label, anchor="w", width=24).grid(row=r, column=0, sticky="w", pady=3)
+                swatch = tk.Frame(grid, width=28, height=20, highlightthickness=1, cursor="hand2")
+                swatch.grid_propagate(False)
+                swatch.grid(row=r, column=1, padx=(6, 6))
+                swatches[key] = swatch
+
+                entry_var = tk.StringVar(value=theme.THEMES[name][key])
+                entries[key] = entry_var
+                entry = tk.Entry(grid, textvariable=entry_var, width=9, font=("Consolas", 10))
+                entry.grid(row=r, column=2)
+
+                def _on_entry_commit(_event=None, key=key):
+                    if not _apply(key, entry_var.get()):
+                        entry_var.set(theme.THEMES[name][key])  # invalid hex -- snap back, don't crash the picker
+                entry.bind("<Return>", _on_entry_commit)
+                entry.bind("<FocusOut>", _on_entry_commit)
+
+                def _on_pick(hexval, key=key):
+                    entry_var.set(hexval)
+                    _apply(key, hexval)
+
+                def _on_swatch_click(_event=None, key=key, label=label):
+                    self._show_hsl_picker(theme.THEMES[name][key], label, lambda hx, key=key: _on_pick(hx, key))
+                swatch.bind("<Button-1>", _on_swatch_click)
+
+            row = 0
+            for key, field_label in self._COLOR_EDITOR_FIELDS:
+                _make_row(row, key, field_label)
+                swatches[key].configure(bg=theme.THEMES[name][key])
+                swatches[key].slate_fixed_bg = theme.THEMES[name][key]
+                row += 1
+            # Section divider -- everything below here is normally
+            # COMPUTED from the fields above (theme._with_chrome_cascade),
+            # not authored directly. Editing one anyway is a real
+            # per-theme override, not a one-off preview (theme.
+            # update_live's own docstring) -- it survives a later edit
+            # to the base color it would otherwise be derived from.
+            tk.Label(
+                grid, text="Derived colors (usually set automatically; edit to override)",
+                anchor="w", fg="gray40",
+            ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(10, 3))
+            row += 1
+            for key, field_label in self._CHROME_COLOR_EDITOR_FIELDS:
+                _make_row(row, key, field_label)
+                swatches[key].configure(bg=theme.THEMES[name][key])
+                swatches[key].slate_fixed_bg = theme.THEMES[name][key]
+                row += 1
+
+            push_var = tk.BooleanVar(value=False)
+            if not is_custom:
+                # No devs-themes family to sync a custom theme's colors
+                # into -- this action only makes sense for a built-in
+                # family, so it isn't offered at all when editing one.
+                push_check = tk.Checkbutton(
+                    top, text="Also push to webUI + Runestone (sync_all.py)",
+                    variable=push_var, selectcolor=colors["select_bg"],
+                    indicatoron=False, relief=tk.RAISED, padx=8, pady=2,
+                )
+                push_check.pack(fill=tk.X, padx=24, pady=(14, 6))
+                self._wire_toggle_button_contrast(push_check, push_var, value=True)
+
+            status_var = tk.StringVar(value="")
+            status_label = tk.Label(top, textvariable=status_var, fg="gray40")
+            status_label.slate_muted = True
+            status_label.pack(padx=24, anchor="w")
+
+            def _refresh_fields_from_live():
+                for key, _label in all_fields:
+                    hexval = theme.THEMES[name][key]
+                    entries[key].set(hexval)
+                    swatches[key].configure(bg=hexval)
+                    swatches[key].slate_fixed_bg = hexval
+
+            def _do_save():
+                try:
+                    if is_custom:
+                        theme.save_custom_theme(name)
+                        path = theme.CUSTOM_THEMES_FILE
+                    else:
+                        path = theme.save_family_values(name)
+                except (OSError, KeyError, ValueError) as e:
+                    status_var.set(f"Save failed: {e}")
+                    return
+                msg = f"Saved to {path}"
+                if not is_custom and push_var.get():
+                    sync_script = path.parent.parent / "sync_all.py"
+                    result = subprocess.run(
+                        [sys.executable, str(sync_script), family],
+                        cwd=str(sync_script.parent), capture_output=True, text=True,
+                    )
+                    msg += " -- synced" if result.returncode == 0 else f" -- sync FAILED: {result.stderr.strip()[:200]}"
+                status_var.set(msg)
+
+            def _do_save_as():
+                new_name = simpledialog.askstring(
+                    "Save As New Theme",
+                    "Name for the new theme (Light/Dark added automatically):",
+                    parent=top,
+                )
+                if not new_name:
+                    return
+                try:
+                    new_key = theme.save_as_new_theme(name, new_name)
+                except ValueError as e:
+                    status_var.set(str(e))
+                    return
+                self.theme_name.set(new_key)
+                self._on_theme_changed()
+                top.destroy()
+                self._color_editor_window = None
+                # Reopen fresh on the new theme -- simplest correct way
+                # to get the title, the now-relevant Save/push-checkbox
+                # state, and every field consistent, rather than trying
+                # to patch this same dialog's widgets in place.
+                self._show_color_editor(on_change)
+
+            def _do_reset():
+                if is_custom:
+                    theme.reload_custom_theme(name)
+                else:
+                    theme.reload_from_disk(name)
+                self._on_theme_changed()
+                self._paint_widget(top, theme.get_palette(name))
+                _refresh_fields_from_live()
+                status_var.set("Reverted to last saved values.")
+                if on_change is not None:
+                    on_change()
+
+            btn_row = tk.Frame(top)
+            btn_row.pack(pady=(6, 16))
+            tk.Button(btn_row, text="Save" if is_custom else "Save to devs-themes", command=_do_save).pack(side=tk.LEFT, padx=(0, 8))
+            tk.Button(btn_row, text="Save As New Theme...", command=_do_save_as).pack(side=tk.LEFT, padx=(0, 8))
+            tk.Button(btn_row, text="Reset", command=_do_reset).pack(side=tk.LEFT, padx=(0, 8))
+            tk.Button(btn_row, text="Close", command=top.destroy).pack(side=tk.LEFT)
+
+            self._paint_widget(top, colors)
+
+            top.update_idletasks()
+            root_x, root_y = self.root.winfo_rootx(), self.root.winfo_rooty()
+            root_w = self.root.winfo_width()
+            x = root_x + root_w + 12  # docked beside the main window, not centered over it -- both stay visible/interactable
+            y = root_y
+            top.geometry(f"+{x}+{y}")
+            # Real bug hit live on Windows, not reproducible on
+            # Linux/Xvfb: a non-modal Toplevel (no grab_set -- see this
+            # method's own docstring on why) repositioned via .geometry()
+            # right after creation can come up with its native title bar
+            # painted but the client content area never receiving its
+            # first WM_PAINT -- Settings/About never hit this because
+            # grab_set() forces a real paint cycle as a side effect, this
+            # dialog deliberately skips that. update_idletasks() alone
+            # only processes geometry/layout, not an actual paint; a full
+            # update() plus an explicit lift + focus forces one for real.
+            # Tried live on Windows already, retested, did NOT fix the
+            # blank-content bug alone -- kept anyway (harmless, and still
+            # the theoretically-correct fix for the quirk it targets),
+            # see this method's own docstring for the real next step.
+            top.update()
+            top.lift()
+            top.focus_force()
+        except Exception:
+            if top is not None:
+                try:
+                    top.destroy()
+                except Exception:
+                    pass
+            self._color_editor_window = None
+            messagebox.showerror(
+                "Edit Colors",
+                "The color editor failed to build:\n\n" + traceback.format_exc(),
+                parent=self.root,
+            )
 
     def _refresh_recent_menu(self):
         self.recent_menu.delete(0, "end")

@@ -46,7 +46,18 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    # tts.py imports piper (and transitively onnxruntime/sounddevice) at
+    # its own module level, guarded by a real try/except ImportError --
+    # PyInstaller's static Analysis finds that import regardless of the
+    # runtime guard and bundles it + everything it pulls in (~35MB:
+    # onnxruntime 34.55MB, piper 0.48MB, _sounddevice_data 0.62MB),
+    # completely undoing the collect_all() calls already commented out
+    # above for the same reason. This is the other half of that same
+    # intent, actually enforced -- ImportError at runtime is the designed
+    # fallback (tts.py's own comment), ENGINE_AVAILABLE just becomes
+    # False, no crash. Remove all four names together if Read Aloud ever
+    # comes back (matching the collect_all block above).
+    excludes=['piper', 'onnxruntime', 'sounddevice', 'soundfile'],
     noarchive=False,
     optimize=0,
 )
@@ -61,7 +72,12 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=True,
-    upx=True,
+    # UPX OFF -- a packed, unsigned EXE is a classic AV heuristic trigger
+    # (malware uses the same packer to hide payloads; Defender and others
+    # weight "compressed + no publisher signature" heavily). Larger binary,
+    # far less suspicious. Real fix for the trojan false-positive, not a
+    # workaround -- see codesign_identity below for the other real half.
+    upx=False,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -75,7 +91,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=True,
-    upx=True,
+    upx=False,  # matches EXE() above -- same reasoning, same fix
     upx_exclude=[],
     name='Slate',
 )

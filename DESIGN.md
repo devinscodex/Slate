@@ -219,6 +219,47 @@ Two real bugs caught building this:
   could use it. Fixed by moving font registration to *after* the
   redaction call, immediately before the actual `insert_text`.
 
+## Live theme color editor (`theme.py`, `slate.py` — added 2026-08-03)
+
+Settings → Theme → "Edit Colors..." opens a real, non-modal editor for
+the 12 authored base keys (`bg`, `fg`, `button_bg`, `entry_bg`,
+`canvas_bg`, `select_bg`, `muted_fg`, `highlight_bg`, `faint_fg`,
+`bg2`, `bg3`, `border`) of whichever theme is currently active.
+Deliberately not modal (no `grab_set`) — the main window stays fully
+interactable so a color can be judged against a real open document, not
+just the dialog's own preview chips.
+
+**Live-apply mechanism**: `theme.update_live()` mutates `THEMES[name]`
+in place and recomputes the chrome cascade; the editor then calls the
+same `_on_theme_changed()` path a normal theme switch already uses — no
+separate "preview" palette, the running app's real theme data changes
+under it. `theme.save_family_values()` writes the 12 keys back to
+`devs-themes/palettes/<family>.json` (the real cross-app source of
+truth also consumed by webUI/Runestone) AND Slate's own pulled
+`theme_data/<family>.json` copy in one action, with an optional
+`sync_all.py` call to also patch webUI/Runestone. `reload_from_disk()`
+discards live edits back to last-saved.
+
+**Color picker**: a real HSL wheel (hue, drag around the ring) +
+saturation/lightness box (recolored live per the current hue), both
+rendered via PIL-generated gradient images rather than Tk's native OS
+color dialog — Devin's explicit ask, "HSL is truly the language of
+colors." The wheel image is computed once and cached at class level
+(pure hue, no S/L dependence); the box regenerates only on hue change,
+not on every S/L drag.
+
+**Real perf gotcha, found in review (Gilfoyle) and fixed same session**:
+`_on_theme_changed()` does a full app repaint AND, if a document is
+open, a full page-cache invalidate + re-render — "same cost as a zoom
+change" by its own existing docstring. `B1-Motion` fires far faster
+than a page can re-render, and the picker's whole point is judging a
+color against a real open page — a real render-storm on every drag
+tick. Fixed with a debounce (60ms coalesce on the expensive path,
+immediate flush on `<ButtonRelease-1>` so the released value is never
+left stale) — the picker's own local visual feedback (cursor position,
+preview swatch, hex/rgb/hsl readout) stays fully synchronous regardless,
+only the app-wide propagation is throttled.
+
 ## Fixtures
 
 `tests/fixtures/` holds small synthetic PDFs only — generated
@@ -316,6 +357,21 @@ needs Word/Excel installed). Needs its own research pass, not a quick
 add.
 
 ## Read Aloud — text-to-speech (`tts.py`, `playback.py`)
+
+**Current shipped state (2026-08-03): fully excluded from the build.**
+`Slate.spec`'s `excludes=['piper', 'onnxruntime', 'sounddevice',
+'soundfile']` — real ~35MB removed (onnxruntime alone is 34.55MB) and,
+separately, a real Windows-Defender false-positive trojan flag on the
+shipped binary (UPX packing was the other, larger half of that fix —
+see Build/binary trust below). `tts.ENGINE_AVAILABLE` gates every UI
+call site; the feature is simply absent, not hidden-but-present. The
+rest of this section documents the real, working design underneath —
+still true architecturally, just not currently shipped. Real next step,
+not yet built: download-on-demand for the engine itself (not just
+voices, which already work this way below) — a frozen PyInstaller exe
+can't `pip install` into itself at runtime, so this needs either a
+separate self-contained piper build invoked as a subprocess, or a
+side-by-side embedded Python; a real design pass, not a quick add.
 
 A ~250MB size budget for "quality (limited), voices of choice" is
 workable. Piper TTS: engine is GPL-3.0-or-later, voices are
