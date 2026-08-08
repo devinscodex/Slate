@@ -113,7 +113,7 @@ def path_to_pdf(path: str) -> str:
         fd, out = tempfile.mkstemp(suffix=".pdf")
         os.close(fd)
         return html_to_pdf(path, out)
-    if ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff"):
+    if ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".heic"):
         fd, out = tempfile.mkstemp(suffix=".pdf")
         os.close(fd)
         doc = images_to_pdf([path])

@@ -1841,14 +1841,15 @@ class SlateApp:
 
         The whole build below is wrapped in a try/except that surfaces
         any exception via messagebox.showerror instead of leaving a
-        half-built, blank Toplevel: real pinned bug, Windows-frozen-exe-
-        only, not reproducible on Linux/Xvfb (personal/NOW.md, tertiary,
-        2026-08-03) -- title bar paints correctly but the content area
-        never does. Two earlier theories (slow PIL swatch generation;
-        a non-modal-Toplevel paint-timing quirk) were both tried and
-        ruled out live. If a real exception is what's actually eating
-        the dialog on Windows, this makes it visible instead of another
-        guess; if it's something else, this at least rules exceptions
+        half-built, blank Toplevel. This does not guard against the
+        dialog rendering off-screen (see the geometry clamp a few lines
+        below) -- a Toplevel positioned past the screen edge is a real,
+        fully-painted window (IsWindowVisible=True via win32
+        GetWindowRect) that simply has nowhere visible to draw, which
+        reads identically to "blank content" without checking the
+        window's actual on-screen position. If a real exception is what's
+        eating the dialog instead, this try/except makes it visible instead of
+        another guess; if it's something else, this at least rules exceptions
         out for good."""
         existing = getattr(self, "_color_editor_window", None)
         if existing is not None and existing.winfo_exists():
@@ -2075,26 +2076,48 @@ class SlateApp:
             top.update_idletasks()
             root_x, root_y = self.root.winfo_rootx(), self.root.winfo_rooty()
             root_w = self.root.winfo_width()
-            x = root_x + root_w + 12  # docked beside the main window, not centered over it -- both stay visible/interactable
-            y = root_y
+            screen_w = top.winfo_screenwidth()
+            screen_h = top.winfo_screenheight()
+            dialog_w = top.winfo_reqwidth()
+            dialog_h = top.winfo_reqheight()
+            # root_x + root_w + 12 alone has no bounds check against the
+            # actual screen -- a main window wide enough (maximized, an
+            # ultrawide monitor, a wide 2-column zoomed layout) that the
+            # sum exceeds screen_w pushes the dialog entirely off-screen.
+            # Such a window is still real and fully painted
+            # (IsWindowVisible=True via win32 GetWindowRect), it just has
+            # nowhere on-screen to draw -- no exception involved, so the
+            # try/except wrap above never catches this case.
+            x = root_x + root_w + 12  # preferred: docked beside the main window, both stay interactable
+            if x + dialog_w > screen_w:
+                x = root_x - dialog_w - 12  # not enough room on the right -- try the left side instead
+            x = max(0, min(x, screen_w - dialog_w))  # main window fills the whole screen either way -- clamp inside bounds
+            y = max(0, min(root_y, screen_h - dialog_h))
             top.geometry(f"+{x}+{y}")
-            # Real bug hit live on Windows, not reproducible on
-            # Linux/Xvfb: a non-modal Toplevel (no grab_set -- see this
-            # method's own docstring on why) repositioned via .geometry()
-            # right after creation can come up with its native title bar
-            # painted but the client content area never receiving its
-            # first WM_PAINT -- Settings/About never hit this because
-            # grab_set() forces a real paint cycle as a side effect, this
-            # dialog deliberately skips that. update_idletasks() alone
-            # only processes geometry/layout, not an actual paint; a full
-            # update() plus an explicit lift + focus forces one for real.
-            # Tried live on Windows already, retested, did NOT fix the
-            # blank-content bug alone -- kept anyway (harmless, and still
-            # the theoretically-correct fix for the quirk it targets),
-            # see this method's own docstring for the real next step.
+            # update_idletasks() alone only processes geometry/layout, not
+            # an actual paint; a full update() plus an explicit lift +
+            # focus forces a real first paint cycle the way grab_set()
+            # incidentally does for Settings/About (this dialog deliberately
+            # skips grab_set -- see this method's own docstring on why).
             top.update()
             top.lift()
             top.focus_force()
+
+            # Non-modal + no -topmost means normal Windows z-order rules
+            # apply: moving or clicking the main window raises it above
+            # this dialog, which then reads as "the dialog disappeared"
+            # even though it's still open, just behind the main window.
+            # Re-lift it (never force -topmost over OTHER apps) whenever
+            # root moves/resizes or regains focus. Plain bind (no add="+")
+            # is intentional -- only one color editor can be open at a
+            # time (the single-instance check above), so each fresh open
+            # replacing the previous handler is correct, not a clobber.
+            def _keep_color_editor_above_main(event=None):
+                if top.winfo_exists():
+                    top.lift()
+
+            self.root.bind("<Configure>", _keep_color_editor_above_main)
+            self.root.bind("<FocusIn>", _keep_color_editor_above_main)
         except Exception:
             if top is not None:
                 try:
@@ -3209,7 +3232,7 @@ class SlateApp:
             except Exception:
                 open_path = path  # fail soft -- open the original rather than block on this
             doc = fitz.open(open_path)
-        elif path.lower().endswith((".html", ".htm", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff")):
+        elif path.lower().endswith((".html", ".htm", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".heic")):
             # fitz/PyMuPDF can't render HTML+CSS+JS at all, and treats
             # a bare image as a 1-page doc without the same page-image
             # pipeline the rest of Slate expects -- convert.path_to_pdf
@@ -4450,7 +4473,7 @@ class SlateApp:
         code_pattern = " ".join(f"*{ext}" for ext in CODE_TEXT_EXTENSIONS)
         path = filedialog.askopenfilename(filetypes=[
             ("PDF, ebook, HTML, image and code/text files",
-             "*.pdf *.epub *.mobi *.fb2 *.cbz *.txt *.md *.html *.htm *.png *.jpg *.jpeg *.gif *.bmp *.tiff "
+             "*.pdf *.epub *.mobi *.fb2 *.cbz *.txt *.md *.html *.htm *.png *.jpg *.jpeg *.gif *.bmp *.tiff *.heic "
              + code_pattern),
             ("PDF files", "*.pdf"),
             ("Ebook files", "*.epub *.mobi *.fb2 *.cbz *.txt *.md"),
@@ -4647,7 +4670,7 @@ class SlateApp:
     def do_import_images(self):
         paths = filedialog.askopenfilenames(
             title="Choose images to combine into a PDF (in order)",
-            filetypes=[("Image files", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp")],
+            filetypes=[("Image files", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp *.heic")],
         )
         if not paths:
             return
