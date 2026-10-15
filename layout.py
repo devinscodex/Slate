@@ -20,7 +20,7 @@ class PageLayout:
         """center_offset_x: a single horizontal shift applied to every
         rect, computed by the caller as
         max(0, (viewport_width - content_width) / 2). Applied here once
-        so rect_of()'s coordinates, click hit-testing (page_at), TTS
+        so rect_of()'s coordinates, click hit-testing (page_at), and
         highlight placement, and text-selection overlays all get
         centered positions automatically. Zero when content is already
         >= viewport width (left-pinned behavior for real horizontal

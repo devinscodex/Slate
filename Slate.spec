@@ -1,13 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-# voices/ (bundled TTS model) and the piper/onnxruntime/sounddevice/
-# soundfile collect_all calls below are deliberately OFF -- Read Aloud is
-# excluded from this build entirely (tts.ENGINE_AVAILABLE gates the UI in
-# slate.py) to keep the binary lean. Re-enable by un-commenting these four
-# lines, adding back ('voices', 'voices') to datas, and dropping the
-# excludes= entries below -- nothing else needs to change, tts.py's own
-# lazy-import already tolerates either state.
 datas = [('branding', 'branding'), ('theme_data', 'theme_data')]
 binaries = []
 hiddenimports = []
@@ -17,24 +10,15 @@ tmp_ret = collect_all('pikepdf')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('pyhanko')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-# tmp_ret = collect_all('piper')
-# datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-# tmp_ret = collect_all('onnxruntime')
-# datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-# tmp_ret = collect_all('sounddevice')
-# datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-# tmp_ret = collect_all('soundfile')
-# datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 # A Linux PyInstaller build crashes opening any real document with
 # "ModuleNotFoundError: No module
 # named 'PIL._tkinter_finder'" -- PIL/Pillow was never in this file's own
-# collect_all list (only fitz/pikepdf/pyhanko/piper/onnxruntime/
-# sounddevice/soundfile), so PyInstaller's automatic PIL hook missed this
-# specific helper module that ImageTk.PhotoImage needs at runtime to
-# bridge into Tk's own C image extension. Harmless on Windows too (just
-# ensures the same module ships there as well) -- not platform-specific,
-# a real gap in what this spec collects.
+# collect_all list (only fitz/pikepdf/pyhanko), so PyInstaller's automatic
+# PIL hook missed this specific helper module that ImageTk.PhotoImage needs
+# at runtime to bridge into Tk's own C image extension. Harmless on Windows
+# too (just ensures the same module ships there as well) -- not
+# platform-specific, a real gap in what this spec collects.
 hiddenimports += ['PIL._tkinter_finder']
 
 a = Analysis(
@@ -46,18 +30,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # tts.py imports piper (and transitively onnxruntime/sounddevice) at
-    # its own module level, guarded by a real try/except ImportError --
-    # PyInstaller's static Analysis finds that import regardless of the
-    # runtime guard and bundles it + everything it pulls in (~35MB:
-    # onnxruntime 34.55MB, piper 0.48MB, _sounddevice_data 0.62MB),
-    # completely undoing the collect_all() calls already commented out
-    # above for the same reason. This is the other half of that same
-    # intent, actually enforced -- ImportError at runtime is the designed
-    # fallback (tts.py's own comment), ENGINE_AVAILABLE just becomes
-    # False, no crash. Remove all four names together if Read Aloud ever
-    # comes back (matching the collect_all block above).
-    excludes=['piper', 'onnxruntime', 'sounddevice', 'soundfile'],
+    excludes=[],
     noarchive=False,
     optimize=0,
 )

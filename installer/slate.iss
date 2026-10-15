@@ -60,7 +60,7 @@ Name: "codeassoc"; Description: "Make Slate available for code/config files (.py
 
 [Files]
 ; The whole PyInstaller --onedir output, recursively -- exe + all
-; bundled deps/data (branding, both bundled TTS voices, etc.).
+; bundled deps/data (branding, theme_data, etc.).
 Source: "..\dist\Slate\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]

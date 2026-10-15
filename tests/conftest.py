@@ -8,9 +8,9 @@ calls recent.add_recent() as a side effect (that's the whole point of
 the feature), which without this fixture would quietly write real
 tmp-path test fixtures into the actual ~/.slate/recent.json on the
 machine running the tests, polluting real local config with test
-artifacts. gate.py's unlock.json, theme.py's theme.json, and tts.py's
-downloaded-voices cache all share the same ~/.slate/ directory and the
-same risk (a stray test download/preference/passphrase would otherwise
+artifacts. gate.py's unlock.json and theme.py's theme.json
+all share the same ~/.slate/ directory and the
+same risk (a stray test preference/passphrase would otherwise
 land in real local config), so all are isolated here too, pre-emptively.
 
 settings.py's settings.json carries this exact same risk (a test run
@@ -18,16 +18,6 @@ can leave a dead pytest tmp-path in the actual ~/.slate/settings.json's
 open_tabs, and leave continuous_scroll/side_by_side however the last
 test happened to set them) -- same fixture, same fix, no new pattern
 needed.
-
-tts._voice_cache (a module-level dict caching loaded PiperVoice objects
-across calls, added as a real perf fix) is never reset between tests
-either -- a test that downloads a FAKE/invalid "alba" model and caches
-whatever (possibly broken) object that produces can leave a later,
-unrelated test using the same voice_id stuck reusing that broken
-cached object instead of loading a fresh one, hanging deep inside
-onnxruntime on Windows specifically (a cross-test contamination bug,
-not a real product bug -- runs fine standalone, only hangs as part of
-the full suite).
 
 theme.THEMES/THEME_LABELS/_chrome_overrides are also module-level and
 mutated IN PLACE by save_as_new_theme/update_live/reload_from_disk (by
@@ -37,7 +27,7 @@ those (or exercises the color editor through SlateApp) would otherwise
 leave a custom theme, a THEME_LABELS entry, or a cascade override
 sitting in the shared module dict for every later test in the same
 process -- exactly the kind of cross-test contamination this file
-already guards against for tts._voice_cache above. Snapshotting and
+already guards against for theme._THEME_DATA_DIR above. Snapshotting and
 restoring both dicts plus clearing overrides after every test closes
 that gap the same way.
 
@@ -62,7 +52,6 @@ import gate
 import recent
 import settings
 import theme
-import tts
 
 _REAL_THEME_DATA_DIR = theme._THEME_DATA_DIR
 
@@ -96,8 +85,6 @@ def isolate_recent_files_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(theme, "_DEVS_THEMES_PALETTES", fake_devs_palettes)
     monkeypatch.setattr(settings, "CONFIG_DIR", cfg)
     monkeypatch.setattr(settings, "SETTINGS_FILE", cfg / "settings.json")
-    monkeypatch.setattr(tts, "DOWNLOADED_VOICES_DIR", cfg / "tts-voices")
-    tts._voice_cache.clear()
     _themes_snapshot = dict(theme.THEMES)
     _labels_snapshot = dict(theme.THEME_LABELS)
     yield
