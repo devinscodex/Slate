@@ -73,7 +73,7 @@ def _load_base(family: str, mode: str) -> dict:
     data = json.loads((_THEME_DATA_DIR / f"{family}.json").read_text())[mode]
     return {k: data[k] for k in _BASE_KEYS} | {"is_dark": mode == "dark"}
 
-DEFAULT_THEME = "slate_light"
+DEFAULT_THEME = "everforest_light"
 
 
 def _hex_to_rgb(hexval: str):

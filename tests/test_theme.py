@@ -10,12 +10,8 @@ def test_get_palette_falls_back_to_default_for_unknown_name():
     assert theme.get_palette("not-a-real-theme") == theme.THEMES[theme.DEFAULT_THEME]
 
 
-def test_default_theme_is_slate_light_per_devins_explicit_request():
-    """The default theme has changed several times over the project's
-    history (plain Dark, then Inkbone Dark, then Slate Dark, back when
-    that family was still named Mosscairn) before settling on Slate
-    Light as the final choice."""
-    assert theme.DEFAULT_THEME == "slate_light"
+def test_default_theme_is_everforest_light():
+    assert theme.DEFAULT_THEME == "everforest_light"
 
 
 def test_all_themes_have_the_same_keys():
