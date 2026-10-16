@@ -5,6 +5,11 @@ on:
     branches: [release, suckless-hardening-review]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
 jobs:
   build:
     runs-on: windows-2022
@@ -14,9 +19,18 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r requirements.txt pyinstaller
+      - run: pip install -r requirements.txt
+      # Compile the bootloader on the runner instead of using the prebuilt
+      # one, whose binary hash is shared by every PyInstaller app.
+      - run: pip install --no-binary pyinstaller pyinstaller
       - name: Freeze
         run: python -m PyInstaller Slate.spec --noconfirm
+      - name: Check version resource
+        shell: pwsh
+        run: |
+          $i = (Get-Item dist\Slate\Slate.exe).VersionInfo
+          if ($i.CompanyName -ne "devinscodex" -or $i.ProductName -ne "Slate") { throw "version resource missing" }
+          "$($i.ProductName) $($i.FileVersion) by $($i.CompanyName)"
       - name: Smoke test
         shell: pwsh
         run: |
@@ -39,6 +53,9 @@ jobs:
           Get-ChildItem dist-installer\* | ForEach-Object {
             "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
           } | Set-Content dist-installer\SHA256SUMS.txt
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist-installer/*
       - uses: actions/upload-artifact@v7
         with:
           name: slate-windows

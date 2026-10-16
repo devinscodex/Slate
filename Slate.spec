@@ -1,5 +1,46 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+import sys
+
 from PyInstaller.utils.hooks import collect_all
+
+sys.path.insert(0, SPECPATH)
+import version as slate_version  # noqa: E402
+
+
+def _version_resource():
+    """Windows VERSIONINFO for Slate.exe, so file properties name the
+    product, publisher and license instead of showing blanks."""
+    from PyInstaller.utils.win32.versioninfo import (
+        FixedFileInfo, StringFileInfo, StringStruct, StringTable, VarFileInfo, VarStruct, VSVersionInfo,
+    )
+    v = slate_version.VERSION
+    nums = tuple((int(p) for p in v.split(".")[:3])) + (0,) * (4 - len(v.split(".")[:3]))
+    fields = [
+        ("CompanyName", slate_version.AUTHOR),
+        ("FileDescription", "Slate PDF editor"),
+        ("FileVersion", v),
+        ("InternalName", "Slate"),
+        ("LegalCopyright", f"Copyright (c) 2026 {slate_version.AUTHOR}. {slate_version.LICENSE}"),
+        ("OriginalFilename", "Slate.exe"),
+        ("ProductName", "Slate"),
+        ("ProductVersion", v),
+        ("Comments", "https://github.com/devinscodex/Slate"),
+    ]
+    info = VSVersionInfo(
+        ffi=FixedFileInfo(filevers=nums, prodvers=nums, mask=0x3F, flags=0x0, OS=0x40004,
+                          fileType=0x1, subtype=0x0, date=(0, 0)),
+        kids=[
+            StringFileInfo([StringTable("040904B0", [StringStruct(k, val) for k, val in fields])]),
+            VarFileInfo([VarStruct("Translation", [1033, 1200])]),
+        ],
+    )
+    os.makedirs("build", exist_ok=True)
+    path = os.path.join("build", "version_info.txt")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(str(info))
+    return path
+
 
 datas = [('branding', 'branding'), ('theme_data', 'theme_data'), ('tessdata', 'tessdata')]
 binaries = []
@@ -58,6 +99,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['branding\\slate.ico'],
+    version=_version_resource() if sys.platform == 'win32' else None,
 )
 coll = COLLECT(
     exe,
