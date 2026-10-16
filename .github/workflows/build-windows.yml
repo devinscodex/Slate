@@ -20,9 +20,21 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
-      # Compile the bootloader on the runner instead of using the prebuilt
-      # one, whose binary hash is shared by every PyInstaller app.
-      - run: pip install --no-binary pyinstaller pyinstaller
+      # Compile the bootloader on the runner; the prebuilt one has a binary
+      # hash shared by every PyInstaller app.
+      - name: Build PyInstaller with its own bootloader
+        shell: pwsh
+        run: |
+          pip install pyinstaller
+          $v = (pip show pyinstaller | Select-String '^Version: (.+)$').Matches[0].Groups[1].Value
+          pip uninstall -y pyinstaller
+          git clone --depth 1 --branch "v$v" https://github.com/pyinstaller/pyinstaller.git pyi-src
+          Push-Location pyi-src\bootloader
+          python ./waf all --target-arch=64bit
+          if ($LASTEXITCODE -ne 0) { throw "bootloader build failed" }
+          Pop-Location
+          pip install .\pyi-src
+          python -c "import PyInstaller, hashlib, pathlib; p = pathlib.Path(PyInstaller.__file__).parent / 'bootloader' / 'Windows-64bit-intel' / 'runw.exe'; print('runw.exe', hashlib.sha256(p.read_bytes()).hexdigest())"
       - name: Freeze
         run: python -m PyInstaller Slate.spec --noconfirm
       - name: Check version resource
