@@ -2120,10 +2120,11 @@ def test_startup_check_prompts_when_update_is_real(tmp_path, monkeypatch):
     monkeypatch.setattr(slate.messagebox, "askyesno", lambda title, msg: asked.append((title, msg)) or False)
     root, app = _make_app(tmp_path)
     try:
-        root.update()
         import time
-        time.sleep(2.3)
-        root.update()
+        deadline = time.time() + 10
+        while not asked and time.time() < deadline:
+            root.update()
+            time.sleep(0.05)
         assert len(asked) == 1
         assert asked[0][0] == "Update available"
         assert "v9.9.9" in asked[0][1]

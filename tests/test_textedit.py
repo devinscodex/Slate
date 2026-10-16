@@ -77,7 +77,11 @@ def test_detect_span_finds_text_at_a_point_and_misses_elsewhere(tmp_path):
     span = textedit.detect_span(page, fitz.Point(80, 95))
     assert span is not None
     assert "quick brown fox" in _normalize_spaces(span["text"])
-    assert span["font"] == REAL_EMBEDDABLE_FONT_NAME  # PyMuPDF's internal font name, not the resource alias "F1"
+    # span["font"] is the font's internal name, not the resource alias "F1";
+    # newer PyMuPDF's Font.name returns the full name ("DejaVu Serif Book")
+    # where the span reports the short one ("DejaVuSerif"), so compare
+    # the space-stripped span name as a prefix.
+    assert REAL_EMBEDDABLE_FONT_NAME.replace(" ", "").startswith(span["font"].replace(" ", ""))
 
     nothing = textedit.detect_span(page, fitz.Point(80, 500))
     assert nothing is None
