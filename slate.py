@@ -3521,6 +3521,14 @@ class SlateApp:
         tkimg = self._page_cache.get(page_num)
         item = self.canvas.create_image(int(x0), int(y0), anchor=tk.NW, image=tkimg)
         self._page_canvas_items[page_num] = item
+        if self.colorize_pages:
+            # Colorized pages share the surround's color; the outline keeps
+            # page edges visible.
+            colors = theme.get_palette(self.theme_name.get())
+            self.canvas.create_rectangle(
+                int(x0), int(y0), int(x0) + tkimg.width() - 1, int(y0) + tkimg.height() - 1,
+                outline=colors["muted_fg"], width=1, tags=("page_outline",),
+            )
         self._draw_search_highlights_for_page(page_num, x0, y0)
         self._draw_text_selection_for_page(page_num, x0, y0)
 

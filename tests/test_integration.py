@@ -4159,3 +4159,22 @@ def test_ocr_command_adds_searchable_text_to_scanned_pages(tmp_path, monkeypatch
     finally:
         app.doc.close()
         root.destroy()
+
+
+def test_colorized_pages_get_an_outline_so_page_edges_stay_visible(tmp_path):
+    import theme
+
+    root, app = _make_app(tmp_path)
+    try:
+        assert not app.canvas.find_withtag("page_outline")
+        app.colorize_pages = True
+        app._page_cache.invalidate_all()
+        app.render()
+        root.update()
+        outlines = app.canvas.find_withtag("page_outline")
+        assert outlines
+        colors = theme.get_palette(app.theme_name.get())
+        assert all(app.canvas.itemcget(i, "outline") == colors["muted_fg"] for i in outlines)
+    finally:
+        app.doc.close()
+        root.destroy()
