@@ -92,3 +92,64 @@ def test_reorder_rejects_non_permutation():
     except ValueError:
         pass
     doc.close()
+
+
+def _texts(doc):
+    return [doc[i].get_text().strip() for i in range(doc.page_count)]
+
+
+def test_rotate_pages_accumulates_and_wraps():
+    doc = _make_doc(["p0", "p1"])
+    merge_split.rotate_pages(doc, [1], 90)
+    merge_split.rotate_pages(doc, [1], 270)
+    merge_split.rotate_pages(doc, [0], -90)
+    assert [doc[0].rotation, doc[1].rotation] == [270, 0]
+    doc.close()
+
+
+def test_rotate_rejects_non_right_angle():
+    doc = _make_doc(["p0"])
+    try:
+        merge_split.rotate_pages(doc, [0], 45)
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+    doc.close()
+
+
+def test_delete_pages_keeps_the_rest_in_order():
+    doc = _make_doc(["p0", "p1", "p2", "p3"])
+    merge_split.delete_pages(doc, [1, 3])
+    assert _texts(doc) == ["p0", "p2"]
+    doc.close()
+
+
+def test_delete_every_page_is_refused_and_leaves_doc_intact():
+    doc = _make_doc(["p0", "p1"])
+    try:
+        merge_split.delete_pages(doc, [0, 1])
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+    assert _texts(doc) == ["p0", "p1"]
+    doc.close()
+
+
+def test_move_pages_to_front_middle_and_end():
+    doc = _make_doc(["p0", "p1", "p2", "p3"])
+    merge_split.move_pages(doc, [3], 0)
+    assert _texts(doc) == ["p3", "p0", "p1", "p2"]
+    merge_split.move_pages(doc, [0, 1], 2)
+    assert _texts(doc) == ["p1", "p2", "p3", "p0"]
+    merge_split.move_pages(doc, [2], 99)
+    assert _texts(doc) == ["p1", "p2", "p0", "p3"]
+    doc.close()
+
+
+def test_insert_pages_at_position():
+    doc = _make_doc(["p0", "p1"])
+    src = _make_doc(["x0", "x1"])
+    merge_split.insert_pages(doc, src, 1)
+    assert _texts(doc) == ["p0", "x0", "x1", "p1"]
+    doc.close()
+    src.close()
