@@ -945,14 +945,14 @@ def test_search_highlights_use_theme_colors_not_hardcoded_yellow_red(tmp_path):
     root = tk.Tk()
     app = slate.SlateApp(root, path)
     try:
-        app.theme_name.set("bonepaper_dark")
+        app.theme_name.set("everforest_dark")
         app._apply_theme()
         app._show_find_bar()
         app.find_var.set("alpha")
         app._find_next()
         root.update()
 
-        colors = theme.get_palette("bonepaper_dark")
+        colors = theme.get_palette("everforest_dark")
 
         def rgb(hexval):
             h = hexval.lstrip("#")
@@ -2352,9 +2352,9 @@ def test_chrome_cascade_colors_menubar_tabstrip_toolbar_as_three_real_steps(tmp_
     covers that part)."""
     root, app = _make_app(tmp_path)
     try:
-        app.theme_name.set("bonepaper_dark")
+        app.theme_name.set("everforest_dark")
         app._apply_theme()
-        colors = theme.get_palette("bonepaper_dark")
+        colors = theme.get_palette("everforest_dark")
 
         assert str(app.menubar.cget("bg")) == colors["menubar_bg"]
         assert ttk.Style().lookup("TNotebook", "background") == colors["tabstrip_bg"]
@@ -2385,9 +2385,9 @@ def test_active_tab_gets_a_subtle_accent_tint_not_a_full_fill(tmp_path):
     between."""
     root, app = _make_app(tmp_path)
     try:
-        app.theme_name.set("bonepaper_dark")
+        app.theme_name.set("everforest_dark")
         app._apply_theme()
-        colors = theme.get_palette("bonepaper_dark")
+        colors = theme.get_palette("everforest_dark")
 
         style = ttk.Style()
         base_bg = style.lookup("TNotebook.Tab", "background")
@@ -2449,9 +2449,9 @@ def test_home_screen_matches_the_active_theme(tmp_path, monkeypatch):
     root = tk.Tk()
     app = slate.SlateApp(root, None)  # no path -- launches straight to home screen
     try:
-        app.theme_name.set("bonepaper_dark")
+        app.theme_name.set("everforest_dark")
         app._on_theme_changed()
-        colors = theme.get_palette("bonepaper_dark")
+        colors = theme.get_palette("everforest_dark")
         assert str(app.home_frame.cget("bg")) == colors["bg"]
 
         # second call site: open a doc, close its only tab, back to home
@@ -2565,9 +2565,9 @@ def test_toc_selected_row_uses_theme_highlight_not_ttks_default_blue(tmp_path):
     of Slate's actual palette."""
     root, app = _make_app(tmp_path)
     try:
-        app.theme_name.set("bonepaper_dark")
+        app.theme_name.set("everforest_dark")
         app._apply_theme()
-        colors = theme.get_palette("bonepaper_dark")
+        colors = theme.get_palette("everforest_dark")
         style = ttk.Style()
         assert style.lookup("Treeview", "background", ("selected",)) == colors["highlight_bg"]
         assert style.lookup("Treeview", "foreground", ("selected",)) == colors["bg"]
@@ -2624,7 +2624,7 @@ def test_f2_opens_command_palette_listing_all_themes(tmp_path):
         listbox = [w for w in palette.winfo_children() if isinstance(w, tk.Listbox)][0]
         entries = listbox.get(0, tk.END)
         assert len(entries) == len(theme.THEME_LABELS)
-        assert any("Bonepaper Dark" in e for e in entries)
+        assert any("Everforest Dark" in e for e in entries)
         palette.destroy()
     finally:
         app.doc.close()
@@ -3750,7 +3750,7 @@ def test_settings_theme_picker_is_a_dropdown_with_light_dark_radios(tmp_path):
         assert len(combos) == 1
         family_combo = combos[0]
         assert str(family_combo.cget("state")) == "readonly"
-        assert set(family_combo.cget("values")) == {"Slate", "Bonepaper", "Flexoki", "Martin"}
+        assert set(family_combo.cget("values")) == {"Slate", "Basic", "Nord", "Everforest", "Flexoki", "Martin"}
         assert family_combo.get() == "Slate"  # matches slate_dark's own family
 
         radios = find_all(tk.Radiobutton)
@@ -3805,11 +3805,11 @@ def test_settings_theme_picker_selects_the_right_theme_from_family_plus_mode(tmp
         root.update()
         assert app.theme_name.get() == "slate_dark"
 
-        # Family changed, mode held (still Dark) -> slate_dark to bonepaper_dark.
-        family_combo.set("Bonepaper")
+        # Family changed, mode held (still Dark) -> slate_dark to everforest_dark.
+        family_combo.set("Everforest")
         family_combo.event_generate("<<ComboboxSelected>>")
         root.update()
-        assert app.theme_name.get() == "bonepaper_dark"
+        assert app.theme_name.get() == "everforest_dark"
     finally:
         app.doc.close()
         root.destroy()
@@ -3897,7 +3897,7 @@ def test_display_group_selectcolor_follows_a_live_theme_switch(tmp_path):
     test right above this one)."""
     root, app = _make_app(tmp_path)
     try:
-        app.theme_name.set("bonepaper_dark")
+        app.theme_name.set("everforest_dark")
         app._apply_theme()
         app._show_settings()
         top = app._settings_window
@@ -3915,7 +3915,7 @@ def test_display_group_selectcolor_follows_a_live_theme_switch(tmp_path):
 
         colorize_btn = find("Colorize pages to theme (F4)")
         toc_btn = find("Show Table of Contents")
-        assert colorize_btn.cget("selectcolor") == theme.THEMES["bonepaper_dark"]["select_bg"]
+        assert colorize_btn.cget("selectcolor") == theme.THEMES["everforest_dark"]["select_bg"]
 
         # Switch theme in the SAME still-open dialog -- the real scenario.
         app.theme_name.set("slate_dark")

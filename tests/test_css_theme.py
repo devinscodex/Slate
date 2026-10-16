@@ -128,7 +128,6 @@ def test_comments_are_stripped_before_parsing(tmp_path):
 )
 @pytest.mark.parametrize("filename,dark_key,light_key", [
     ("slate.css", "slate_dark", "slate_light"),
-    ("bonepaper.css", "bonepaper_dark", "bonepaper_light"),
 ])
 def test_shipped_theme_dicts_match_the_real_current_css_file(filename, dark_key, light_key):
     """The real point of this whole module: theme.py's hand-tuned dicts

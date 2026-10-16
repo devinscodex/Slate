@@ -37,7 +37,7 @@ disk after a test run (not proactively): save_family_values()/
 reload_from_disk() read/write those two paths directly, and neither was
 in the isolation list above -- test_theme_editor.py's own override-
 round-trip tests wrote a genuine `slate_chrome_overrides` key straight
-into the real, fossil-tracked `theme_data/bonepaper.json` (and its
+into the real, fossil-tracked `theme_data/slate.json` (and its
 sibling in the neighboring devs-themes checkout), silently, on a normal
 test run. Copying the real theme_data/*.json into the isolated tmp dir
 and pointing both module paths at copies closes this for good -- every

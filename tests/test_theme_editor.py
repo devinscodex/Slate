@@ -69,11 +69,11 @@ def test_save_family_values_removes_a_since_cleared_override_from_disk():
 
 
 def test_load_saved_chrome_overrides_restores_every_built_in_theme():
-    theme.update_live("bonepaper_dark", "toolbar_fg", "#112233")
-    theme.save_family_values("bonepaper_dark")
+    theme.update_live("everforest_dark", "toolbar_fg", "#112233")
+    theme.save_family_values("everforest_dark")
     theme._chrome_overrides.clear()  # simulate a fresh process
     theme.load_saved_chrome_overrides()
-    assert theme.THEMES["bonepaper_dark"]["toolbar_fg"] == "#112233"
+    assert theme.THEMES["everforest_dark"]["toolbar_fg"] == "#112233"
 
 
 def test_save_as_new_theme_snapshots_the_live_palette_under_a_new_key():

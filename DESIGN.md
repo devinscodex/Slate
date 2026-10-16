@@ -318,7 +318,7 @@ three concrete slices peeled from it:
 **Explicitly still out of scope:** adjustable reflow for epub (font
 size is covered by the global UI Font Size setting, but true reflow
 isn't). TTS and night mode are no longer out of scope -- see Read
-Aloud below and the multi-theme roster (Slate/Bonepaper/Flexoki/Martin,
+Aloud below and the multi-theme roster (Slate/Basic/Nord/Everforest/Flexoki/Martin,
 each with a dark variant).
 
 ## Convert — office document utilities (`convert.py`)

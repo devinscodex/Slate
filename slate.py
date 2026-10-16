@@ -402,7 +402,7 @@ class SlateApp:
 
         fixed_theme_name (Theme grid only): each radio there represents
         a SPECIFIC theme, not "whichever theme happens to be active" --
-        "Bonepaper Dark"'s own swatch must show Bonepaper's own accent
+        "Everforest Dark"'s own swatch must show Everforest's own accent
         even while Slate is the live theme, so this pins which palette
         _refresh reads colors from instead of always reading
         self.theme_name.get(). None (every other group) means "whatever
@@ -601,7 +601,7 @@ class SlateApp:
             self._paint_chrome_subtree(self.toolbar, colors["toolbar_bg"], colors["toolbar_fg"])
             # Real per-family border (theme.py's authored `border` key,
             # not computed) -- for most families a subtle neutral step,
-            # for bonepaper dark specifically the accent-tinted "glow"
+            # in some families an accent-tinted "glow"
             # webUI's own --line uses there. highlightthickness=1 draws
             # on all 4 edges, reading as a real bordered panel rather
             # than a bare color-block, same as webUI's own bordered
@@ -3672,7 +3672,7 @@ class SlateApp:
         mode, so this is byte-identical to the pre-Slice-2 math there.
 
         Outline was hardcoded plain "yellow"/"red", ignoring the active
-        theme entirely -- true in every theme, not just Bonepaper. A thin
+        theme entirely -- true in every theme, not just one. A thin
         theme-colored OUTLINE rectangle (select_bg for ordinary matches,
         accent2 for the current one) isn't enough visual weight for
         something meant to draw the eye, no matter the hue. Built instead
