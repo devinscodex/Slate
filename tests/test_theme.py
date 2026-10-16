@@ -113,11 +113,11 @@ def test_standard_light_dark_carry_flexokis_real_values():
     "Flexoki Light"/"Flexoki Dark" -- the values were always Flexoki's,
     only the label changed.
 
-    light bg/button_bg were later updated to a webUI-parity variant,
-    #fdf6dc/#eee2c9, rather than the stock stephango.com paper/base-50
-    (#fffcf0/#f2f0e5) -- fg stays on spec either way."""
-    assert theme.THEMES["dark"]["fg"] == "#e6e4d9"
-    assert theme.THEMES["light"]["bg"] == "#fdf6dc"
+    light bg/button_bg and dark fg are the stock stephango.com
+    paper/base-50/base-200 values."""
+    assert theme.THEMES["dark"]["fg"] == "#cecdc3"  # base-200, Flexoki's dark text
+    assert theme.THEMES["light"]["bg"] == "#fffcf0"  # paper
+    assert theme.THEMES["light"]["button_bg"] == "#f2f0e5"  # base-50
     assert theme.THEMES["light"]["fg"] == "#100f0f"
 
 
