@@ -44,7 +44,7 @@ exe = EXE(
     name='Slate',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True,
+    strip=False,
     # UPX OFF -- a packed, unsigned EXE is a classic AV heuristic trigger
     # (malware uses the same packer to hide payloads; Defender and others
     # weight "compressed + no publisher signature" heavily). Larger binary,
@@ -63,7 +63,7 @@ coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
-    strip=True,
+    strip=False,
     upx=False,  # matches EXE() above -- same reasoning, same fix
     upx_exclude=[],
     name='Slate',

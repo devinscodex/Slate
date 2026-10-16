@@ -20,6 +20,8 @@ jobs:
       - name: Smoke test
         shell: pwsh
         run: |
+          python -c "import ctypes, sys; ctypes.WinDLL(r'dist\Slate\_internal\python312.dll'); print('python312.dll loads')"
+          if ($LASTEXITCODE -ne 0) { throw "python312.dll failed to load" }
           $p = Start-Process dist\Slate\Slate.exe -PassThru
           Start-Sleep -Seconds 6
           if ($p.HasExited) { throw "Slate.exe exited with code $($p.ExitCode)" }
