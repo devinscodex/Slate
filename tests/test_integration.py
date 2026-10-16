@@ -4128,3 +4128,34 @@ def test_colorize_pages_defaults_off(tmp_path):
     finally:
         app.doc.close()
         root.destroy()
+
+
+def test_ocr_command_adds_searchable_text_to_scanned_pages(tmp_path, monkeypatch):
+    import ocr
+    from PIL import Image, ImageDraw, ImageFont
+
+    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    if not ocr.available() or not os.path.exists(font_path):
+        pytest.skip("OCR data or test font missing")
+    img = Image.new("RGB", (900, 300), "white")
+    ImageDraw.Draw(img).text((40, 100), "Scanned ledger entry", font=ImageFont.truetype(font_path, 40), fill="black")
+    img_path = str(tmp_path / "scan.png")
+    img.save(img_path)
+
+    shown = []
+    monkeypatch.setattr(slate.messagebox, "askyesno", lambda *a, **k: True)
+    monkeypatch.setattr(slate.messagebox, "showinfo", lambda title, msg: shown.append(title))
+    root, app = _make_app(tmp_path)
+    try:
+        app.do_ocr()
+        assert shown == ["Nothing to recognize"]  # fixture pages already have text
+
+        page = app.doc.new_page(width=450, height=150)
+        page.insert_image(page.rect, filename=img_path)
+        shown.clear()
+        app.do_ocr()
+        assert shown == ["Text recognized"]
+        assert app.doc[app.doc.page_count - 1].search_for("ledger")
+    finally:
+        app.doc.close()
+        root.destroy()

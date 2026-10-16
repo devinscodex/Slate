@@ -28,6 +28,7 @@ import gate
 import io_pdf
 import layout
 import merge_split
+import ocr
 import pagecache
 import recent
 import redact
@@ -932,6 +933,8 @@ class SlateApp:
         convertm.add_command(label="Export to Markdown...", command=self.do_export_markdown)
         convertm.add_command(label="Export as plain text...", command=self.do_export_text)
         convertm.add_command(label="Export pages as images...", command=self.do_export_images)
+        convertm.add_separator()
+        convertm.add_command(label="Recognize text (OCR)...", command=self.do_ocr)
         convertm.add_separator()
         convertm.add_command(label="Import images as PDF...", command=self.do_import_images)
         menubar.add_cascade(label="Convert", menu=convertm)
@@ -4531,6 +4534,33 @@ class SlateApp:
         with open(out, "w", encoding="utf-8") as f:
             f.write(text)
         messagebox.showinfo("Exported", f"Saved text to {out}")
+
+    def do_ocr(self):
+        if not self._require_doc():
+            return
+        if not ocr.available():
+            messagebox.showerror("OCR unavailable", "The OCR language data (tessdata/eng.traineddata) is missing.")
+            return
+        pages = [i for i in range(self.doc.page_count) if ocr.page_needs_ocr(self.doc[i])]
+        if not pages:
+            messagebox.showinfo("Nothing to recognize", "Every page already has text.")
+            return
+        if not messagebox.askyesno(
+            "Recognize text",
+            f"{len(pages)} page(s) have no text. Add an invisible text layer so they "
+            f"can be searched and copied? Save afterwards to keep it.",
+        ):
+            return
+
+        def progress(done, total):
+            self.status.config(text=f"OCR: {done}/{total} pages")
+            self.root.update()
+
+        done = ocr.ocr_document(self.doc, pages, progress=progress)
+        self._page_cache.invalidate_all()
+        self.render()
+        words = sum(done.values())
+        messagebox.showinfo("Text recognized", f"Added {words} words on {len(done)} page(s). Save to keep them.")
 
     def do_export_images(self):
         if not self._require_doc():
