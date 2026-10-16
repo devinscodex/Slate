@@ -6,13 +6,9 @@ exist on a deployed end-user machine without fossil/git installed.
 
 AUTHOR = "devinscodex"
 
-# AGPL-3.0-or-later. Forced by PyMuPDF, not Piper: PyMuPDF's free tier is
+# AGPL-3.0-or-later, forced by PyMuPDF: its free tier is
 # dual-licensed "GNU AFFERO GPL 3.0 or Artifex Commercial License"
-# (verified via `pip show pymupdf`). Piper (TTS) is plain GPL-3.0-or-
-# later. GPLv3 SS13 and AGPLv3 SS13 have reciprocal FSF compatibility
-# clauses letting a GPL-3.0 component combine into an AGPL-3.0 work (not
-# the reverse), so AGPL-3.0 covers the whole frozen Slate.exe rather than
-# a split-license codebase. See LICENSE for full text.
+# (verified via `pip show pymupdf`). See LICENSE for full text.
 LICENSE = "AGPL-3.0-or-later"
 
 VERSION = "1.6.0"

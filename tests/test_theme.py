@@ -10,11 +10,7 @@ def test_get_palette_falls_back_to_default_for_unknown_name():
     assert theme.get_palette("not-a-real-theme") == theme.THEMES[theme.DEFAULT_THEME]
 
 
-def test_default_theme_is_slate_light_per_devins_explicit_request():
-    """The default theme has changed several times over the project's
-    history (plain Dark, then Inkbone Dark, then Slate Dark, back when
-    that family was still named Mosscairn) before settling on Slate
-    Light as the final choice."""
+def test_default_theme_is_slate_light():
     assert theme.DEFAULT_THEME == "slate_light"
 
 
@@ -34,7 +30,7 @@ def test_every_theme_label_maps_to_a_real_theme():
         assert name in theme.THEMES, label
 
 
-def test_roster_is_exactly_eight_themes():
+def test_roster_is_exactly_six_themes():
     """The theme roster has gone through several rounds of consolidation
     and renaming. It started as 5 families (10 variants: Dark/Light,
     Gruvbox, Solarized, Inkbone, Flexoki-as-Standard), was cut down to
@@ -74,8 +70,7 @@ def test_roster_is_exactly_eight_themes():
     assert set(theme.THEMES.keys()) == {
         "light", "dark",
         "slate_light", "slate_dark",
-        "bonepaper_light", "bonepaper_dark",
-        "martin_light", "martin_dark",
+                "martin_light", "martin_dark",
     }
     for gone in ("flexoki_dark", "flexoki_light", "gruvbox_dark", "gruvbox_light",
                  "solarized_light", "solarized", "mosscairn3_light", "mosscairn3_dark",
@@ -118,11 +113,11 @@ def test_standard_light_dark_carry_flexokis_real_values():
     "Flexoki Light"/"Flexoki Dark" -- the values were always Flexoki's,
     only the label changed.
 
-    light bg/button_bg were later updated to a webUI-parity variant,
-    #fdf6dc/#eee2c9, rather than the stock stephango.com paper/base-50
-    (#fffcf0/#f2f0e5) -- fg stays on spec either way."""
-    assert theme.THEMES["dark"]["fg"] == "#e6e4d9"
-    assert theme.THEMES["light"]["bg"] == "#fdf6dc"
+    light bg/button_bg and dark fg are the stock stephango.com
+    paper/base-50/base-200 values."""
+    assert theme.THEMES["dark"]["fg"] == "#cecdc3"  # base-200, Flexoki's dark text
+    assert theme.THEMES["light"]["bg"] == "#fffcf0"  # paper
+    assert theme.THEMES["light"]["button_bg"] == "#f2f0e5"  # base-50
     assert theme.THEMES["light"]["fg"] == "#100f0f"
 
 

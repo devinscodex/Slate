@@ -1,0 +1,74 @@
+name: build-windows
+
+on:
+  push:
+    branches: [release, suckless-hardening-review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # Compile the bootloader on the runner; the prebuilt one has a binary
+      # hash shared by every PyInstaller app.
+      - name: Build PyInstaller with its own bootloader
+        shell: pwsh
+        run: |
+          pip install pyinstaller
+          $v = (pip show pyinstaller | Select-String '^Version: (.+)$').Matches[0].Groups[1].Value
+          pip uninstall -y pyinstaller
+          git clone --depth 1 --branch "v$v" https://github.com/pyinstaller/pyinstaller.git pyi-src
+          Push-Location pyi-src\bootloader
+          python ./waf all --target-arch=64bit
+          if ($LASTEXITCODE -ne 0) { throw "bootloader build failed" }
+          Pop-Location
+          pip install .\pyi-src
+          python -c "import PyInstaller, hashlib, pathlib; p = pathlib.Path(PyInstaller.__file__).parent / 'bootloader' / 'Windows-64bit-intel' / 'runw.exe'; print('runw.exe', hashlib.sha256(p.read_bytes()).hexdigest())"
+      - name: Freeze
+        run: python -m PyInstaller Slate.spec --noconfirm
+      - name: Check version resource
+        shell: pwsh
+        run: |
+          $i = (Get-Item dist\Slate\Slate.exe).VersionInfo
+          if ($i.CompanyName -ne "devinscodex" -or $i.ProductName -ne "Slate") { throw "version resource missing" }
+          "$($i.ProductName) $($i.FileVersion) by $($i.CompanyName)"
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          python -c "import ctypes, sys; ctypes.WinDLL(r'dist\Slate\_internal\python312.dll'); print('python312.dll loads')"
+          if ($LASTEXITCODE -ne 0) { throw "python312.dll failed to load" }
+          $p = Start-Process dist\Slate\Slate.exe -PassThru
+          Start-Sleep -Seconds 6
+          if ($p.HasExited) { throw "Slate.exe exited with code $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+      - name: Installer
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $v = (Select-String -Path version.py -Pattern '^VERSION = "([^"]+)"').Matches[0].Groups[1].Value
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$v" installer\slate.iss
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist\Slate -DestinationPath dist-installer\Slate-portable.zip
+          Get-ChildItem dist-installer\* | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Set-Content dist-installer\SHA256SUMS.txt
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist-installer/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: slate-windows
+          path: dist-installer/*

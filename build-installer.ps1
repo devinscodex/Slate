@@ -24,7 +24,7 @@ Set-Location $PSScriptRoot
 # crashes on launch with "cannot import name '_as_fz_document' from
 # 'pymupdf'" -- a version-mismatched fitz/pymupdf binary, not a real
 # code bug. .venv-win (Lib\site-packages has fitz/pymupdf/pikepdf/
-# pyhanko/piper/onnxruntime all present) is the real, complete build env.
+# pyhanko all present) is the real, complete build env.
 $venvPython = Join-Path $PSScriptRoot ".venv-win\Scripts\python.exe"
 if (-not (Test-Path $venvPython)) { throw ".venv-win not found at $venvPython -- real build env missing" }
 

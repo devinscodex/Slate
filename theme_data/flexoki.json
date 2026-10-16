@@ -1,30 +1,30 @@
 {
   "light": {
-    "bg": "#fdf6dc",
+    "bg": "#fffcf0",
     "fg": "#100f0f",
-    "button_bg": "#eee2c9",
-    "entry_bg": "#fdf6dc",
-    "canvas_bg": "#fdf6dc",
+    "button_bg": "#f2f0e5",
+    "entry_bg": "#fffcf0",
+    "canvas_bg": "#fffcf0",
     "select_bg": "#24837b",
-    "muted_fg": "#b7b5ac",
+    "muted_fg": "#6f6e69",
     "highlight_bg": "#24837b",
     "faint_fg": "#878580",
-    "bg2": "#eee2c9",
+    "bg2": "#f2f0e5",
     "bg3": "#e6e4d9",
     "border": "#cecdc3"
   },
   "dark": {
     "bg": "#1c1b1a",
-    "fg": "#e6e4d9",
+    "fg": "#cecdc3",
     "button_bg": "#282726",
     "entry_bg": "#100f0f",
     "canvas_bg": "#1c1b1a",
     "select_bg": "#3aa99f",
-    "muted_fg": "#6f6e69",
+    "muted_fg": "#878580",
     "highlight_bg": "#3aa99f",
     "faint_fg": "#6f6e69",
     "bg2": "#282726",
-    "bg3": "#403e3c",
+    "bg3": "#343331",
     "border": "#403e3c"
   }
 }

@@ -45,7 +45,6 @@ project's own "wrap the real tool, don't reimplement" doctrine.
   compatible — PyMuPDF's own signature-field support is basic/visual-only,
   not cryptographically real).
 - **Encryption / password protection:** pikepdf.
-- **Text-to-speech:** Piper (`tts.py`, `playback.py`) — see Read Aloud below.
 
 ## Redaction — the hardened save path (non-negotiable)
 
@@ -319,7 +318,7 @@ three concrete slices peeled from it:
 **Explicitly still out of scope:** adjustable reflow for epub (font
 size is covered by the global UI Font Size setting, but true reflow
 isn't). TTS and night mode are no longer out of scope -- see Read
-Aloud below and the multi-theme roster (Slate/Bonepaper/Flexoki/Martin,
+Aloud below and the multi-theme roster (Slate/Flexoki/Martin,
 each with a dark variant).
 
 ## Convert — office document utilities (`convert.py`)
@@ -355,85 +354,3 @@ heavy/platform-specific (headless LibreOffice as an external process
 dependency, or MS Office COM automation via `pywin32` — Windows-only,
 needs Word/Excel installed). Needs its own research pass, not a quick
 add.
-
-## Read Aloud — text-to-speech (`tts.py`, `playback.py`)
-
-**Current shipped state (2026-08-03): fully excluded from the build.**
-`Slate.spec`'s `excludes=['piper', 'onnxruntime', 'sounddevice',
-'soundfile']` — real ~35MB removed (onnxruntime alone is 34.55MB) and,
-separately, a real Windows-Defender false-positive trojan flag on the
-shipped binary (UPX packing was the other, larger half of that fix —
-see Build/binary trust below). `tts.ENGINE_AVAILABLE` gates every UI
-call site; the feature is simply absent, not hidden-but-present. The
-rest of this section documents the real, working design underneath —
-still true architecturally, just not currently shipped. Real next step,
-not yet built: download-on-demand for the engine itself (not just
-voices, which already work this way below) — a frozen PyInstaller exe
-can't `pip install` into itself at runtime, so this needs either a
-separate self-contained piper build invoked as a subprocess, or a
-side-by-side embedded Python; a real design pass, not a quick add.
-
-A ~250MB size budget for "quality (limited), voices of choice" is
-workable. Piper TTS: engine is GPL-3.0-or-later, voices are
-MIT-licensed, both confirmed via HuggingFace's own package/model
-metadata. Zero-cost, FOSS, own-forever.
-
-**Voice selection was a real listening test, not a guess** — 3 rounds:
-a plain sentence across 25 real named voices (multi-speaker corpora
-like arctic/libritts/vctk excluded -- those bundle dozens of speakers
-per model, not a single named voice); a numbers/punctuation/date/
-currency stress-test passage sorted into `like`/`no-like` piles (found
-a non-obvious pattern: quality tier wasn't the deciding factor at all,
-British-accented voices had a much higher like-rate (4/5) than
-American ones (3/9) in this set, and a "robotic"/"choppy" character
-explained most rejects); and a public-domain narrative passage
-(opening of *Pride and Prejudice*) across the finalists, to test
-sustained reading.
-
-Final four: **northern_english_male** (GB male, medium, 22kHz -- the
-bundled default), **alba** (GB female, medium, 22kHz),
-**southern_english_female** (GB female, low, 16kHz), **danny** (US
-male, low, 16kHz). The two low-tier voices both hit a "missing phoneme
-from id map" warning on the harder stress-test passage (a stress-mark
-symbol) -- not disqualifying, but a real quality wrinkle those two
-specifically carry.
-
-**Distribution:** only `northern_english_male` ships bundled in the
-repo (`voices/`) as the zero-setup default. The other three download
-on first use into `~/.slate/tts-voices/` (same config convention as
-`recent.py`/`gate.py`/`theme.py`) rather than permanently carrying
-every voice's weight in the installer. Small preview clips for all
-four (`voices/previews/`) ship bundled so a voice can be sampled
-before committing to its full download.
-
-**Playback:** Piper only *synthesizes* audio, it doesn't play it.
-`sounddevice`+`soundfile` add almost no new weight (numpy is already
-required by `onnxruntime`, which `piper-tts` itself needs).
-`sounddevice` has no built-in pause/resume (only start/stop of a
-stream) -- `playback.py`'s `Player` implements real pause (holds
-position, resumes from exactly there) via a streaming callback
-tracking position + a paused flag directly.
-
-**Speed control** reuses Piper's own real `length_scale` synthesis
-parameter rather than needing separate audio time-stretching -- the
-UI's speed multiplier maps to `length_scale = 1 / speed`.
-
-**Thread-safety gotcha:** the download progress callback originally
-called `self.root.after(...)` directly from the background download
-thread -- Tkinter is not thread-safe, raising `main thread is not in
-main loop` the first time a real download ran through the UI (not
-caught by `tts.py`'s own unit tests, which mock the network and never
-exercise real threading). Fixed by having the worker thread only ever
-write to a plain shared dict; `poll()` -- scheduled via
-`self.root.after()`, always on the main thread -- is the only thing
-that touches real widgets.
-
-**Not verified against real audio hardware:** this dev environment
-(WSL2) exposes zero audio output devices even with `libportaudio2`
-installed -- a WSL passthrough gap, not a defect in this code. The
-real Windows deployment has no such issue (`sounddevice`'s wheel
-bundles PortAudio with normal native device access). The playback
-callback's own position/pause logic is still fully tested by calling
-it directly with synthetic buffers. `do_read_page()`'s synthesis path
-is fully exercised end-to-end against the actual bundled model; only
-the final "make sound come out of speakers" step is untestable here.

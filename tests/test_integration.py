@@ -22,7 +22,6 @@ import settings  # noqa: E402
 import slate  # noqa: E402
 import sign  # noqa: E402
 import theme  # noqa: E402
-import tts  # noqa: E402
 import version  # noqa: E402
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "basic3page.pdf")
@@ -49,8 +48,8 @@ class _FakeEvent:
 
 def _wait_until(condition, root, timeout=10):
     """Pumps the real Tk event loop (root.update()) until condition()
-    is true or timeout -- for background-thread work (TTS synthesis,
-    voice downloads) that no longer completes synchronously within a
+    is true or timeout -- for background-thread work (network checks,
+    downloads) that no longer completes synchronously within a
     single call. Real Tk limitation already hit elsewhere in this
     suite: synthetic events don't reliably dispatch without a genuine
     running mainloop, but plain root.update() calls in a loop do pump
@@ -946,14 +945,14 @@ def test_search_highlights_use_theme_colors_not_hardcoded_yellow_red(tmp_path):
     root = tk.Tk()
     app = slate.SlateApp(root, path)
     try:
-        app.theme_name.set("bonepaper_dark")
+        app.theme_name.set("martin_dark")
         app._apply_theme()
         app._show_find_bar()
         app.find_var.set("alpha")
         app._find_next()
         root.update()
 
-        colors = theme.get_palette("bonepaper_dark")
+        colors = theme.get_palette("martin_dark")
 
         def rgb(hexval):
             h = hexval.lstrip("#")
@@ -1545,715 +1544,6 @@ def test_convert_menu_actions_guard_against_no_document_open(tmp_path, monkeypat
         root.destroy()
 
 
-# ----------------------------------------------------------------------
-# Read Aloud (TTS)
-# ----------------------------------------------------------------------
-
-def test_read_page_guards_against_no_document_open(tmp_path, monkeypatch):
-    monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
-    root = tk.Tk()
-    app = slate.SlateApp(root, path=None)
-    try:
-        app.do_read_page()  # must not raise
-    finally:
-        root.destroy()
-
-
-def test_read_page_with_no_extractable_text_shows_nothing_to_read(tmp_path, monkeypatch):
-    path = str(tmp_path / "blank.pdf")
-    doc = fitz.open()
-    doc.new_page()  # a real page, deliberately no text on it
-    doc.save(path)
-    doc.close()
-
-    seen = {}
-    monkeypatch.setattr(
-        slate.messagebox, "showinfo", lambda title, msg: seen.update(title=title, msg=msg)
-    )
-    root = tk.Tk()
-    app = slate.SlateApp(root, path)
-    try:
-        app.do_read_page()
-        assert seen.get("title") == "Nothing to read"
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_read_page_synthesizes_with_the_bundled_voice_and_handles_playback_for_real(tmp_path, monkeypatch):
-    """Real synthesis against the bundled voice, through the actual
-    do_read_page() path (background thread + poll(), not mocked).
-    What SHOULD happen next genuinely depends on whether this machine
-    has a real audio output device -- checked here at test time via
-    sounddevice's own device query, not assumed from the OS name.
-    Real finding: this environment's dev box (WSL2) has zero audio
-    devices (confirmed via sd.query_devices()), so playback there
-    fails soft with a real PortAudioError message -- but a real
-    Windows machine with actual speakers synthesizes AND plays
-    successfully, no error at all. Both are
-    correct outcomes for their respective machines; this test asserts
-    whichever one this machine should actually produce."""
-    import sounddevice as sd
-
-    seen = {}
-    monkeypatch.setattr(
-        slate.messagebox, "showinfo", lambda title, msg: seen.update(title=title, msg=msg)
-    )
-    root, app = _make_app(tmp_path)  # basic3page.pdf -- has real text
-    try:
-        app.tts_voice.set("northern_english_male")  # bundled, no download needed
-        app.do_read_page()  # synthesis now runs on a background thread
-        _wait_until(lambda: not getattr(app, "_tts_synthesizing", False), root)
-        # The flag alone can
-        # flip False microseconds before the OS thread genuinely
-        # finishes tearing down (still mid its first-ever `import
-        # piper`) -- joining the real thread object guarantees it
-        # is actually gone before this test tears down and the next
-        # one's main-thread Tk work could race it.
-        app._tts_thread.join(timeout=5)
-
-        has_real_device = len(sd.query_devices()) > 0
-        if has_real_device:
-            assert seen == {}  # real hardware -- synthesis AND playback both succeeded
-        else:
-            assert seen.get("title") == "Playback failed"
-            assert "PortAudio" in seen.get("msg", "") or "device" in seen.get("msg", "").lower()
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_read_page_offers_to_download_a_non_bundled_voice(tmp_path, monkeypatch):
-    """Real download flow, network mocked (same pattern as test_tts.py)
-    -- confirms the confirm-dialog + progress-dialog + actual file
-    placement all wire together correctly through the real UI action,
-    not just tts.download_voice() in isolation."""
-    import tts as tts_module
-
-    def fake_urlretrieve(url, filename, reporthook=None):
-        with open(filename, "wb") as f:
-            f.write(b"fake model bytes" if url.endswith(".onnx") else b"{}")
-        if reporthook is not None:
-            reporthook(1, 10, 10)
-
-    monkeypatch.setattr(tts_module.urllib.request, "urlretrieve", fake_urlretrieve)
-    monkeypatch.setattr(slate.messagebox, "askyesno", lambda *a, **k: True)
-    monkeypatch.setattr(slate.messagebox, "showinfo", lambda *a, **k: None)
-
-    root, app = _make_app(tmp_path)
-    try:
-        assert tts_module.is_available("southern_english_female") is False
-        app.tts_voice.set("southern_english_female")
-        app.do_read_page()  # will still fail at the real play() call (no device) -- that's fine
-        assert tts_module.is_available("southern_english_female") is True  # but the download itself really happened
-        _wait_until(lambda: not getattr(app, "_tts_synthesizing", False), root)
-        # The flag alone can
-        # flip False microseconds before the OS thread genuinely
-        # finishes tearing down (still mid its first-ever `import
-        # piper`) -- joining the real thread object guarantees it
-        # is actually gone before this test tears down and the next
-        # one's main-thread Tk work could race it.
-        app._tts_thread.join(timeout=5)
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_declining_the_download_prompt_does_not_download_or_crash(tmp_path, monkeypatch):
-    import tts as tts_module
-
-    monkeypatch.setattr(slate.messagebox, "askyesno", lambda *a, **k: False)
-    root, app = _make_app(tmp_path)
-    try:
-        app.tts_voice.set("southern_english_female")
-        app.do_read_page()  # must not raise
-        assert tts_module.is_available("southern_english_female") is False
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_voice_picker_only_offers_bundled_voices(tmp_path):
-    """The 3 non-bundled readback voices that require a download are
-    removed from the normal pickers, leaving just the 1 bundled
-    default. Applies to BOTH voice-choosing surfaces (the Read Aloud
-    menu's own Voice submenu, and Settings' Voice radio group) --
-    alba/southern_english_female/danny still exist in tts.VOICES but
-    must not be offered as a pickable default in either picker."""
-    root, app = _make_app(tmp_path)
-    try:
-        readm = app.root.nametowidget(app.root.cget("menu"))
-        read_aloud_menu = None
-        for i in range(readm.index("end") + 1):
-            if readm.type(i) == "cascade" and readm.entrycget(i, "label") == "Read Aloud":
-                read_aloud_menu = readm.nametowidget(readm.entrycget(i, "menu"))
-                break
-        assert read_aloud_menu is not None
-        voice_menu = None
-        for i in range(read_aloud_menu.index("end") + 1):
-            if read_aloud_menu.type(i) == "cascade" and read_aloud_menu.entrycget(i, "label") == "Voice":
-                voice_menu = read_aloud_menu.nametowidget(read_aloud_menu.entrycget(i, "menu"))
-                break
-        assert voice_menu is not None
-        menu_labels = {voice_menu.entrycget(i, "label") for i in range(voice_menu.index("end") + 1)}
-        assert menu_labels == {"Northern English Male"}
-
-        app._show_settings()
-        top = app._settings_window
-        all_voice_labels = {info["label"] for info in tts.VOICES.values()}
-
-        def find_voice_radiobutton_texts():
-            results = []
-            def walk(w):
-                if isinstance(w, tk.Radiobutton) and w.cget("text") in all_voice_labels:
-                    results.append(w.cget("text"))
-                for c in w.winfo_children():
-                    walk(c)
-            walk(top)
-            return set(results)
-
-        assert find_voice_radiobutton_texts() == {"Northern English Male"}
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_settings_and_about_are_modal_transient_and_topmost(tmp_path):
-    """Settings and About are both modal, always-on-top, separate
-    windows, but tied to Slate rather than acting as independent
-    top-level app windows. transient() is the "within Slate" mechanism
-    (ties a dialog to its real opener); grab_set() is real modality
-    (grab_status() reports "local" while held, "none" once released);
-    -topmost is queried back through Tk's own attributes() call, not
-    just assumed to have taken because we set it.
-
-    First pass had a bug: Tk's grab_set() is local to the whole
-    APPLICATION, not to one Toplevel, so About unconditionally grabbing
-    blocked every Settings control the moment About was opened FROM
-    INSIDE Settings. First fix: About skipped its own grab whenever
-    Settings was open.
-
-    That first fix left Settings' own pre-existing grab standing, which
-    now blocked ABOUT instead (a separate Toplevel, not a Settings
-    descendant): About opened, looked normal, and simply never received
-    input until Settings' grab was released by closing Settings first.
-    A grab-handoff fix was built for this (Settings releases, About
-    takes it, hands it back on close) -- superseded by the policy below.
-
-    Grab policy REVISED: modal About-from-Settings, even with a clean
-    handoff, still meant Settings was frozen the whole time About
-    stayed open. First revision: About stopped grabbing when opened
-    from Settings, left Settings' own pre-existing grab standing.
-
-    REVISED AGAIN: that first revision forgot Tk's grab is local to the
-    whole APPLICATION, not just the widget that set it -- Settings'
-    still-active grab silently blocked ABOUT's input instead,
-    reproducing the original bug, just flipped back. Real fix: while
-    About is open FROM Settings, NEITHER window holds the grab --
-    Settings releases its own, About never takes one either, both stay
-    fully interactive at once. Settings' grab is restored the moment
-    About closes. About opened standalone (Help menu, no Settings open)
-    is UNCHANGED -- still real modal against root, matching the
-    original ask for that case."""
-    root, app = _make_app(tmp_path)
-    try:
-        app._show_settings()
-        settings_win = app._settings_window
-        root.update()  # -topmost needs a real event-loop pump to register before it reads back
-        assert settings_win.grab_status() == "local"
-        assert bool(settings_win.attributes("-topmost")) is True
-        assert settings_win.master == root
-
-        # Opened FROM Settings (the common real path, its own "About
-        # Slate..." button) -- true parent nesting under Settings, and
-        # NEITHER window holds the grab: both must stay fully
-        # interactive with the other open alongside it.
-        app._show_about()
-        about_win = app._about_window
-        root.update()
-        assert about_win.grab_status() is None  # non-modal from Settings
-        assert bool(about_win.attributes("-topmost")) is True
-        # .master is just the Toplevel() constructor's widget parent
-        # (always root, unchanged) -- the real "child nest" relationship
-        # is the WM transient() hint, queried back the same way, not
-        # assumed from the transient() call we made.
-        assert str(about_win.transient()) == str(settings_win)
-        assert settings_win.grab_status() is None  # released, not left standing to starve About
-
-        about_win.focus_force()  # <Escape> binding only fires on the focused widget
-        root.update()
-        about_win.event_generate("<Escape>")
-        root.update()
-        assert not about_win.winfo_exists()
-        assert settings_win.grab_status() == "local"  # restored on About's close
-
-        settings_win.destroy()
-        app._settings_window = None
-
-        # Opened standalone (Help menu path, no Settings open) -- the
-        # original "modal against the main window" behavior must still
-        # hold exactly as before.
-        app._show_about()
-        about_win = app._about_window
-        root.update()
-        assert about_win.grab_status() == "local"
-        assert bool(about_win.attributes("-topmost")) is True
-        assert str(about_win.transient()) == str(root)
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_theme_switch_refreshes_native_titlebar_for_every_open_dialog(tmp_path):
-    """Settings/About's own native OS titlebar never picked up dark
-    mode at all --
-    _apply_native_titlebar_theme only ever targeted self.root. Content
-    colors were already correct (a separate, already-fixed bug), which
-    is exactly why this one was easy to miss. Fixed generically via
-    _paint_widget's own Toplevel branch (reached automatically for
-    every open dialog, not hand-listed) rather than each dialog calling
-    it separately -- this test can't observe the real ctypes/DWM call
-    itself off Windows (same documented "not live-verified" limitation
-    as the function's own docstring), but it CAN confirm the call
-    actually happens, not just that it would be a no-op skip."""
-    calls = []
-    monkeypatch_target = slate.SlateApp._apply_native_titlebar_theme
-    def spy(self, window=None):
-        calls.append(window)
-        return monkeypatch_target(self, window)
-
-    root, app = _make_app(tmp_path)
-    try:
-        app._show_settings()
-        app._show_about()
-        calls.clear()  # only care about calls from the theme switch below, not dialog-open time
-
-        import unittest.mock
-        with unittest.mock.patch.object(slate.SlateApp, "_apply_native_titlebar_theme", spy):
-            app.theme_name.set("bonepaper_dark")
-            app._on_theme_changed()
-
-        # self.root, Settings, and About must ALL have been reached --
-        # not just whichever dialog happened to trigger the switch.
-        # self.root's own call comes through _apply_theme's direct
-        # self._apply_native_titlebar_theme() (no arg -- defaults to
-        # self.root inside the function), which the spy records as the
-        # literal argument passed, i.e. None, not the resolved window.
-        assert None in calls  # self.root, via the no-arg default path
-        assert app._settings_window in calls
-        assert app._about_window in calls
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_dialog_border_is_theme_tinted_and_updates_live(tmp_path):
-    """To match webUI's Bonepaper Dark look (a translucent version of
-    its own accent for every border), Settings/About used ONE fixed
-    universal gray (#6b6b6b) for their visible border, regardless of
-    theme. Real regression test: the border must actually be
-    colors["dialog_border"] (a real fg-toward-select_bg blend, see
-    theme.py's own comment for why fg-anchored not bg-anchored), must
-    differ between two themes with different accents, and must update
-    live in an already-open dialog on a theme switch (same convention
-    as the native-titlebar refresh right above this test)."""
-    root, app = _make_app(tmp_path)
-    try:
-        app.theme_name.set("slate_dark")
-        app._apply_theme()
-        app._show_settings()
-        top = app._settings_window
-        colors = theme.get_palette("slate_dark")
-        assert top.cget("highlightbackground") == colors["dialog_border"]
-        assert top.cget("highlightbackground") != "#6b6b6b"
-
-        app.theme_name.set("bonepaper_dark")
-        app._on_theme_changed()
-        bonepaper_colors = theme.get_palette("bonepaper_dark")
-        assert top.cget("highlightbackground") == bonepaper_colors["dialog_border"]
-        assert bonepaper_colors["dialog_border"] != colors["dialog_border"]
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-
-
-def _make_doc_with_a_blank_middle_page(tmp_path):
-    """A real 3-page doc where page 1 (0-indexed) has no extractable
-    text at all -- the real case _advance_to_next_page_and_continue_
-    reading must skip silently rather than interrupting a hands-free
-    document read with a dialog."""
-    path = str(tmp_path / "blank_middle.pdf")
-    doc = fitz.open()
-    doc.new_page(width=595, height=842).insert_text((72, 72), "Page one has real text.")
-    doc.new_page(width=595, height=842)  # deliberately blank
-    doc.new_page(width=595, height=842).insert_text((72, 72), "Page three has real text.")
-    doc.save(path)
-    doc.close()
-    return path
-
-
-def test_do_read_document_sets_the_reading_document_flag(tmp_path):
-    """do_read_page (single-page) and do_read_document (whole
-    document) must set _tts_reading_document oppositely -- switching
-    back to a plain single-page read cancels any in-progress
-    auto-continuation."""
-    root, app = _make_app(tmp_path)
-    try:
-        app.do_read_document()
-        assert app._tts_reading_document is True
-
-        app.do_read_page()
-        assert app._tts_reading_document is False
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_do_tts_stop_cancels_reading_document(tmp_path):
-    root, app = _make_app(tmp_path)
-    try:
-        app._tts_reading_document = True
-        app.do_tts_stop()
-        assert app._tts_reading_document is False
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_natural_completion_advances_to_the_next_page_when_reading_document(tmp_path, monkeypatch):
-    """The real auto-advance mechanism: a page's audio reaching its
-    natural end (was playing, now isn't, and NOT because of an
-    explicit pause) while _tts_reading_document is True must move to
-    the next page and start reading it -- simulated directly via
-    _tts_was_playing/Player state rather than real audio hardware."""
-    root, app = _make_app(tmp_path)
-    try:
-        app._tts_reading_document = True
-        app._tts_reading_page_num = app.viewer.page_num  # page 0
-        app._tts_was_playing = True  # simulate "was playing" on the previous poll tick
-        assert app.tts_player.is_playing() is False  # nothing actually loaded -- a real "stopped" state
-        assert app.tts_player.is_paused() is False  # NOT a pause -- the real distinguishing check
-
-        called = []
-        monkeypatch.setattr(app, "_read_current_page", lambda: called.append(app.viewer.page_num))
-        app._poll_tts_playback_state()
-
-        assert app.viewer.page_num == 1  # real navigation happened
-        assert called == [1]  # and the next page's read was actually triggered
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_pause_does_not_trigger_advance_to_the_next_page(tmp_path, monkeypatch):
-    """The real distinguishing case natural-completion detection
-    exists for: an explicit pause must NEVER advance to the next page,
-    only a genuine end of audio should."""
-    root, app = _make_app(tmp_path)
-    try:
-        app._tts_reading_document = True
-        app._tts_reading_page_num = app.viewer.page_num
-        app.tts_player.load(b"\x00\x00" * 22050, 22050, 1)
-        try:
-            app.tts_player.play()
-        except Exception:
-            pass  # no real audio device on this dev box (WSL2)
-        app._tts_was_playing = True
-        app.tts_player.pause()
-
-        called = []
-        monkeypatch.setattr(app, "_advance_to_next_page_and_continue_reading", lambda: called.append(True))
-        app._poll_tts_playback_state()
-
-        assert called == []  # pause must never trigger the advance
-        assert app.viewer.page_num == 0
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_advance_skips_a_blank_page_silently(tmp_path, monkeypatch):
-    """A blank page encountered while auto-advancing must be skipped
-    without any "nothing to read" dialog -- that would interrupt a
-    hands-free continuous read."""
-    root, app = _make_app(tmp_path, fixture=_make_doc_with_a_blank_middle_page(tmp_path))
-    try:
-        shown = []
-        monkeypatch.setattr(slate.messagebox, "showinfo", lambda title, msg: shown.append(title))
-        app._tts_reading_document = True
-        app._tts_reading_page_num = 0  # page 0 just "finished" -- page 1 is blank, page 2 has text
-
-        called = []
-        monkeypatch.setattr(app, "_read_current_page", lambda: called.append(app.viewer.page_num))
-        app._advance_to_next_page_and_continue_reading()
-
-        assert shown == []  # no interrupting dialog for the blank page
-        assert app.viewer.page_num == 2  # landed on the next REAL page, skipping the blank one
-        assert called == [2]
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_advance_stops_cleanly_at_the_end_of_the_document(tmp_path):
-    root, app = _make_app(tmp_path)  # basic3page.pdf -- 3 real pages, no blanks
-    try:
-        app._tts_reading_document = True
-        app._tts_reading_page_num = app.viewer.page_count - 1  # already on the last page
-
-        app._advance_to_next_page_and_continue_reading()
-
-        assert app._tts_reading_document is False  # cleanly stopped, not left dangling
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_changing_voice_restarts_the_current_page_when_something_is_already_loaded(tmp_path, monkeypatch):
-    """Changing voices mid-read was not working: the Voice menu's
-    radiobuttons had no command callback at all, so selecting a
-    different voice never applied until some unrelated independent
-    trigger. With audio already loaded, selecting a voice must restart
-    the current page fresh."""
-    root, app = _make_app(tmp_path)
-    try:
-        called = []
-        monkeypatch.setattr(app, "do_read_page", lambda: called.append("read"))
-        app.tts_player.load(b"\x00\x00" * 100, 22050, 1)  # real load, no device needed
-        assert app.tts_player.has_audio() is True
-
-        app._on_tts_voice_changed()
-        assert called == ["read"]
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_changing_voice_is_a_no_op_when_nothing_is_loaded_yet(tmp_path, monkeypatch):
-    """No accidental read triggered just from picking a voice before
-    ever reading anything -- only applies when something's already
-    loaded (the real "mid-read" case the bug report was about)."""
-    root, app = _make_app(tmp_path)
-    try:
-        called = []
-        monkeypatch.setattr(app, "do_read_page", lambda: called.append("read"))
-        assert app.tts_player.has_audio() is False
-
-        app._on_tts_voice_changed()
-        assert called == []
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_pause_resume_and_stop_do_not_raise_with_nothing_loaded(tmp_path):
-    root, app = _make_app(tmp_path)
-    try:
-        app.do_tts_pause_resume()  # nothing loaded/playing -- must not raise
-        app.do_tts_stop()
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_toolbar_has_real_tts_play_and_stop_buttons(tmp_path):
-    """Easier audio readback controls, available on the main toolbar --
-    previously only reachable via the Read Aloud menu."""
-    root, app = _make_app(tmp_path)
-    try:
-        assert app.tts_play_button.winfo_ismapped()
-        assert app.tts_stop_button.winfo_ismapped()
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_tts_toggle_play_routes_to_read_page_when_nothing_loaded(tmp_path, monkeypatch):
-    """do_tts_toggle_play is the toolbar button's one action for every
-    state -- with nothing loaded yet, it must start a fresh read, not
-    a no-op pause/resume."""
-    root, app = _make_app(tmp_path)
-    try:
-        called = []
-        monkeypatch.setattr(app, "do_read_page", lambda: called.append("read"))
-        monkeypatch.setattr(app, "do_tts_pause_resume", lambda: called.append("pause_resume"))
-        assert app.tts_player.has_audio() is False
-
-        app.do_tts_toggle_play()
-        assert called == ["read"]
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_tts_toggle_play_routes_to_pause_resume_when_already_loaded(tmp_path, monkeypatch):
-    """Once something's loaded (playing or paused), the same toolbar
-    button must toggle pause/resume, not start a redundant fresh read."""
-    root, app = _make_app(tmp_path)
-    try:
-        app.tts_player.load(b"\x00\x00" * 100, 22050, 1)  # real load, no device needed
-        called = []
-        monkeypatch.setattr(app, "do_read_page", lambda: called.append("read"))
-        monkeypatch.setattr(app, "do_tts_pause_resume", lambda: called.append("pause_resume"))
-        assert app.tts_player.has_audio() is True
-
-        app.do_tts_toggle_play()
-        assert called == ["pause_resume"]
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_tts_toolbar_button_glyph_reflects_playback_state(tmp_path):
-    """The toolbar button's own label must track real player state --
-    stale glyphs are exactly the kind of small-but-real gap that reads
-    as broken even when the underlying feature works."""
-    root, app = _make_app(tmp_path)
-    try:
-        app._update_tts_toolbar_button()
-        assert app.tts_play_button.cget("text") == "▶"
-
-        app.tts_player.load(b"\x00\x00" * 22050, 22050, 1)
-        try:
-            app.tts_player.play()
-        except Exception:
-            pass  # no real audio device on this dev box (WSL2) -- state still updates
-        app._update_tts_toolbar_button()
-        expected = "⏸" if app.tts_player.is_playing() else "▶"
-        assert app.tts_play_button.cget("text") == expected
-
-        app.do_tts_stop()
-        assert app.tts_play_button.cget("text") == "▶"
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_tts_status_text_shows_voice_and_speed_only_while_loaded(tmp_path):
-    """Shows the current voice/speed while readback is active -- a
-    minimal answer, empty when nothing's loaded so it doesn't clutter
-    the toolbar otherwise."""
-    root, app = _make_app(tmp_path)
-    try:
-        assert app._tts_status_text() == ""
-
-        app.tts_voice.set("northern_english_male")
-        app.tts_speed.set(1.25)
-        app.tts_player.load(b"\x00\x00" * 100, 22050, 1)
-        text = app._tts_status_text()
-        assert "1.25x" in text
-        assert tts.VOICES["northern_english_male"]["label"] in text
-
-        # Player.stop() deliberately rewinds rather than unloads (own
-        # docstring: "Unlike pause(), resets position to the start")
-        # -- has_audio() stays True on purpose so a subsequent play()
-        # replays this page from 0, so the status text correctly stays
-        # visible too, not cleared.
-        app.do_tts_stop()
-        assert app._tts_status_text() != ""
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_tts_highlight_estimates_position_from_playback_progress(tmp_path):
-    """Real follow-along highlight, estimated from Player.progress
-    against the page's own word list (no per-word timing data exists to do this
-    exactly, an honest, documented approximation). At progress 0.0 the
-    highlight should sit on the page's first word."""
-    root, app = _make_app(tmp_path)  # basic3page.pdf -- real text, page 1: "Slate fixture page 1"
-    try:
-        app._tts_reading_page = app.page
-        app._tts_reading_page_num = app.viewer.page_num
-        app._tts_reading_words = app.page.get_text("words")  # real word list
-        app.tts_player.load(b"\x00\x00" * 200, 22050, 1)  # has_audio() True, progress 0.0
-
-        app._update_tts_highlight()
-        items = app.canvas.find_withtag("tts_highlight")
-        assert len(items) > 0  # something drawn
-
-        words = app.page.get_text("words")
-        first_word_x0 = words[0][0] * app.viewer.zoom
-        drawn_x0 = app.canvas.coords(items[0])[0]
-        assert abs(drawn_x0 - first_word_x0) < 1.0  # anchored at the first word, progress 0.0
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_tts_highlight_is_one_merged_box_spanning_same_line_words(tmp_path):
-    """The follow-along highlight used to look wrong -- rasterized, not
-    a natural "highlight" -- because the earlier version drew a
-    SEPARATE stippled rectangle per word (2-3 of them), which visibly
-    fragmented and could jump to a disconnected box on the next line
-    mid-window. Fix: exactly ONE rectangle, merged across every word
-    sharing the anchor's line (basic3page.pdf's page 1 is a real single
-    line: "Slate fixture page 1", all 4 words, block_no=0/line_no=0).
-
-    Anchored near the END of the line (progress near 1.0), not the
-    start -- the highlight window became TRAILING (a fix for the
-    indicator running too fast: it used to look 5 words AHEAD of the
-    estimate, which visibly read unspoken text). At progress 0.0 a
-    trailing window correctly shows just the FIRST word (nothing has
-    been read yet, so there's nothing earlier to merge with) -- that's
-    real, intentional behavior, not a regression; this test instead
-    anchors at the last word to exercise the "merges multiple already-
-    read words into one box" property the trailing window does provide."""
-    root, app = _make_app(tmp_path)
-    try:
-        app._tts_reading_page = app.page
-        app._tts_reading_page_num = app.viewer.page_num
-        app._tts_reading_words = app.page.get_text("words")  # real word list
-        app.tts_player.load(b"\x00\x00" * 200, 22050, 1)
-        app.tts_player._position = 199  # progress ~1.0 -- anchors on "1", the last word
-
-        app._update_tts_highlight()
-        items = app.canvas.find_withtag("tts_highlight")
-        assert len(items) == 1  # one merged box, not one per word
-
-        words = app.page.get_text("words")
-        first_word_x0 = words[0][0] * app.viewer.zoom  # "Slate", first word on the same line
-        drawn_x0, _drawn_y0 = app.canvas.coords(items[0])
-        assert abs(drawn_x0 - first_word_x0) < 1.0  # box extends back across the whole line, not just the last word
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_tts_highlight_clears_when_nothing_is_loaded_or_never_read(tmp_path):
-    """A fresh app (never read anything) must show no highlight."""
-    root, app = _make_app(tmp_path)
-    try:
-        app._update_tts_highlight()
-        assert len(app.canvas.find_withtag("tts_highlight")) == 0
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
-def test_tts_highlight_clears_when_the_read_page_scrolls_out_of_view(tmp_path):
-    """The page being read isn't necessarily what's on screen (the
-    user can keep scrolling/navigating while listening) -- nothing
-    should be drawn once it's no longer part of the current window/row."""
-    root, app = _make_app(tmp_path)
-    try:
-        app._tts_reading_page = app.page
-        app._tts_reading_page_num = app.viewer.page_num
-        app._tts_reading_words = app.page.get_text("words")  # real word list
-        app.tts_player.load(b"\x00\x00" * 200, 22050, 1)
-        app._update_tts_highlight()
-        assert len(app.canvas.find_withtag("tts_highlight")) > 0
-
-        app._last_window = set()  # simulate the read page scrolling out of the current window
-        app._update_tts_highlight()
-        assert len(app.canvas.find_withtag("tts_highlight")) == 0
-    finally:
-        app.doc.close()
-        root.destroy()
-
-
 def _all_descendants(widget):
     for child in widget.winfo_children():
         yield child
@@ -2830,10 +2120,11 @@ def test_startup_check_prompts_when_update_is_real(tmp_path, monkeypatch):
     monkeypatch.setattr(slate.messagebox, "askyesno", lambda title, msg: asked.append((title, msg)) or False)
     root, app = _make_app(tmp_path)
     try:
-        root.update()
         import time
-        time.sleep(2.3)
-        root.update()
+        deadline = time.time() + 10
+        while not asked and time.time() < deadline:
+            root.update()
+            time.sleep(0.05)
         assert len(asked) == 1
         assert asked[0][0] == "Update available"
         assert "v9.9.9" in asked[0][1]
@@ -3061,9 +2352,9 @@ def test_chrome_cascade_colors_menubar_tabstrip_toolbar_as_three_real_steps(tmp_
     covers that part)."""
     root, app = _make_app(tmp_path)
     try:
-        app.theme_name.set("bonepaper_dark")
+        app.theme_name.set("martin_dark")
         app._apply_theme()
-        colors = theme.get_palette("bonepaper_dark")
+        colors = theme.get_palette("martin_dark")
 
         assert str(app.menubar.cget("bg")) == colors["menubar_bg"]
         assert ttk.Style().lookup("TNotebook", "background") == colors["tabstrip_bg"]
@@ -3094,9 +2385,9 @@ def test_active_tab_gets_a_subtle_accent_tint_not_a_full_fill(tmp_path):
     between."""
     root, app = _make_app(tmp_path)
     try:
-        app.theme_name.set("bonepaper_dark")
+        app.theme_name.set("martin_dark")
         app._apply_theme()
-        colors = theme.get_palette("bonepaper_dark")
+        colors = theme.get_palette("martin_dark")
 
         style = ttk.Style()
         base_bg = style.lookup("TNotebook.Tab", "background")
@@ -3158,9 +2449,9 @@ def test_home_screen_matches_the_active_theme(tmp_path, monkeypatch):
     root = tk.Tk()
     app = slate.SlateApp(root, None)  # no path -- launches straight to home screen
     try:
-        app.theme_name.set("bonepaper_dark")
+        app.theme_name.set("martin_dark")
         app._on_theme_changed()
-        colors = theme.get_palette("bonepaper_dark")
+        colors = theme.get_palette("martin_dark")
         assert str(app.home_frame.cget("bg")) == colors["bg"]
 
         # second call site: open a doc, close its only tab, back to home
@@ -3274,9 +2565,9 @@ def test_toc_selected_row_uses_theme_highlight_not_ttks_default_blue(tmp_path):
     of Slate's actual palette."""
     root, app = _make_app(tmp_path)
     try:
-        app.theme_name.set("bonepaper_dark")
+        app.theme_name.set("martin_dark")
         app._apply_theme()
-        colors = theme.get_palette("bonepaper_dark")
+        colors = theme.get_palette("martin_dark")
         style = ttk.Style()
         assert style.lookup("Treeview", "background", ("selected",)) == colors["highlight_bg"]
         assert style.lookup("Treeview", "foreground", ("selected",)) == colors["bg"]
@@ -3333,7 +2624,7 @@ def test_f2_opens_command_palette_listing_all_themes(tmp_path):
         listbox = [w for w in palette.winfo_children() if isinstance(w, tk.Listbox)][0]
         entries = listbox.get(0, tk.END)
         assert len(entries) == len(theme.THEME_LABELS)
-        assert any("Bonepaper Dark" in e for e in entries)
+        assert any("Martin Dark" in e for e in entries)
         palette.destroy()
     finally:
         app.doc.close()
@@ -4459,7 +3750,7 @@ def test_settings_theme_picker_is_a_dropdown_with_light_dark_radios(tmp_path):
         assert len(combos) == 1
         family_combo = combos[0]
         assert str(family_combo.cget("state")) == "readonly"
-        assert set(family_combo.cget("values")) == {"Slate", "Bonepaper", "Flexoki", "Martin"}
+        assert set(family_combo.cget("values")) == {"Slate", "Flexoki", "Martin"}
         assert family_combo.get() == "Slate"  # matches slate_dark's own family
 
         radios = find_all(tk.Radiobutton)
@@ -4514,11 +3805,11 @@ def test_settings_theme_picker_selects_the_right_theme_from_family_plus_mode(tmp
         root.update()
         assert app.theme_name.get() == "slate_dark"
 
-        # Family changed, mode held (still Dark) -> slate_dark to bonepaper_dark.
-        family_combo.set("Bonepaper")
+        # Family changed, mode held (still Dark) -> slate_dark to martin_dark.
+        family_combo.set("Martin")
         family_combo.event_generate("<<ComboboxSelected>>")
         root.update()
-        assert app.theme_name.get() == "bonepaper_dark"
+        assert app.theme_name.get() == "martin_dark"
     finally:
         app.doc.close()
         root.destroy()
@@ -4589,14 +3880,14 @@ def test_settings_palette_preview_shows_the_real_current_theme_colors(tmp_path):
         root.destroy()
 
 
-def test_mode_display_voice_speed_selectcolor_follows_a_live_theme_switch(tmp_path):
+def test_display_group_selectcolor_follows_a_live_theme_switch(tmp_path):
     """Settings is a singleton dialog (built once, reused via
     deiconify) -- selectcolor was only ever set at CONSTRUCTION time,
     under whatever theme was active when the dialog was first opened.
     Switching themes later, in that same still-open dialog, repainted
     bg/fg everywhere via _paint_widget, but selectcolor itself (a
     separate Tk widget option _paint_widget never touched) stayed
-    frozen on the OLD theme's accent -- the Voice group stayed jade
+    frozen on the OLD theme's accent -- a toggle group stayed jade
     (Bonepaper's accent) while the Theme grid's own "Dark" swatch
     correctly showed Slate's lime green, an obvious mismatch. Fixed:
     _wire_toggle_button_contrast's own _refresh (already invoked by
@@ -4606,7 +3897,7 @@ def test_mode_display_voice_speed_selectcolor_follows_a_live_theme_switch(tmp_pa
     test right above this one)."""
     root, app = _make_app(tmp_path)
     try:
-        app.theme_name.set("bonepaper_dark")
+        app.theme_name.set("martin_dark")
         app._apply_theme()
         app._show_settings()
         top = app._settings_window
@@ -4622,18 +3913,16 @@ def test_mode_display_voice_speed_selectcolor_follows_a_live_theme_switch(tmp_pa
                 return None
             return walk(top)
 
-        voice_btn = find("Northern English Male")
+        colorize_btn = find("Colorize pages to theme (F4)")
         toc_btn = find("Show Table of Contents")
-        assert voice_btn.cget("selectcolor") == theme.THEMES["bonepaper_dark"]["select_bg"]
+        assert colorize_btn.cget("selectcolor") == theme.THEMES["martin_dark"]["select_bg"]
 
         # Switch theme in the SAME still-open dialog -- the real scenario.
         app.theme_name.set("slate_dark")
         app._on_theme_changed()
         app._paint_widget(top, theme.get_palette("slate_dark"))
 
-        # Mode group removed (in favor of the columns control) --
-        # Voice/Display are the remaining groups this test can cover.
-        for btn, label in ((voice_btn, "Voice"), (toc_btn, "Display")):
+        for btn, label in ((colorize_btn, "Colorize"), (toc_btn, "Display")):
             assert btn.cget("selectcolor") == theme.THEMES["slate_dark"]["select_bg"], (
                 f"{label} group's selectcolor didn't follow the theme switch"
             )
@@ -4836,6 +4125,56 @@ def test_colorize_pages_defaults_off(tmp_path):
     try:
         assert app.colorize_pages is False
         assert app.colorize_pages_var.get() is False
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_ocr_command_adds_searchable_text_to_scanned_pages(tmp_path, monkeypatch):
+    import ocr
+    from PIL import Image, ImageDraw, ImageFont
+
+    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    if not ocr.available() or not os.path.exists(font_path):
+        pytest.skip("OCR data or test font missing")
+    img = Image.new("RGB", (900, 300), "white")
+    ImageDraw.Draw(img).text((40, 100), "Scanned ledger entry", font=ImageFont.truetype(font_path, 40), fill="black")
+    img_path = str(tmp_path / "scan.png")
+    img.save(img_path)
+
+    shown = []
+    monkeypatch.setattr(slate.messagebox, "askyesno", lambda *a, **k: True)
+    monkeypatch.setattr(slate.messagebox, "showinfo", lambda title, msg: shown.append(title))
+    root, app = _make_app(tmp_path)
+    try:
+        app.do_ocr()
+        assert shown == ["Nothing to recognize"]  # fixture pages already have text
+
+        page = app.doc.new_page(width=450, height=150)
+        page.insert_image(page.rect, filename=img_path)
+        shown.clear()
+        app.do_ocr()
+        assert shown == ["Text recognized"]
+        assert app.doc[app.doc.page_count - 1].search_for("ledger")
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_colorized_pages_get_an_outline_so_page_edges_stay_visible(tmp_path):
+    import theme
+
+    root, app = _make_app(tmp_path)
+    try:
+        assert not app.canvas.find_withtag("page_outline")
+        app.colorize_pages = True
+        app._page_cache.invalidate_all()
+        app.render()
+        root.update()
+        outlines = app.canvas.find_withtag("page_outline")
+        assert outlines
+        colors = theme.get_palette(app.theme_name.get())
+        assert all(app.canvas.itemcget(i, "outline") == colors["muted_fg"] for i in outlines)
     finally:
         app.doc.close()
         root.destroy()

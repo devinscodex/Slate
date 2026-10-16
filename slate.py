@@ -28,6 +28,7 @@ import gate
 import io_pdf
 import layout
 import merge_split
+import ocr
 import pagecache
 import recent
 import redact
@@ -40,11 +41,9 @@ import singleinstance
 import tab as tabmodule
 import textedit
 import theme
-import tts
 import updatecheck
 import version
 from viewer import Viewer, detect_content_bbox
-from playback import Player as TTSPlayer
 
 _TAB_CLOSE_GLYPH = "×"  # visual hint only -- middle-click actually closes, see _on_tab_strip_click
 
@@ -259,28 +258,6 @@ class SlateApp:
         self.toc_visible = tk.BooleanVar(value=_saved["toc_visible"])
         self.check_updates_on_start_var = tk.BooleanVar(value=self.check_updates_on_start)
         self.theme_name = tk.StringVar(value=theme.load_preference())
-        # Read Aloud (TTS): app-wide, not per-tab -- reading one document
-        # while switching tabs isn't a supported combination in v1.
-        self.tts_voice = tk.StringVar(value=_saved["tts_voice"])
-        self.tts_speed = tk.DoubleVar(value=_saved["tts_speed"])  # user-facing multiplier, not Piper's length_scale directly
-        self.tts_player = TTSPlayer()
-        # Which page do_read_page() actually started reading, kept fixed
-        # even if the user scrolls/navigates elsewhere while listening.
-        # See _update_tts_highlight for the estimation method.
-        self._tts_reading_page = None
-        self._tts_reading_page_num = None
-        # The EXACT word list actually synthesized -- needed since a
-        # "read from here" click trims the START of what's read, so
-        # _update_tts_highlight can't just re-derive the full page's
-        # words from scratch. See _update_tts_highlight's own docstring.
-        self._tts_reading_words = []
-        self._tts_chunk_sample_counts = []  # real per-sentence audio durations from tts.synthesize(), see _update_tts_highlight
-        # True between do_read_document() and either reaching the end of
-        # the document or an explicit Stop -- _poll_tts_playback_state
-        # uses _tts_was_playing to tell a real natural end-of-audio
-        # apart from an explicit pause.
-        self._tts_reading_document = False
-        self._tts_was_playing = False
         # Gated feature (DESIGN.md's "Text editing"): a local UX gate,
         # not real access control -- re-locks every restart on purpose.
         self._textedit_unlocked_this_session = False
@@ -426,7 +403,7 @@ class SlateApp:
 
         fixed_theme_name (Theme grid only): each radio there represents
         a SPECIFIC theme, not "whichever theme happens to be active" --
-        "Bonepaper Dark"'s own swatch must show Bonepaper's own accent
+        "Martin Dark"'s own swatch must show Martin's own accent
         even while Slate is the live theme, so this pins which palette
         _refresh reads colors from instead of always reading
         self.theme_name.get(). None (every other group) means "whatever
@@ -625,7 +602,7 @@ class SlateApp:
             self._paint_chrome_subtree(self.toolbar, colors["toolbar_bg"], colors["toolbar_fg"])
             # Real per-family border (theme.py's authored `border` key,
             # not computed) -- for most families a subtle neutral step,
-            # for bonepaper dark specifically the accent-tinted "glow"
+            # in some families an accent-tinted "glow"
             # webUI's own --line uses there. highlightthickness=1 draws
             # on all 4 edges, reading as a real bordered panel rather
             # than a bare color-block, same as webUI's own bordered
@@ -957,42 +934,10 @@ class SlateApp:
         convertm.add_command(label="Export as plain text...", command=self.do_export_text)
         convertm.add_command(label="Export pages as images...", command=self.do_export_images)
         convertm.add_separator()
+        convertm.add_command(label="Recognize text (OCR)...", command=self.do_ocr)
+        convertm.add_separator()
         convertm.add_command(label="Import images as PDF...", command=self.do_import_images)
         menubar.add_cascade(label="Convert", menu=convertm)
-
-        # Whole menu omitted, not just disabled, when this build excludes
-        # the synthesis engine (see tts.ENGINE_AVAILABLE, Slate.spec) --
-        # a visible menu that crashes on first click is worse than no
-        # menu at all.
-        if tts.ENGINE_AVAILABLE:
-            readm = tk.Menu(menubar, tearoff=0)
-            voicem = tk.Menu(readm, tearoff=0)
-            # Bundled voices only -- southern_english_female/danny still
-            # exist in tts.VOICES but aren't offered as a pickable
-            # default here or in Settings. Downloading one is the only
-            # way to try it, left to the user, not a built-in sampler.
-            for voice_id, info in tts.VOICES.items():
-                if not info.get("bundled"):
-                    continue
-                voicem.add_radiobutton(
-                    label=info["label"], variable=self.tts_voice, value=voice_id,
-                    command=self._on_tts_voice_changed, selectcolor=radio_select_color,
-                )
-            readm.add_cascade(label="Voice", menu=voicem)
-            speedm = tk.Menu(readm, tearoff=0)
-            for speed in (0.75, 1.0, 1.25, 1.5, 2.0):
-                speedm.add_radiobutton(
-                    label=f"{speed}x", variable=self.tts_speed, value=speed,
-                    command=self._on_tts_speed_changed, selectcolor=radio_select_color,
-                )
-            readm.add_cascade(label="Speed", menu=speedm)
-            readm.add_separator()
-            readm.add_separator()
-            readm.add_command(label="Read this page", command=self.do_read_page)
-            readm.add_command(label="Read entire document", command=self.do_read_document)
-            readm.add_command(label="Pause / Resume", command=self.do_tts_pause_resume)
-            readm.add_command(label="Stop", command=self.do_tts_stop)
-            menubar.add_cascade(label="Read Aloud", menu=readm)
 
         # Check for Updates lives on the About dialog, not a separate
         # menu item.
@@ -1003,9 +948,8 @@ class SlateApp:
         self.root.config(menu=menubar)
 
     def _check_for_updates(self, silent_if_current: bool):
-        """Real network call, always on a background thread -- same
-        thread-safety pattern already established for TTS synthesis/
-        voice downloads (never touch Tk widgets off the main thread;
+        """Real network call, always on a background thread -- Tk is
+        not thread-safe (never touch widgets off the main thread;
         poll a plain dict via root.after()). silent_if_current=True is
         the startup auto-check -- stays quiet unless there's real news,
         so it never nags on every launch; the menu-triggered manual
@@ -1240,8 +1184,7 @@ class SlateApp:
         Toplevel/accent-bar/centering pattern. Every control here binds
         to the SAME Tk variable and calls the SAME handler the
         corresponding menu item already uses (continuous_scroll_var ->
-        _set_view_mode, colorize_pages_var -> _on_colorize_toggle,
-        tts_voice/tts_speed -> their existing _on_..._changed handlers)
+        _set_view_mode, colorize_pages_var -> _on_colorize_toggle)
         -- one source of truth, so this dialog and the menus can never
         drift out of sync. A second place to reach settings that
         already persist via those handlers, not a second mechanism that
@@ -1558,38 +1501,6 @@ class SlateApp:
         tk.Button(
             font_btns, text="Reset", command=lambda: _ui_font_change_and_refresh(-self.ui_font_scale)
         ).pack(side=tk.LEFT, padx=(4, 0))
-
-        # -- Read Aloud -- omitted entirely when this build excludes the
-        # synthesis engine, same reasoning as _build_menu's Read Aloud cascade.
-        if tts.ENGINE_AVAILABLE:
-            tts_frame = tk.LabelFrame(top, text="Read Aloud")
-            tts_frame.pack(fill=tk.X, padx=24, pady=(0, 10))
-            tk.Label(tts_frame, text="Voice:").pack(anchor="w", padx=10, pady=(6, 0))
-            voice_row = tk.Frame(tts_frame)
-            voice_row.pack(fill=tk.X, padx=10)
-            # Bundled voices only here too, same reasoning as the Read Aloud
-            # menu's own Voice submenu -- see _build_menu's comment.
-            for voice_id, info in tts.VOICES.items():
-                if not info.get("bundled"):
-                    continue
-                btn = tk.Radiobutton(
-                    voice_row, text=info["label"], variable=self.tts_voice, value=voice_id,
-                    command=self._on_tts_voice_changed, selectcolor=colors["select_bg"],
-                    indicatoron=False, relief=tk.RAISED, padx=8, pady=2, anchor="w",
-                )
-                btn.pack(fill=tk.X, pady=1)
-                self._wire_toggle_button_contrast(btn, self.tts_voice, value=voice_id)
-            tk.Label(tts_frame, text="Speed:").pack(anchor="w", padx=10, pady=(6, 0))
-            speed_row = tk.Frame(tts_frame)
-            speed_row.pack(fill=tk.X, padx=10, pady=(0, 6))
-            for speed in (0.75, 1.0, 1.25, 1.5, 2.0):
-                btn = tk.Radiobutton(
-                    speed_row, text=f"{speed}x", variable=self.tts_speed, value=speed,
-                    command=self._on_tts_speed_changed, selectcolor=colors["select_bg"],
-                    indicatoron=False, relief=tk.RAISED, padx=6, pady=2,
-                )
-                btn.pack(side=tk.LEFT, padx=(0, 4))
-                self._wire_toggle_button_contrast(btn, self.tts_speed, value=speed)
 
         btn_row = tk.Frame(top)
         btn_row.pack(pady=(0, 16))
@@ -2550,7 +2461,7 @@ class SlateApp:
 
         # Columns is the FIRST tool in the toolbar (minus, editable count,
         # plus), Fit Width right after it -- the most frequent controls
-        # reading a multi-column document, ahead of page-nav/TTS. "<
+        # reading a multi-column document. "<
         # Prev"/"Next >" removed -- duplicates of the ◀/▶ glyph buttons
         # already flanking the page-number box in toolbar_center below
         # (same self.prev/next commands). "Zoom -"/"Zoom +" removed --
@@ -2614,28 +2525,6 @@ class SlateApp:
         toolbar_right.grid(row=0, column=2, sticky="e")
         self.status = tk.Label(toolbar_right, text="")
         self.status.pack(side=tk.RIGHT, padx=8)
-        # Read Aloud quick-access controls, also reachable via the Read
-        # Aloud menu. Two buttons: one smart play/pause/resume toggle
-        # (do_tts_toggle_play decides which action makes sense for the
-        # current state) plus a stop, same real actions the menu
-        # already exposes, not a separate mechanism. Omitted entirely
-        # when this build excludes the synthesis engine -- every caller
-        # (_update_tts_toolbar_button, _update_tts_ui) already guards on
-        # hasattr(self, "tts_play_button"/"tts_status_label") for the
-        # home-screen-has-no-toolbar-yet case, so their absence here is
-        # already a handled state, not a new one.
-        if tts.ENGINE_AVAILABLE:
-            self.tts_stop_button = tk.Button(toolbar_right, text="⏹", width=2, padx=0, command=self.do_tts_stop)
-            self.tts_stop_button.pack(side=tk.RIGHT, padx=(0, 6))
-            self.tts_play_button = tk.Button(
-                toolbar_right, text="▶", width=2, padx=0, command=self.do_tts_toggle_play,
-            )
-            self.tts_play_button.pack(side=tk.RIGHT, padx=(0, 2))
-            # Fixed green accent regardless of theme -- same convention as
-            # the About dialog's permanent accent bar, empty text (so no
-            # layout gap) whenever nothing's actually loaded.
-            self.tts_status_label = tk.Label(toolbar_right, text="", fg="#62a945")
-            self.tts_status_label.pack(side=tk.RIGHT, padx=(0, 8))
 
         self.find_frame = tk.Frame(self.body_frame)
         tk.Label(self.find_frame, text="Find:").pack(side=tk.LEFT, padx=(6, 4))
@@ -3632,6 +3521,14 @@ class SlateApp:
         tkimg = self._page_cache.get(page_num)
         item = self.canvas.create_image(int(x0), int(y0), anchor=tk.NW, image=tkimg)
         self._page_canvas_items[page_num] = item
+        if self.colorize_pages:
+            # Colorized pages share the surround's color; the outline keeps
+            # page edges visible.
+            colors = theme.get_palette(self.theme_name.get())
+            self.canvas.create_rectangle(
+                int(x0), int(y0), int(x0) + tkimg.width() - 1, int(y0) + tkimg.height() - 1,
+                outline=colors["muted_fg"], width=1, tags=("page_outline",),
+            )
         self._draw_search_highlights_for_page(page_num, x0, y0)
         self._draw_text_selection_for_page(page_num, x0, y0)
 
@@ -3786,7 +3683,7 @@ class SlateApp:
         mode, so this is byte-identical to the pre-Slice-2 math there.
 
         Outline was hardcoded plain "yellow"/"red", ignoring the active
-        theme entirely -- true in every theme, not just Bonepaper. A thin
+        theme entirely -- true in every theme, not just one. A thin
         theme-colored OUTLINE rectangle (select_bg for ordinary matches,
         accent2 for the current one) isn't enough visual weight for
         something meant to draw the eye, no matter the hue. Built instead
@@ -3839,19 +3736,13 @@ class SlateApp:
 
         A real highlighter bar, not one stippled rectangle PER SELECTED
         WORD, which read as a scattered multicursor-style pattern (gaps
-        between words, a dithered fill). Same two
-        root causes as _update_tts_highlight's docstring (that fix is
-        the reference pattern this one follows, code not shared since
-        the TTS path stays untouched): per-word boxes instead of one
-        box per LINE, and `stipple` faking transparency by literally
-        not painting ~50% of pixels rather than real alpha-blending. Fixed
-        the same way -- group words by PyMuPDF's (block_no, line_no)
+        between words, a dithered fill). Fixed the same way --
+        group words by PyMuPDF's (block_no, line_no)
         into one continuous rectangle per line, spanning min(x0)..
         max(x1) for that line, and paint it as a real translucent RGBA
         PhotoImage instead of a stippled canvas fill.
 
-        A selection can span many lines (unlike the single-window TTS
-        highlight), so this keeps a LIST of PhotoImage references in
+        A selection can span many lines, so this keeps a LIST of PhotoImage references in
         self._selection_highlight_photos (Tk drops a PhotoImage's pixels
         blank once nothing references it, even though the canvas item
         persists). The list is reset ONCE per render pass, at the top
@@ -3962,11 +3853,6 @@ class SlateApp:
         menu.add_command(label="Copy", command=self._copy_selection, state=sel_state)
         menu.add_command(label="Highlight Selection", command=self._highlight_selection, state=sel_state)
         menu.add_command(label="Redact Selection", command=self._redact_selection, state=sel_state)
-        menu.add_separator()
-        # Captures THIS click's own event (coordinates), not whichever
-        # point the mouse happens to be at when the menu item is later
-        # chosen -- the menu can stay open a while before a real click.
-        menu.add_command(label="Read from here", command=lambda: self._read_from_word_click(event))
         menu.add_separator()
         menu.add_command(label="Zoom In", command=self.zoom_in)
         menu.add_command(label="Zoom Out", command=self.zoom_out)
@@ -4657,6 +4543,33 @@ class SlateApp:
             f.write(text)
         messagebox.showinfo("Exported", f"Saved text to {out}")
 
+    def do_ocr(self):
+        if not self._require_doc():
+            return
+        if not ocr.available():
+            messagebox.showerror("OCR unavailable", "The OCR language data (tessdata/eng.traineddata) is missing.")
+            return
+        pages = [i for i in range(self.doc.page_count) if ocr.page_needs_ocr(self.doc[i])]
+        if not pages:
+            messagebox.showinfo("Nothing to recognize", "Every page already has text.")
+            return
+        if not messagebox.askyesno(
+            "Recognize text",
+            f"{len(pages)} page(s) have no text. Add an invisible text layer so they "
+            f"can be searched and copied? Save afterwards to keep it.",
+        ):
+            return
+
+        def progress(done, total):
+            self.status.config(text=f"OCR: {done}/{total} pages")
+            self.root.update()
+
+        done = ocr.ocr_document(self.doc, pages, progress=progress)
+        self._page_cache.invalidate_all()
+        self.render()
+        words = sum(done.values())
+        messagebox.showinfo("Text recognized", f"Added {words} words on {len(done)} page(s). Save to keep them.")
+
     def do_export_images(self):
         if not self._require_doc():
             return
@@ -4682,521 +4595,6 @@ class SlateApp:
         pdf.close()
         messagebox.showinfo("Imported", f"Saved {len(paths)} image(s) as {out}")
         self._open_document(out)
-
-    # ------------------------------------------------------------------
-    # Read Aloud (TTS)
-    # ------------------------------------------------------------------
-    def _ensure_voice_available(self, voice_id: str) -> bool:
-        """True if usable (already bundled/downloaded, or just
-        downloaded now). Downloads run on a background thread with a
-        real progress dialog -- these are ~60MB fetches, blocking the
-        UI for that would be bad. wait_window() makes this call itself
-        synchronous from the caller's point of view even though the
-        download isn't."""
-        if tts.is_available(voice_id):
-            return True
-
-        label = tts.VOICES[voice_id]["label"]
-        if not messagebox.askyesno(
-            "Download voice?",
-            f"'{label}' has not been downloaded yet (~60MB, one-time, "
-            f"cached for future use). Download it now?",
-        ):
-            return False
-
-        progress_top = tk.Toplevel(self.root)
-        progress_top.title(f"Downloading {label}...")
-        progress_top.resizable(False, False)
-        progress_var = tk.DoubleVar(value=0.0)
-        ttk.Progressbar(progress_top, variable=progress_var, maximum=100, length=300).pack(
-            padx=20, pady=(20, 8)
-        )
-        status_label = tk.Label(progress_top, text="Starting...")
-        status_label.pack(pady=(0, 16))
-        self._paint_widget(progress_top, theme.get_palette(self.theme_name.get()))
-
-        result = {"done": False, "error": None}
-        # Tkinter is not thread-safe -- calling self.root.after(...)
-        # FROM the worker thread raises "main thread is not in main
-        # loop". The worker only ever writes to this plain dict
-        # (simple attribute assignment, safe enough for a single-
-        # producer/single-consumer read); poll(), scheduled via
-        # self.root.after() and therefore always running on the MAIN
-        # thread, is the only thing that ever touches real widgets.
-        progress = {"pct": 0.0}
-
-        def on_progress(done_bytes, total_bytes):
-            progress["pct"] = (done_bytes / total_bytes * 100) if total_bytes else 0.0
-
-        def worker():
-            try:
-                tts.download_voice(voice_id, progress_callback=on_progress)
-            except Exception as e:
-                result["error"] = str(e)
-            result["done"] = True
-
-        def poll():
-            progress_var.set(progress["pct"])
-            status_label.config(text=f"{progress['pct']:.0f}%")
-            if result["done"]:
-                if progress_top.winfo_exists():
-                    progress_top.destroy()
-                return
-            self.root.after(100, poll)
-
-        threading.Thread(target=worker, daemon=True).start()
-        poll()
-        self.root.wait_window(progress_top)
-
-        if result["error"]:
-            messagebox.showinfo("Download failed", result["error"])
-            return False
-        return tts.is_available(voice_id)
-
-    def do_read_page(self):
-        """Menu 'Read this page' / toolbar quick-play -- explicitly a
-        single-page read. Cancels any in-progress "read entire
-        document" auto-continuation (do_read_document) so switching
-        back to a plain single-page read doesn't keep auto-advancing
-        afterward."""
-        self._tts_reading_document = False
-        self._read_current_page()
-
-    def do_read_document(self):
-        """Reads from the current page onward, not just the current
-        page, auto-advancing (page nav + the reading-position highlight both
-        follow, via _go_to_page) as each page's audio naturally
-        finishes -- until the end of the document or Stop. Blank
-        pages encountered while auto-advancing are skipped silently
-        (see _advance_to_next_page_and_continue_reading) rather than
-        interrupting a hands-free read with a dialog; the page you
-        explicitly started on still gets the normal "nothing to read"
-        message if it's blank, same as "Read this page" always has."""
-        self._tts_reading_document = True
-        self._read_current_page()
-
-    def _read_current_page(self):
-        """Real perf finding: synthesis alone (even with a warm, cached
-        voice -- see tts.py's _voice_cache) takes on the order of a
-        second or more for a normal page of text. Running that
-        synchronously on the main thread freezes the whole UI for the
-        duration. Synthesis instead runs on a background thread; poll()
-        (scheduled via self.root.after(),
-        so it always runs on the main thread -- same real bug already
-        fixed once for the download flow) picks up the result and does
-        the actual playback."""
-        if not self._require_doc():
-            return
-        words = self.page.get_text("words")
-        if not words:
-            messagebox.showinfo("Nothing to read", "This page has no extractable text.")
-            return
-        self._speak_text(words, self.page, self.viewer.page_num)
-
-    def _read_from_word_click(self, event):
-        """Right-click a word in view mode -> "Read from here", same
-        right-click-picks-the-item-under-the-cursor convention as the
-        home screen's recent-files context menu. Reuses
-        _word_index_near_point (the same nearest-word lookup drag-
-        selection already relies on) to find where the click landed,
-        then reads from that word to the end of the page -- a coarser
-        granularity than the selection highlight's exact ranges, but
-        matches how a reader actually thinks about "start reading
-        here": from this point in the page onward, not word-perfect."""
-        if self.mode != "view" or not self._require_doc():
-            return
-        cx, cy = self._event_canvas_xy(event)
-        ox, oy = self._static_row_offset
-        page_num = self._layout.page_at(cx + ox, cy + oy) if self._layout is not None else self.viewer.page_num
-        if page_num is None:
-            return
-        page = self.doc[page_num]
-        words = page.get_text("words")
-        if not words:
-            messagebox.showinfo("Nothing to read", "This page has no extractable text.")
-            return
-        click_pdf = self._canvas_to_pdf_rect(cx, cy, cx, cy, page_num)
-        i = self._word_index_near_point(words, click_pdf.x0, click_pdf.y0)
-        self._speak_text(words[i:], page, page_num)
-
-    def _speak_text(self, words, page, page_num):
-        """Shared synthesis+playback kickoff for both a whole-page read
-        (_read_current_page) and a from-this-point read
-        (_read_from_word_click) -- everything past "what words and which
-        page" is identical between the two. Takes the real word-tuple
-        list actually being spoken (not a page number's worth of
-        already-known-good text) so _update_tts_highlight can track
-        progress against the SAME words that were actually synthesized:
-        re-deriving the FULL page's words from scratch would be
-        oblivious to a "read from here" click trimming the start, so
-        the progress estimate would race through words that were never
-        even sent to the synthesizer."""
-        if getattr(self, "_tts_synthesizing", False):
-            return  # a previous read is still being synthesized
-        text = " ".join(w[4] for w in words)
-
-        # Captured for _update_tts_highlight's position estimate -- the
-        # actual page being read stays fixed even if the user scrolls/
-        # navigates elsewhere while listening (self.page would drift).
-        self._tts_reading_page = page
-        self._tts_reading_page_num = page_num
-        self._tts_reading_words = words
-
-        voice_id = self.tts_voice.get()
-        if not self._ensure_voice_available(voice_id):
-            return
-
-        # tts.speed_to_length_scale (not a plain 1.0/speed inverse):
-        # "1.0x" is a calibrated natural default, not Piper's raw
-        # native rate.
-        length_scale = tts.speed_to_length_scale(self.tts_speed.get())
-        self._tts_synthesizing = True
-        self.status.config(text="Synthesizing speech...")
-        result = {"done": False, "audio": None, "error": None}
-
-        def worker():
-            try:
-                result["audio"] = tts.synthesize(text, voice_id, length_scale)
-            except Exception as e:
-                result["error"] = str(e)
-            result["done"] = True
-
-        def poll():
-            if not result["done"]:
-                self.root.after(50, poll)
-                return
-            self._tts_synthesizing = False
-            self.render()  # restores the normal page/zoom status text
-            if result["error"]:
-                messagebox.showinfo("Playback failed", result["error"])
-                return
-            audio, sample_rate, _width, channels, chunk_sample_counts = result["audio"]
-            self._tts_chunk_sample_counts = chunk_sample_counts  # real per-sentence durations, see _update_tts_highlight
-            try:
-                self.tts_player.load(audio, sample_rate, channels)
-                self.tts_player.play()
-            except Exception as e:
-                messagebox.showinfo("Playback failed", str(e))
-            self._poll_tts_playback_state()
-
-        # Tests polling only the _tts_synthesizing FLAG, not this actual
-        # thread object, hit a razor-thin gap between the flag flipping
-        # False (inside worker(), just before it returns) and the OS
-        # thread genuinely finishing -- a test that only trusts the flag
-        # can proceed (and tear down, letting the NEXT test's
-        # main-thread Tk calls run) while this thread is still mid-
-        # teardown after its first-ever `import piper`, a cross-test
-        # race that segfaults. self._tts_thread is kept so tests can
-        # .join() it for a real guarantee, not just the flag.
-        self._tts_thread = threading.Thread(target=worker, daemon=True)
-        self._tts_thread.start()
-        poll()
-
-    def do_tts_pause_resume(self):
-        if self.tts_player.is_playing():
-            self.tts_player.pause()
-        else:
-            try:
-                self.tts_player.play()
-            except Exception as e:
-                messagebox.showinfo("Playback failed", str(e))
-        self._poll_tts_playback_state()
-
-    def do_tts_stop(self):
-        # Player.stop() deliberately rewinds rather than unloads (its
-        # own docstring: "Unlike pause(), resets position to the
-        # start") -- has_audio() stays True on purpose, so a
-        # subsequent play() replays this same page from 0 instead of
-        # needing a fresh "Read this page". _tts_reading_page/_num
-        # stay set to match -- the highlight correctly redraws at the
-        # first word (progress 0.0) rather than disappearing.
-        self.tts_player.stop()
-        self._tts_reading_document = False  # explicit Stop always cancels auto-advance
-        self._update_tts_ui()
-
-    def do_tts_toggle_play(self):
-        """Toolbar quick-access button -- one button that does whichever
-        action makes sense right now instead of making the user pick
-        the right menu command: starts reading the current page if
-        nothing's loaded yet, otherwise toggles pause/resume of what's
-        already loaded."""
-        if self.tts_player.has_audio():
-            self.do_tts_pause_resume()
-        else:
-            self.do_read_page()
-
-    def _on_tts_voice_changed(self):
-        """The Voice menu's radiobuttons had no command callback at
-        all -- selecting a different voice only updated the tts_voice
-        StringVar, with nothing to actually apply it. Whatever was
-        already loaded (or mid-synthesis) just kept playing in the OLD
-        voice with no way to hear the new selection short of manually
-        stopping and clicking "Read this page" again. If something is
-        already loaded, selecting a voice restarts the CURRENT page
-        fresh in the new one -- do_read_page() already stops old
-        playback itself (Player.load()'s own stop() call). Mid-
-        synthesis (audio not loaded yet) is a real, accepted gap left
-        for later: do_read_page()'s own _tts_synthesizing guard would
-        block a same-instant re-trigger, and synthesis is fast enough
-        (~1s) that this is a narrow window."""
-        settings.save({"tts_voice": self.tts_voice.get()})
-        if self.tts_player.has_audio():
-            self.do_read_page()
-
-    def _on_tts_speed_changed(self):
-        """Speed menu's radiobuttons had no command callback at all
-        (only Voice's did, see _on_tts_voice_changed above) -- added
-        purely to persist the choice, matching that same fix's own
-        precedent. Unlike voice, changing the speed mid-read doesn't
-        need to restart anything: length_scale only takes effect at the
-        next synthesize() call, and there's no equivalent live bug
-        report asking for an immediate restart here."""
-        settings.save({"tts_speed": self.tts_speed.get()})
-
-    def _update_tts_toolbar_button(self):
-        if not hasattr(self, "tts_play_button"):
-            return  # home screen, no doc-view toolbar built yet
-        self.tts_play_button.config(text="⏸" if self.tts_player.is_playing() else "▶")
-
-    def _tts_status_text(self) -> str:
-        """Voice name + speed multiplier, shown only while something is
-        actually loaded (empty otherwise, so it doesn't clutter the
-        toolbar the rest of the time)."""
-        if not self.tts_player.has_audio():
-            return ""
-        voice_label = tts.VOICES.get(self.tts_voice.get(), {}).get("label", self.tts_voice.get())
-        return f"\U0001F50A {voice_label} · {self.tts_speed.get():g}x"
-
-    def _update_tts_highlight(self):
-        """A "follow along" highlight for what's currently being read,
-        using the house green accent (the one other place, besides
-        text selection, green is allowed to appear per the manga-
-        essence minimal-accent rule).
-
-        Honest limitation, not hidden: Piper's simple synthesize() API
-        (tts.py) returns raw audio only, no per-word timing/alignment
-        data -- there's no real way to know exactly which word is
-        playing at any instant. Estimated as a fraction of the page's
-        text proportional to Player.progress (0.0-1.0 through the
-        audio), weighted by CHARACTER count rather than plain word
-        count -- a 12-letter word takes noticeably longer to speak
-        than "a", so a per-word index alone drifts visibly out of
-        sync over a page; a character-weighted cumulative position is
-        still an estimate (no true audio alignment exists to check
-        against) but tracks materially better.
-
-        Drawn as ONE merged rectangle over words sharing the current
-        line, not 2-3 separate small stippled boxes -- separate boxes
-        visibly fragment (and can jump to the start of the NEXT line
-        mid-window, drawing two disconnected boxes) instead of reading
-        as one smooth highlight. Constraining the window to one line
-        (PyMuPDF's own line_no field) and merging into a single
-        rectangle fixes the fragmentation.
-
-        Built as a genuinely translucent RGBA PhotoImage rather than a
-        stippled rectangle. Tk canvas fill colors have no alpha
-        channel; `stipple` is Tk's only built-in fake-transparency
-        trick, and it works by literally not painting ~75% of the
-        pixels in a fixed dot pattern, which reads as rasterized
-        because it is. Tk 8.6+ canvas images DO alpha-composite for
-        real against whatever's already drawn underneath, giving a
-        true semi-transparent highlighter color over the text instead
-        of a dither pattern.
-
-        Cleared (canvas.delete by tag) whenever nothing's loaded, or
-        when the page being read isn't part of what's currently drawn
-        (scrolled/navigated away -- nothing to overlay onto)."""
-        self.canvas.delete("tts_highlight")
-        page_num = self._tts_reading_page_num
-        if page_num is None or not self.tts_player.has_audio() or self._tts_reading_page is None:
-            return
-        if self._layout is not None and page_num not in self._last_window:
-            return  # not currently drawn -- nothing to overlay onto
-        # self._tts_reading_words, NOT a fresh
-        # self._tts_reading_page.get_text("words") -- the latter would
-        # silently ignore a "read from here" start offset, estimating
-        # progress against every word on the page instead of only the
-        # ones actually sent to the synthesizer.
-        words = self._tts_reading_words
-        if not words:
-            return
-        # Piper inserts a genuine pause at sentence ends and a much
-        # smaller one at clause breaks -- real elapsed audio time
-        # producing zero new characters of speech; a flat +1-per-word
-        # model charges punctuation the same time-cost as any letter,
-        # implicitly assuming pauses take no time. Weights below are
-        # MEASURED, not guessed: headless A/B synthesis via this exact
-        # voice/length_scale (northern_english_male, 1.0x), holding word
-        # content fixed and comparing a sentence-final period against a
-        # mid-sentence comma at the identical position, then solving
-        # for the extra pause time in character-equivalents. Result: a
-        # period costs ~9.3 char-equivalents of pause; a comma costs
-        # only ~0.7.
-        def _char_weight(word_text):
-            n = len(word_text) + 1  # +1 for the trailing space/gap
-            if word_text.endswith((".", "!", "?")):
-                n += 9  # sentence-end pause, measured ~9.3
-            elif word_text.endswith((",", ";", ":")):
-                n += 1  # clause-break pause, measured ~0.7 -- nearly negligible
-            return n
-
-        def _weighted_local_idx(word_list, fraction):
-            """Char-weighted position estimate scoped to whatever word
-            list is passed in -- the same math as before this pass,
-            just reusable for both the per-sentence path and the
-            whole-page fallback below."""
-            counts = [_char_weight(w[4]) for w in word_list]
-            total = sum(counts)
-            if total <= 0:
-                return 0
-            target = fraction * total
-            seen = 0
-            for i, n in enumerate(counts):
-                if seen + n > target:
-                    return i
-                seen += n
-            return len(word_list) - 1
-
-        # Per-SENTENCE calibration. True per-phoneme alignment isn't
-        # available: these voice models' ONNX sessions return only one
-        # output tensor (audio), so `include_alignments=True` yields
-        # nothing to use -- tts.synthesize() has no duration-output
-        # branch for it. What IS available: Piper synthesizes one audio
-        # chunk per SENTENCE, and tts.synthesize() returns each chunk's
-        # real sample count (self._tts_chunk_sample_counts, set in
-        # _read_current_page). Grouping `words` into sentences
-        # (splitting after any word ending in .!?) and pairing each
-        # group 1:1 with a real chunk duration turns "one uniform
-        # character-rate guess across the WHOLE PAGE" into "one uniform
-        # rate per SENTENCE, with real measured pauses between them" --
-        # a much smaller, more honest approximation window.
-        #
-        # The sentence split is a simple heuristic and won't always
-        # match Piper/espeak's own internal sentence boundaries -- an
-        # abbreviation like "vv." or "Jer." can fool it into splitting
-        # where espeak didn't. Rather than silently mismatching chunk N
-        # to the wrong sentence, the sentence COUNT is checked against
-        # the real chunk count first; any mismatch falls back to the
-        # same whole-page weighted estimate this function already used
-        # (still real, still correctly calibrated punctuation weights --
-        # just without per-sentence pause precision).
-        chunk_counts = self._tts_chunk_sample_counts
-        sentence_groups = None
-        if chunk_counts:
-            groups, current = [], []
-            for w in words:
-                current.append(w)
-                if w[4].endswith((".", "!", "?")):
-                    groups.append(current)
-                    current = []
-            if current:
-                groups.append(current)
-            if len(groups) == len(chunk_counts):
-                sentence_groups = groups
-
-        if sentence_groups is not None:
-            total_samples = sum(chunk_counts)
-            position_samples = self.tts_player.progress * total_samples
-            cumulative = 0
-            sentence_idx = len(chunk_counts) - 1
-            fraction_within = 1.0
-            for i, count in enumerate(chunk_counts):
-                if position_samples < cumulative + count:
-                    sentence_idx = i
-                    fraction_within = (position_samples - cumulative) / count if count > 0 else 0.0
-                    break
-                cumulative += count
-            sentence_words = sentence_groups[sentence_idx]
-            local_idx = _weighted_local_idx(sentence_words, fraction_within)
-            offset = sum(len(g) for g in sentence_groups[:sentence_idx])
-            idx = offset + local_idx
-        else:
-            idx = _weighted_local_idx(words, self.tts_player.progress)
-        anchor = words[idx]
-        anchor_block, anchor_line = anchor[5], anchor[6]
-        # Same line only, TRAILING up to 5 words ending AT idx (not
-        # leading from idx) -- a handful of words never spilling onto
-        # the PREVIOUS line. words[idx:idx+6] (the current word PLUS
-        # the next 5) makes the highlight's leading edge always show 5
-        # words not yet spoken, reading as "racing ahead of the audio."
-        # A trailing window (already-spoken words ending at the current estimate)
-        # keeps the same "one merged rectangle, not a choppy single
-        # word" goal without visually promising unspoken content.
-        window = []
-        for w in reversed(words[max(0, idx - 5):idx + 1]):
-            if w[5] != anchor_block or w[6] != anchor_line:
-                break
-            window.append(w)
-        if not window:
-            window = [anchor]
-        ox, oy = self._page_offset(page_num)
-        z = self.viewer.zoom
-        colors = theme.get_palette(self.theme_name.get())
-        x0 = min(w[0] for w in window)
-        y0 = min(w[1] for w in window)
-        x1 = max(w[2] for w in window)
-        y1 = max(w[3] for w in window)
-        px0, py0 = ox + x0 * z, oy + y0 * z
-        px1, py1 = ox + x1 * z, oy + y1 * z
-        w, h = max(1, round(px1 - px0)), max(1, round(py1 - py0))
-        hexc = colors["highlight_bg"].lstrip("#")
-        r, g, b = (int(hexc[i:i + 2], 16) for i in (0, 2, 4))
-        overlay = Image.new("RGBA", (w, h), (r, g, b, 90))  # ~35% opacity
-        self._tts_highlight_photo = ImageTk.PhotoImage(overlay)  # keep ref, Tk drops GC'd images
-        self.canvas.create_image(px0, py0, anchor="nw", image=self._tts_highlight_photo, tags=("tts_highlight",))
-
-    def _update_tts_ui(self):
-        self._update_tts_toolbar_button()
-        if hasattr(self, "tts_status_label"):
-            self.tts_status_label.config(text=self._tts_status_text())
-        self._update_tts_highlight()
-
-    def _poll_tts_playback_state(self):
-        """Keeps the toolbar button/status/highlight accurate across
-        state changes nothing else calls back for -- most notably
-        playback reaching the natural end of a page's audio, which the
-        Player has no callback for at all (see playback.py's own note
-        on sd.CallbackStop()), and the highlight's own estimated
-        position, which needs to keep advancing while nothing else is
-        triggering a redraw. Self-cancels once playback stops instead
-        of polling forever -- except mid "read entire document",
-        where reaching a real natural end (was playing, now isn't, and
-        NOT because of an explicit pause --
-        Player.is_paused() is the real distinguishing check) triggers
-        _advance_to_next_page_and_continue_reading instead of just
-        stopping. That call itself re-triggers a fresh poll loop once
-        the next page's audio starts, so the chain keeps going on its
-        own without this method needing to reschedule itself through it."""
-        was_playing = self._tts_was_playing
-        is_playing_now = self.tts_player.is_playing()
-        self._tts_was_playing = is_playing_now
-        self._update_tts_ui()
-        if (
-            was_playing and not is_playing_now and not self.tts_player.is_paused()
-            and getattr(self, "_tts_reading_document", False)
-        ):
-            self._advance_to_next_page_and_continue_reading()
-            return
-        if is_playing_now:
-            self.root.after(250, self._poll_tts_playback_state)
-
-    def _advance_to_next_page_and_continue_reading(self):
-        """The real "read entire document" mechanism -- called once a
-        page's audio reaches its natural end while _tts_reading_document
-        is True. Blank pages are skipped silently (no "nothing to
-        read" dialog -- that would interrupt a hands-free continuous
-        read); reaching the end of the document just stops cleanly."""
-        if self.viewer is None or self._tts_reading_page_num is None:
-            self._tts_reading_document = False
-            return
-        next_page_num = self._tts_reading_page_num + 1
-        while next_page_num < self.viewer.page_count:
-            if self.doc[next_page_num].get_text().strip():
-                self._go_to_page(next_page_num)
-                self._read_current_page()
-                return
-            next_page_num += 1
-        self._tts_reading_document = False  # reached the end -- nothing left to read
 
     def _snapshot_current_edits(self) -> str:
         """Save self.doc's current in-memory state (including any
@@ -5366,8 +4764,7 @@ def main():
     root.bind("<Map>", _sync_children_to_root_state)
 
     # Become the server for any LATER invocation. Real thread-safety
-    # note (same pattern already established for the TTS synthesis and
-    # voice-download worker threads): the socket-listener thread must
+    # note: the socket-listener thread must
     # never touch Tk widgets directly -- it only ever puts a path on a
     # plain queue.Queue; _poll_ipc (scheduled via root.after(), so it
     # always runs on the main thread) is the only thing that calls

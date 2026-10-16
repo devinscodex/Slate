@@ -31,6 +31,14 @@ AppId={{B4E1B4A0-6F1E-4A6C-9C1A-7D8E5F3A2B10}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
+AppPublisherURL=https://github.com/devinscodex/Slate
+AppSupportURL=https://github.com/devinscodex/Slate/issues
+AppUpdatesURL=https://github.com/devinscodex/Slate/releases
+VersionInfoVersion={#MyAppVersion}.0
+VersionInfoCompany={#MyAppPublisher}
+VersionInfoDescription=Slate PDF editor installer
+VersionInfoProductName={#MyAppName}
+VersionInfoCopyright=Copyright (c) 2026 {#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
@@ -60,7 +68,7 @@ Name: "codeassoc"; Description: "Make Slate available for code/config files (.py
 
 [Files]
 ; The whole PyInstaller --onedir output, recursively -- exe + all
-; bundled deps/data (branding, both bundled TTS voices, etc.).
+; bundled deps/data (branding, theme_data, etc.).
 Source: "..\dist\Slate\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]

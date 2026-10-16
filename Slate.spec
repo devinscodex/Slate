@@ -1,14 +1,48 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+import sys
+
 from PyInstaller.utils.hooks import collect_all
 
-# voices/ (bundled TTS model) and the piper/onnxruntime/sounddevice/
-# soundfile collect_all calls below are deliberately OFF -- Read Aloud is
-# excluded from this build entirely (tts.ENGINE_AVAILABLE gates the UI in
-# slate.py) to keep the binary lean. Re-enable by un-commenting these four
-# lines, adding back ('voices', 'voices') to datas, and dropping the
-# excludes= entries below -- nothing else needs to change, tts.py's own
-# lazy-import already tolerates either state.
-datas = [('branding', 'branding'), ('theme_data', 'theme_data')]
+sys.path.insert(0, SPECPATH)
+import version as slate_version  # noqa: E402
+
+
+def _version_resource():
+    """Windows VERSIONINFO for Slate.exe, so file properties name the
+    product, publisher and license instead of showing blanks."""
+    from PyInstaller.utils.win32.versioninfo import (
+        FixedFileInfo, StringFileInfo, StringStruct, StringTable, VarFileInfo, VarStruct, VSVersionInfo,
+    )
+    v = slate_version.VERSION
+    nums = tuple((int(p) for p in v.split(".")[:3])) + (0,) * (4 - len(v.split(".")[:3]))
+    fields = [
+        ("CompanyName", slate_version.AUTHOR),
+        ("FileDescription", "Slate PDF editor"),
+        ("FileVersion", v),
+        ("InternalName", "Slate"),
+        ("LegalCopyright", f"Copyright (c) 2026 {slate_version.AUTHOR}. {slate_version.LICENSE}"),
+        ("OriginalFilename", "Slate.exe"),
+        ("ProductName", "Slate"),
+        ("ProductVersion", v),
+        ("Comments", "https://github.com/devinscodex/Slate"),
+    ]
+    info = VSVersionInfo(
+        ffi=FixedFileInfo(filevers=nums, prodvers=nums, mask=0x3F, flags=0x0, OS=0x40004,
+                          fileType=0x1, subtype=0x0, date=(0, 0)),
+        kids=[
+            StringFileInfo([StringTable("040904B0", [StringStruct(k, val) for k, val in fields])]),
+            VarFileInfo([VarStruct("Translation", [1033, 1200])]),
+        ],
+    )
+    os.makedirs("build", exist_ok=True)
+    path = os.path.join("build", "version_info.txt")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(str(info))
+    return path
+
+
+datas = [('branding', 'branding'), ('theme_data', 'theme_data'), ('tessdata', 'tessdata')]
 binaries = []
 hiddenimports = []
 tmp_ret = collect_all('fitz')
@@ -17,24 +51,15 @@ tmp_ret = collect_all('pikepdf')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('pyhanko')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-# tmp_ret = collect_all('piper')
-# datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-# tmp_ret = collect_all('onnxruntime')
-# datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-# tmp_ret = collect_all('sounddevice')
-# datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-# tmp_ret = collect_all('soundfile')
-# datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 # A Linux PyInstaller build crashes opening any real document with
 # "ModuleNotFoundError: No module
 # named 'PIL._tkinter_finder'" -- PIL/Pillow was never in this file's own
-# collect_all list (only fitz/pikepdf/pyhanko/piper/onnxruntime/
-# sounddevice/soundfile), so PyInstaller's automatic PIL hook missed this
-# specific helper module that ImageTk.PhotoImage needs at runtime to
-# bridge into Tk's own C image extension. Harmless on Windows too (just
-# ensures the same module ships there as well) -- not platform-specific,
-# a real gap in what this spec collects.
+# collect_all list (only fitz/pikepdf/pyhanko), so PyInstaller's automatic
+# PIL hook missed this specific helper module that ImageTk.PhotoImage needs
+# at runtime to bridge into Tk's own C image extension. Harmless on Windows
+# too (just ensures the same module ships there as well) -- not
+# platform-specific, a real gap in what this spec collects.
 hiddenimports += ['PIL._tkinter_finder']
 
 a = Analysis(
@@ -46,18 +71,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # tts.py imports piper (and transitively onnxruntime/sounddevice) at
-    # its own module level, guarded by a real try/except ImportError --
-    # PyInstaller's static Analysis finds that import regardless of the
-    # runtime guard and bundles it + everything it pulls in (~35MB:
-    # onnxruntime 34.55MB, piper 0.48MB, _sounddevice_data 0.62MB),
-    # completely undoing the collect_all() calls already commented out
-    # above for the same reason. This is the other half of that same
-    # intent, actually enforced -- ImportError at runtime is the designed
-    # fallback (tts.py's own comment), ENGINE_AVAILABLE just becomes
-    # False, no crash. Remove all four names together if Read Aloud ever
-    # comes back (matching the collect_all block above).
-    excludes=['piper', 'onnxruntime', 'sounddevice', 'soundfile'],
+    excludes=[],
     noarchive=False,
     optimize=0,
 )
@@ -71,7 +85,7 @@ exe = EXE(
     name='Slate',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True,
+    strip=False,
     # UPX OFF -- a packed, unsigned EXE is a classic AV heuristic trigger
     # (malware uses the same packer to hide payloads; Defender and others
     # weight "compressed + no publisher signature" heavily). Larger binary,
@@ -85,12 +99,13 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['branding\\slate.ico'],
+    version=_version_resource() if sys.platform == 'win32' else None,
 )
 coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
-    strip=True,
+    strip=False,
     upx=False,  # matches EXE() above -- same reasoning, same fix
     upx_exclude=[],
     name='Slate',

@@ -14,14 +14,13 @@ theme, not this picker. Everything else (toolbar, canvas, home screen,
 dialogs, tabs, TOC) is drawn by Tk itself and themes correctly on every
 platform.
 
-Roster: 4 families (Slate/Bonepaper/Flexoki/Martin), light+dark each,
-8 variants total.
+Roster: Slate, Flexoki, Martin; light+dark each.
 
 Chrome cascade: menubar_bg = bg (closest to the OS title bar),
 tabstrip_bg/toolbar_bg = each family's own authored bg2/bg3 (real,
 hand-tuned per-family steps pulled from webUI's own CSS, not a generic
 computed lerp -- a family whose identity is "true black, color reserved
-for the accent" (bonepaper dark) authors a near-invisible step here on
+for the accent" authors a near-invisible step here on
 purpose, which a generic percentage-toward-fg formula can't reproduce).
 menubar_fg/toolbar_fg both use the theme's own fg -- readable against
 either cascade extreme given a theme's guaranteed bg/fg contrast.
@@ -69,7 +68,7 @@ def _load_base(family: str, mode: str) -> dict:
     (not stored in the JSON itself, derived from which mode was asked
     for). Whitelisted to _BASE_KEYS on purpose: devs-themes is a shared
     repo across apps and can carry extra per-consumer keys (e.g.
-    bonepaper.json's external_link, Runestone-only) that aren't part of
+    an external_link key, Runestone-only) that aren't part of
     Slate's own palette shape."""
     data = json.loads((_THEME_DATA_DIR / f"{family}.json").read_text())[mode]
     return {k: data[k] for k in _BASE_KEYS} | {"is_dark": mode == "dark"}
@@ -180,21 +179,6 @@ _SLATE_LIGHT = _load_base("slate", "light") | {
     "accent2": "#b48ead",
 }
 
-# Bonepaper: light = Boneink's real light half (bone-paper, fixed
-# teal-jade accent ~158deg). Dark = real sampled night-rain values
-# (numpy over 5 reference photos, not picked by eye).
-_BONEPAPER_DARK = _load_base("bonepaper", "dark") | {
-    # accent2: bonepaper.json's own external_link value (#9d8cf0),
-    # Runestone's real hyperlink color for this family -- a genuine
-    # lavender/violet. Runestone's own H3-header/code-keyword coral
-    # (#d98f7a) was tried first but trips
-    # test_no_dark_theme_has_brown_tones.
-    "accent2": "#9d8cf0",
-}
-_BONEPAPER_LIGHT = _load_base("bonepaper", "light") | {
-    "accent2": "#5b3fa6",  # bonepaper.json's own external_link, light mode
-}
-
 # Martin: real Martin Energy Group brand colors, from
 # presentation/meg-theme.css (pulled from martinenergygroup.com's live
 # Elementor global palette) -- not derived from the brand PDF's Pantone
@@ -222,19 +206,15 @@ THEMES = {
     "dark": _with_chrome_cascade(_STANDARD_DARK),
     "slate_light": _with_chrome_cascade(_SLATE_LIGHT),
     "slate_dark": _with_chrome_cascade(_SLATE_DARK),
-    "bonepaper_light": _with_chrome_cascade(_BONEPAPER_LIGHT),
-    "bonepaper_dark": _with_chrome_cascade(_BONEPAPER_DARK),
     "martin_light": _with_chrome_cascade(_MARTIN_LIGHT),
     "martin_dark": _with_chrome_cascade(_MARTIN_DARK),
 }
 
 # Display label -> internal THEMES key. Slate is always top/default;
-# the other three sort alphabetically (Bonepaper, Flexoki, Martin).
+# the rest follow in roster order.
 THEME_LABELS = {
     "Slate Light": "slate_light",
     "Slate Dark": "slate_dark",
-    "Bonepaper Light": "bonepaper_light",
-    "Bonepaper Dark": "bonepaper_dark",
     # Values are Steph Ango's real published Flexoki palette
     # (stephango.com/flexoki); display label matches the palette's own
     # project name.
@@ -263,7 +243,6 @@ def get_palette(name: str) -> dict:
 # splitting the key string.
 _FAMILY_JSON = {
     "slate_light": ("slate", "light"), "slate_dark": ("slate", "dark"),
-    "bonepaper_light": ("bonepaper", "light"), "bonepaper_dark": ("bonepaper", "dark"),
     "light": ("flexoki", "light"), "dark": ("flexoki", "dark"),
     "martin_light": ("martin", "light"), "martin_dark": ("martin", "dark"),
 }
@@ -336,7 +315,7 @@ def save_family_values(theme_name: str) -> Path:
     instant you save (no separate pull_themes.sh run needed). Overrides
     are stored under a "slate_chrome_overrides" sub-key -- an extra,
     Slate-only key devs-themes' shared schema already tolerates (see
-    bonepaper.json's own external_link, same convention). Keeps every
+    an external_link key, same convention). Keeps every
     other key in either file untouched. Returns the devs-themes path
     written, for the caller to report."""
     family, mode = family_and_mode(theme_name)

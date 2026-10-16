@@ -2,8 +2,7 @@
 same convention as recent.py/theme.py (plain JSON, stdlib only,
 defensive load). Kept separate from theme.py's own theme.json -- theme
 selection stays there unchanged; this covers everything else: zoom,
-continuous scroll, side by side, colorize_pages, TTS voice/speed,
-toc_visible.
+continuous scroll, side by side, colorize_pages, toc_visible.
 
 zoom defaults to None (meaning "use Viewer.DEFAULT_ZOOM," no user
 override yet) rather than a number -- distinguishes "never set" from
@@ -30,8 +29,6 @@ DEFAULTS = {
     # so the same delta reads as a proportionally similar bump regardless
     # of the native baseline. Default 0 = unchanged from the OS default.
     "ui_font_scale": 0,
-    "tts_voice": "northern_english_male",
-    "tts_speed": 1.0,
     # Which documents were open, each as {"path": ..., "page": N}, plus
     # window size/position -- relaunch restores the exact prior state.
     "open_tabs": [],
