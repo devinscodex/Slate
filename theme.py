@@ -14,7 +14,7 @@ theme, not this picker. Everything else (toolbar, canvas, home screen,
 dialogs, tabs, TOC) is drawn by Tk itself and themes correctly on every
 platform.
 
-Roster: Slate, Basic, Nord, Everforest, Flexoki, Martin; light+dark each.
+Roster: Slate, Flexoki, Martin; light+dark each.
 
 Chrome cascade: menubar_bg = bg (closest to the OS title bar),
 tabstrip_bg/toolbar_bg = each family's own authored bg2/bg3 (real,
@@ -73,7 +73,7 @@ def _load_base(family: str, mode: str) -> dict:
     data = json.loads((_THEME_DATA_DIR / f"{family}.json").read_text())[mode]
     return {k: data[k] for k in _BASE_KEYS} | {"is_dark": mode == "dark"}
 
-DEFAULT_THEME = "everforest_light"
+DEFAULT_THEME = "slate_light"
 
 
 def _hex_to_rgb(hexval: str):
@@ -179,21 +179,6 @@ _SLATE_LIGHT = _load_base("slate", "light") | {
     "accent2": "#b48ead",
 }
 
-# Basic: neutral gray with a blue accent. accent2 is the accent's text
-# shade, so links and secondary highlights stay readable on bg.
-_BASIC_LIGHT = _load_base("basic", "light") | {"accent2": "#1755c4"}
-_BASIC_DARK = _load_base("basic", "dark") | {"accent2": "#8cb6fa"}
-
-# Nord (nordtheme.com): dark is the published Polar Night / Snow Storm /
-# Frost palette. Nord defines no light variant; light maps the Snow
-# Storm tones onto the same roles.
-_NORD_LIGHT = _load_base("nord", "light") | {"accent2": "#b48ead"}
-_NORD_DARK = _load_base("nord", "dark") | {"accent2": "#b48ead"}
-
-# Everforest (github.com/sainnhe/everforest), medium contrast.
-_EVERFOREST_LIGHT = _load_base("everforest", "light") | {"accent2": "#3a94c5"}
-_EVERFOREST_DARK = _load_base("everforest", "dark") | {"accent2": "#7fbbb3"}
-
 # Martin: real Martin Energy Group brand colors, from
 # presentation/meg-theme.css (pulled from martinenergygroup.com's live
 # Elementor global palette) -- not derived from the brand PDF's Pantone
@@ -221,12 +206,6 @@ THEMES = {
     "dark": _with_chrome_cascade(_STANDARD_DARK),
     "slate_light": _with_chrome_cascade(_SLATE_LIGHT),
     "slate_dark": _with_chrome_cascade(_SLATE_DARK),
-    "basic_light": _with_chrome_cascade(_BASIC_LIGHT),
-    "basic_dark": _with_chrome_cascade(_BASIC_DARK),
-    "nord_light": _with_chrome_cascade(_NORD_LIGHT),
-    "nord_dark": _with_chrome_cascade(_NORD_DARK),
-    "everforest_light": _with_chrome_cascade(_EVERFOREST_LIGHT),
-    "everforest_dark": _with_chrome_cascade(_EVERFOREST_DARK),
     "martin_light": _with_chrome_cascade(_MARTIN_LIGHT),
     "martin_dark": _with_chrome_cascade(_MARTIN_DARK),
 }
@@ -236,12 +215,6 @@ THEMES = {
 THEME_LABELS = {
     "Slate Light": "slate_light",
     "Slate Dark": "slate_dark",
-    "Basic Light": "basic_light",
-    "Basic Dark": "basic_dark",
-    "Nord Light": "nord_light",
-    "Nord Dark": "nord_dark",
-    "Everforest Light": "everforest_light",
-    "Everforest Dark": "everforest_dark",
     # Values are Steph Ango's real published Flexoki palette
     # (stephango.com/flexoki); display label matches the palette's own
     # project name.
@@ -270,9 +243,6 @@ def get_palette(name: str) -> dict:
 # splitting the key string.
 _FAMILY_JSON = {
     "slate_light": ("slate", "light"), "slate_dark": ("slate", "dark"),
-    "basic_light": ("basic", "light"), "basic_dark": ("basic", "dark"),
-    "nord_light": ("nord", "light"), "nord_dark": ("nord", "dark"),
-    "everforest_light": ("everforest", "light"), "everforest_dark": ("everforest", "dark"),
     "light": ("flexoki", "light"), "dark": ("flexoki", "dark"),
     "martin_light": ("martin", "light"), "martin_dark": ("martin", "dark"),
 }

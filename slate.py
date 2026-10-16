@@ -402,7 +402,7 @@ class SlateApp:
 
         fixed_theme_name (Theme grid only): each radio there represents
         a SPECIFIC theme, not "whichever theme happens to be active" --
-        "Everforest Dark"'s own swatch must show Everforest's own accent
+        "Martin Dark"'s own swatch must show Martin's own accent
         even while Slate is the live theme, so this pins which palette
         _refresh reads colors from instead of always reading
         self.theme_name.get(). None (every other group) means "whatever

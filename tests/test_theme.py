@@ -10,8 +10,8 @@ def test_get_palette_falls_back_to_default_for_unknown_name():
     assert theme.get_palette("not-a-real-theme") == theme.THEMES[theme.DEFAULT_THEME]
 
 
-def test_default_theme_is_everforest_light():
-    assert theme.DEFAULT_THEME == "everforest_light"
+def test_default_theme_is_slate_light():
+    assert theme.DEFAULT_THEME == "slate_light"
 
 
 def test_all_themes_have_the_same_keys():
@@ -30,7 +30,7 @@ def test_every_theme_label_maps_to_a_real_theme():
         assert name in theme.THEMES, label
 
 
-def test_roster_is_exactly_twelve_themes():
+def test_roster_is_exactly_six_themes():
     """The theme roster has gone through several rounds of consolidation
     and renaming. It started as 5 families (10 variants: Dark/Light,
     Gruvbox, Solarized, Inkbone, Flexoki-as-Standard), was cut down to
@@ -70,10 +70,7 @@ def test_roster_is_exactly_twelve_themes():
     assert set(theme.THEMES.keys()) == {
         "light", "dark",
         "slate_light", "slate_dark",
-        "basic_light", "basic_dark",
-        "nord_light", "nord_dark",
-        "everforest_light", "everforest_dark",
-        "martin_light", "martin_dark",
+                "martin_light", "martin_dark",
     }
     for gone in ("flexoki_dark", "flexoki_light", "gruvbox_dark", "gruvbox_light",
                  "solarized_light", "solarized", "mosscairn3_light", "mosscairn3_dark",
@@ -212,9 +209,6 @@ def test_no_dark_theme_has_brown_tones():
             continue
         for key, hexval in colors.items():
             if key == "is_dark" or not isinstance(hexval, str) or not hexval.startswith("#"):
-                continue
-            # Everforest's published foreground (#d3c6aa) is a warm cream by design.
-            if name == "everforest_dark" and key in ("fg", "menubar_fg", "toolbar_fg", "muted_fg", "faint_fg"):
                 continue
             r, g, b = int(hexval[1:3], 16), int(hexval[3:5], 16), int(hexval[5:7], 16)
             is_brownish = r > g > b and (r - b) > 25
