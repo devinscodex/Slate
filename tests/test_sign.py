@@ -73,3 +73,26 @@ def test_signed_file_is_tamper_evident(tmp_path):
         "expected tampering to break signature integrity -- if this "
         "passed, the signature isn't actually covering real content"
     )
+
+
+def _malformed_xref_pdf(path):
+    """A PDF MuPDF opens but pyHanko's strict parser rejects."""
+    import fitz
+
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "x")
+    doc.save(str(path), garbage=0, deflate=False, no_new_id=True)
+    raw = open(path, "rb").read()
+    open(path, "wb").write(raw.replace(b"0000000000 65535 f", b"0000000000 4294967295 f", 1))
+
+
+def test_is_signed_survives_a_pdf_pyhanko_cannot_parse(tmp_path):
+    bad = tmp_path / "bad.pdf"
+    _malformed_xref_pdf(bad)
+    assert sign.is_signed(str(bad)) is False
+
+
+def test_is_signed_is_false_for_a_non_pdf(tmp_path):
+    junk = tmp_path / "junk.pdf"
+    junk.write_bytes(b"not a pdf")
+    assert sign.is_signed(str(junk)) is False

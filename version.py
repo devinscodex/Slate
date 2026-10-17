@@ -11,7 +11,7 @@ AUTHOR = "devinscodex"
 # (verified via `pip show pymupdf`). See LICENSE for full text.
 LICENSE = "AGPL-3.0-or-later"
 
-VERSION = "1.7.0"
+VERSION = "1.7.1"
 # 1.0.0 -- core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (Flexoki/Bonepaper/Slate, default Slate
@@ -117,6 +117,9 @@ VERSION = "1.7.0"
 #          published palette. Colorized pages get an outline so page edges
 #          stay visible. Windows build: version resource, source-built
 #          bootloader, DLL strip fix, build attestation. CI added.
+# 1.7.1 -- Fixed: a PDF that pyHanko's strict parser rejects (but MuPDF
+#          opens) crashed on open while checking for signatures; the
+#          signed-state check now falls back to MuPDF.
 
 # Mirrors README.md's own prose (minus headers and purely-navigational
 # lines like the Download/DESIGN.md pointers, which don't make sense

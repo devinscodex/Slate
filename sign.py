@@ -7,6 +7,8 @@ external recipients (DESIGN.md).
 """
 import datetime
 
+import fitz
+
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -71,8 +73,18 @@ def sign(input_path: str, output_path: str, signer: signers.SimpleSigner, field_
 
 
 def is_signed(path: str) -> bool:
-    with open(path, "rb") as f:
-        return len(PdfFileReader(f).embedded_signatures) > 0
+    """True if the PDF carries a signature. pyHanko's strict parser rejects
+    some malformed files that MuPDF still opens; those fall back to MuPDF's
+    signature flags, and an unreadable file counts as unsigned."""
+    try:
+        with open(path, "rb") as f:
+            return len(PdfFileReader(f).embedded_signatures) > 0
+    except Exception:
+        try:
+            with fitz.open(path) as doc:
+                return doc.is_pdf and doc.get_sigflags() > 0
+        except Exception:
+            return False
 
 
 def validate(path: str):
