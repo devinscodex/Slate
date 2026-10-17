@@ -11,7 +11,7 @@ AUTHOR = "devinscodex"
 # (verified via `pip show pymupdf`). See LICENSE for full text.
 LICENSE = "AGPL-3.0-or-later"
 
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 # 1.0.0 -- core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (Flexoki/Bonepaper/Slate, default Slate
@@ -110,6 +110,13 @@ VERSION = "1.6.0"
 #          to the front, now has an editable count field. About dialog:
 #          single accent-color bar, content mirrors README, author name
 #          is a real hyperlink to the GitHub profile.
+# 1.7.0 -- OCR for image-only pages (Convert > Recognize text), using the
+#          Tesseract engine built into PyMuPDF with bundled English data.
+#          Page operations (rotate, delete, move, insert) in merge_split.
+#          Read Aloud removed. Themes: Bonepaper removed, Flexoki on the
+#          published palette. Colorized pages get an outline so page edges
+#          stay visible. Windows build: version resource, source-built
+#          bootloader, DLL strip fix, build attestation. CI added.
 
 # Mirrors README.md's own prose (minus headers and purely-navigational
 # lines like the Download/DESIGN.md pointers, which don't make sense
