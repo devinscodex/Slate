@@ -35,6 +35,8 @@ jobs:
           Pop-Location
           pip install .\pyi-src
           python -c "import PyInstaller, hashlib, pathlib; p = pathlib.Path(PyInstaller.__file__).parent / 'bootloader' / 'Windows-64bit-intel' / 'runw.exe'; print('runw.exe', hashlib.sha256(p.read_bytes()).hexdigest())"
+      - name: Tests that need no display
+        run: python -m pytest tests/test_io_pdf.py tests/test_merge_split.py tests/test_sign.py -q
       - name: Freeze
         run: python -m PyInstaller Slate.spec --noconfirm
       - name: Check version resource

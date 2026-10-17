@@ -60,7 +60,7 @@ def replace_file(doc: fitz.Document, path: str) -> fitz.Document:
     tmp = path + ".slate-tmp"
     try:
         safe_save(doc, tmp)
-        with open(tmp, "rb") as f:
+        with open(tmp, "r+b") as f:  # Windows fsync needs a writable handle
             data = f.read()
             os.fsync(f.fileno())
     except BaseException:
