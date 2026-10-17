@@ -3925,7 +3925,7 @@ class SlateApp:
         needs no change for this: it already means "does content
         overflow the viewport," not "does the page," so a short
         document that fits on screen still no-ops for free."""
-        if self._typing_in_entry() or self.viewer is None:
+        if self.viewer is None:
             return
         if self.continuous_scroll:
             if not self._wheel_fits_viewport():
@@ -3949,7 +3949,7 @@ class SlateApp:
 
     def _wheel_down(self, event=None):
         """Rubber-band wheel, downward -- see _wheel_up's docstring."""
-        if self._typing_in_entry() or self.viewer is None:
+        if self.viewer is None:
             return
         if self.continuous_scroll:
             if not self._wheel_fits_viewport():
@@ -3987,17 +3987,17 @@ class SlateApp:
         """Shift+scroll = horizontal scroll. Windows/Mac deliver a signed
         event.delta same as plain wheel; X11 has no
         <Shift-MouseWheel>, bound separately via Shift-Button-4/5 below."""
-        if self._typing_in_entry() or self.viewer is None:
+        if self.viewer is None:
             return
         self.canvas.xview_scroll(-1 if event.delta > 0 else 1, "units")
 
     def _shift_wheel_left(self, event=None):
-        if self._typing_in_entry() or self.viewer is None:
+        if self.viewer is None:
             return
         self.canvas.xview_scroll(-1, "units")
 
     def _shift_wheel_right(self, event=None):
-        if self._typing_in_entry() or self.viewer is None:
+        if self.viewer is None:
             return
         self.canvas.xview_scroll(1, "units")
 

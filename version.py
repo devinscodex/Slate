@@ -11,7 +11,7 @@ AUTHOR = "devinscodex"
 # (verified via `pip show pymupdf`). See LICENSE for full text.
 LICENSE = "AGPL-3.0-or-later"
 
-VERSION = "1.7.2"
+VERSION = "1.7.3"
 # 1.0.0 -- core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (Flexoki/Bonepaper/Slate, default Slate
@@ -125,6 +125,9 @@ VERSION = "1.7.2"
 #          temp file, flushes it, swaps it in atomically and reopens; a
 #          failed swap keeps the edits in memory. Save As onto the open
 #          file takes the same path.
+# 1.7.3 -- Fixed: the mouse wheel did nothing while the Find box (or any
+#          other entry) had keyboard focus. The typing guard now covers
+#          only letter shortcuts, not wheel scrolling.
 
 # Mirrors README.md's own prose (minus headers and purely-navigational
 # lines like the Download/DESIGN.md pointers, which don't make sense

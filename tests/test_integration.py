@@ -4261,3 +4261,28 @@ def test_save_as_onto_the_open_file_goes_through_the_atomic_save(tmp_path, monke
     finally:
         app.doc.close()
         root.destroy()
+
+
+def test_mouse_wheel_scrolls_while_the_find_box_has_focus(tmp_path):
+    root, app = _make_app(tmp_path)
+    try:
+        app.zoom_in()
+        app.zoom_in()
+        app.zoom_in()
+        root.update()
+        app._show_find_bar()
+        root.update()
+        assert isinstance(root.focus_get(), tk.Entry)
+        before = app.canvas.yview()[0]
+        for _ in range(5):
+            app._wheel_down()
+        root.update()
+        assert app.canvas.yview()[0] > before
+        mid = app.canvas.yview()[0]
+        for _ in range(5):
+            app._wheel_up()
+        root.update()
+        assert app.canvas.yview()[0] < mid
+    finally:
+        app.doc.close()
+        root.destroy()
