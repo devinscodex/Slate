@@ -4385,14 +4385,43 @@ class SlateApp:
             self.save_as()
             return
         io_pdf.backup_before_write(self.path)
-        io_pdf.safe_save(self.doc, self.path)
+        try:
+            new_doc = io_pdf.replace_file(self.doc, self.path)
+        except OSError as err:
+            live = getattr(err, "live_doc", None)
+            if live is not None:
+                self._replace_doc(live)
+            messagebox.showerror("Save failed", f"Could not replace {self.path}: {err}")
+            return
+        self._replace_doc(new_doc)
         messagebox.showinfo("Saved", f"Saved to {self.path}")
+
+    def _replace_doc(self, new_doc, keep_pending=True):
+        """Swap the active tab's document for new_doc and rebind every
+        holder of the old one. pending redactions are page-number keyed, so
+        callers pass keep_pending=False whenever the page structure may
+        have changed."""
+        tab = self._active_tab
+        tab.doc = self.doc = new_doc
+        tab.viewer.doc = new_doc
+        page_num = min(tab.viewer.page_num, new_doc.page_count - 1)
+        tab.viewer.page_num = page_num
+        self.page = tab.page = new_doc[page_num]
+        if not keep_pending:
+            self._pending_redactions = tab.pending_redactions = []
+        self._page_cache.invalidate_all()
+        self._layout = None
+        self._layout_doc = None
+        self.render()
 
     def save_as(self):
         if not self._require_doc():
             return
         out = filedialog.asksaveasfilename(defaultextension=".pdf")
         if not out:
+            return
+        if os.path.abspath(out) == os.path.abspath(self.path):
+            self.save()
             return
         io_pdf.safe_save(self.doc, out)
         messagebox.showinfo("Saved", f"Saved to {out}")

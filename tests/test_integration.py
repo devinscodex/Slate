@@ -4178,3 +4178,86 @@ def test_colorized_pages_get_an_outline_so_page_edges_stay_visible(tmp_path):
     finally:
         app.doc.close()
         root.destroy()
+
+
+def _save_probe(tmp_path, monkeypatch):
+    shown = []
+    monkeypatch.setattr(slate.messagebox, "showinfo", lambda title, msg: shown.append(("info", title)))
+    monkeypatch.setattr(slate.messagebox, "showerror", lambda title, msg: shown.append(("error", title)))
+    root, app = _make_app(tmp_path)
+    return root, app, shown
+
+
+def test_save_writes_edits_back_to_the_opened_file_and_rebinds_the_document(tmp_path, monkeypatch):
+    root, app, shown = _save_probe(tmp_path, monkeypatch)
+    try:
+        path = app.path
+        old_doc = app.doc
+        app.doc[0].insert_text((72, 700), "SAVED-IN-PLACE", fontsize=12)
+        app.save()
+        assert shown == [("info", "Saved")]
+        with fitz.open(path) as reread:
+            assert "SAVED-IN-PLACE" in reread[0].get_text()
+        assert app.doc is not old_doc
+        assert app._active_tab.doc is app.doc is app.viewer.doc
+        assert app.page.parent is app.doc
+        assert os.path.exists(path + ".bak")
+        assert not os.path.exists(path + ".slate-tmp")
+        app.render()
+        app.doc[0].insert_text((72, 680), "SECOND-SAVE", fontsize=12)
+        app.save()
+        with fitz.open(path) as reread:
+            assert "SECOND-SAVE" in reread[0].get_text()
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_failed_swap_keeps_the_edits_in_memory_and_the_original_file(tmp_path, monkeypatch):
+    root, app, shown = _save_probe(tmp_path, monkeypatch)
+    try:
+        path = app.path
+        before = open(path, "rb").read()
+        app.doc[0].insert_text((72, 700), "UNSAVED-EDIT", fontsize=12)
+
+        def refuse(src, dst):
+            raise PermissionError("locked")
+
+        monkeypatch.setattr(slate.io_pdf.os, "replace", refuse)
+        app.save()
+        assert shown == [("error", "Save failed")]
+        assert open(path, "rb").read() == before
+        assert not os.path.exists(path + ".slate-tmp")
+        assert "UNSAVED-EDIT" in app.doc[0].get_text()
+        assert app._active_tab.doc is app.doc
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_save_keeps_pending_redactions_and_hardened_output(tmp_path, monkeypatch):
+    root, app, shown = _save_probe(tmp_path, monkeypatch)
+    try:
+        app._pending_redactions.append((0, fitz.Rect(10, 10, 50, 50)))
+        app._active_tab.pending_redactions = app._pending_redactions
+        app.save()
+        assert app._pending_redactions == [(0, fitz.Rect(10, 10, 50, 50))]
+        assert app._active_tab.pending_redactions is app._pending_redactions
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_save_as_onto_the_open_file_goes_through_the_atomic_save(tmp_path, monkeypatch):
+    root, app, shown = _save_probe(tmp_path, monkeypatch)
+    try:
+        path = app.path
+        app.doc[0].insert_text((72, 700), "SAVE-AS-SAME", fontsize=12)
+        monkeypatch.setattr(slate.filedialog, "asksaveasfilename", lambda **k: path)
+        app.save_as()
+        assert shown == [("info", "Saved")]
+        with fitz.open(path) as reread:
+            assert "SAVE-AS-SAME" in reread[0].get_text()
+    finally:
+        app.doc.close()
+        root.destroy()
