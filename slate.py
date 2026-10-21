@@ -35,6 +35,7 @@ import redact
 import scan
 import search
 import security
+import selfupdate
 import settings
 import sign
 import singleinstance
@@ -967,17 +968,88 @@ class SlateApp:
                 return
             data = result["data"]
             if data["update_available"]:
-                if messagebox.askyesno(
-                    "Update available",
-                    f"Slate {data['latest_version']} is available (you have {version.VERSION}).\n\n"
-                    f"Open the release page?",
-                ):
-                    webbrowser.open(data["url"])
+                self._offer_update(data)
             elif not silent_if_current:
                 if data["checked"]:
                     messagebox.showinfo("Up to date", f"Slate {version.VERSION} is the latest version.")
                 else:
                     messagebox.showinfo("Update check failed", data["error"])
+
+        threading.Thread(target=worker, daemon=True).start()
+        poll()
+
+    def _offer_update(self, data):
+        """A release with both an installer and a checksum manifest,
+        on a frozen Windows build, can self-update: download, verify,
+        then hand off to the installer. Anything else (dev run off
+        source, non-Windows, or a release published without both
+        assets) falls back to the old behavior -- open the release
+        page, never guess what to run."""
+        installer_asset = sums_asset = None
+        if sys.platform == "win32" and getattr(sys, "frozen", False):
+            installer_asset, sums_asset = selfupdate.find_installer_asset(data["assets"])
+
+        if installer_asset and sums_asset:
+            if messagebox.askyesno(
+                "Update available",
+                f"Slate {data['latest_version']} is available (you have {version.VERSION}).\n\n"
+                f"Download and install it now? Slate will close and reopen.",
+            ):
+                self._run_self_update(installer_asset, sums_asset)
+        elif messagebox.askyesno(
+            "Update available",
+            f"Slate {data['latest_version']} is available (you have {version.VERSION}).\n\n"
+            f"Open the release page?",
+        ):
+            webbrowser.open(data["url"])
+
+    def _run_self_update(self, installer_asset, sums_asset):
+        """Downloads+verifies on a background thread (real network I/O,
+        never block the UI thread), shows live percent progress, then
+        on success saves state the same way a normal window close does
+        and hands off to the installer -- this IS a close, just one
+        that exits into an installer instead of just stopping."""
+        progress = tk.Toplevel(self.root)
+        progress.title("Updating Slate")
+        progress.resizable(False, False)
+        progress.transient(self.root)
+        progress.protocol("WM_DELETE_WINDOW", lambda: None)  # not closable mid-download
+        label = tk.Label(progress, text="Downloading update...", padx=24, pady=24)
+        label.pack()
+        progress.update_idletasks()
+        x = self.root.winfo_rootx() + (self.root.winfo_width() - progress.winfo_width()) // 2
+        y = self.root.winfo_rooty() + (self.root.winfo_height() - progress.winfo_height()) // 2
+        progress.geometry(f"+{x}+{y}")
+
+        state = {"done": False, "installer_path": None, "error": None, "pct": 0}
+
+        def on_progress(done, total):
+            state["pct"] = int(done * 100 / total) if total else 0
+
+        def worker():
+            state["installer_path"], state["error"] = selfupdate.download_and_verify(
+                installer_asset, sums_asset, on_progress=on_progress,
+            )
+            state["done"] = True
+
+        def poll():
+            if not state["done"]:
+                label.config(text=f"Downloading update... {state['pct']}%")
+                progress.after(200, poll)
+                return
+            progress.destroy()
+            if state["error"]:
+                messagebox.showerror("Update failed", state["error"])
+                return
+            settings.save({"window_geometry": self.root.winfo_geometry()})
+            self._save_open_tabs()
+            if selfupdate.launch_installer_and_restart(state["installer_path"], sys.executable):
+                self.root.destroy()
+                sys.exit(0)
+            else:
+                messagebox.showerror(
+                    "Update failed", "Could not launch the installer. Your current install is untouched.",
+                )
 
         threading.Thread(target=worker, daemon=True).start()
         poll()

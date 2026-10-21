@@ -11,7 +11,7 @@ AUTHOR = "devinscodex"
 # (verified via `pip show pymupdf`). See LICENSE for full text.
 LICENSE = "AGPL-3.0-or-later"
 
-VERSION = "1.7.6"
+VERSION = "1.8.0"
 # 1.0.0 -- core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (Flexoki/Bonepaper/Slate, default Slate
@@ -155,6 +155,24 @@ VERSION = "1.7.6"
 #          'pymupdf'. Reproduced with a minimal frozen build (confirmed
 #          the exact crash), fixed, then confirmed the real Slate.spec
 #          freeze launches clean on a virtual display.
+# 1.8.0 -- Self-update: Check for Updates (or the silent startup check)
+#          now offers to download, verify and install a new release
+#          directly, instead of only opening the GitHub release page.
+#          New selfupdate.py: downloads the release's installer +
+#          SHA256SUMS.txt, verifies the installer's real hash against
+#          the manifest before trusting it, then hands off to the
+#          installer (silent, no UI) and relaunches once it finishes.
+#          Windows-only, and only when the frozen build's release has
+#          both assets published -- a dev run, a non-Windows platform,
+#          or a release missing either asset falls back to the old
+#          "open the release page" behavior unchanged, never guesses
+#          what to run. updatecheck.py now also parses the release's
+#          asset list (name/download_url/size). No admin elevation
+#          needed (installer/slate.iss is a per-user install already).
+#          Logic fully unit-tested (checksum match/mismatch/missing,
+#          network failure, non-Windows no-op); the UI flow itself
+#          needs a real Windows pass before shipping, same as any other
+#          live-UI change.
 
 # Mirrors README.md's own prose (minus headers and purely-navigational
 # lines like the Download/DESIGN.md pointers, which don't make sense

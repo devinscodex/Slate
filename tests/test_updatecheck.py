@@ -31,8 +31,8 @@ class _FakeResp:
         return self._text.encode("utf-8")
 
 
-def _fake_github_release(tag: str, html_url: str = "https://github.com/devinscodex/slate/releases/tag/x"):
-    return _FakeResp(json.dumps({"tag_name": tag, "html_url": html_url}))
+def _fake_github_release(tag: str, html_url: str = "https://github.com/devinscodex/slate/releases/tag/x", assets=None):
+    return _FakeResp(json.dumps({"tag_name": tag, "html_url": html_url, "assets": assets or []}))
 
 
 def test_github_newer_release_reports_update_available(monkeypatch):
@@ -46,6 +46,25 @@ def test_github_newer_release_reports_update_available(monkeypatch):
     assert result["update_available"] is True
     assert result["latest_version"] == "v1.2.0"
     assert result["url"] == "https://github.com/devinscodex/slate/releases/tag/x"
+    assert result["assets"] == []
+
+
+def test_release_assets_are_parsed_with_download_urls(monkeypatch):
+    raw_assets = [
+        {"name": "Slate-Setup-1.2.0.exe", "browser_download_url": "https://example.com/Slate-Setup-1.2.0.exe", "size": 123},
+        {"name": "SHA256SUMS.txt", "browser_download_url": "https://example.com/SHA256SUMS.txt", "size": 4},
+        {"name": "incomplete-asset"},  # no browser_download_url -- real malformed-entry case, must be skipped not crash
+    ]
+    monkeypatch.setattr(
+        updatecheck.urllib.request, "urlopen",
+        lambda *a, **k: _fake_github_release("v1.2.0", assets=raw_assets),
+    )
+
+    result = updatecheck.check_for_update("1.1.0")
+    assert result["assets"] == [
+        {"name": "Slate-Setup-1.2.0.exe", "download_url": "https://example.com/Slate-Setup-1.2.0.exe", "size": 123},
+        {"name": "SHA256SUMS.txt", "download_url": "https://example.com/SHA256SUMS.txt", "size": 4},
+    ]
 
 
 def test_github_same_version_reports_no_update(monkeypatch):

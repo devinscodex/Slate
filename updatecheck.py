@@ -40,10 +40,11 @@ def _parse_version(v: str):
     return tuple(parts[:3])
 
 
-def _result(checked, update_available=False, latest_version=None, url=None, error=None):
+def _result(checked, update_available=False, latest_version=None, url=None, error=None, assets=None):
     return {
         "checked": checked, "update_available": update_available,
         "latest_version": latest_version, "url": url, "error": error,
+        "assets": assets or [],
     }
 
 
@@ -58,9 +59,19 @@ def _check_github_release(current_version: str, timeout: float) -> dict:
     if not tag:
         return _result(False, error="GitHub API reached but the release has no tag_name -- unexpected format.")
     is_newer = _parse_version(tag) > _parse_version(current_version)
+    # Asset list (installer .exe, SHA256SUMS.txt) -- selfupdate.py picks
+    # the ones it needs by name out of this; absent/empty for a release
+    # published without them (older tags, or a non-Windows checkout),
+    # which selfupdate.py treats as "self-update unavailable, fall back
+    # to the release page" rather than guessing a URL.
+    assets = [
+        {"name": a.get("name"), "download_url": a.get("browser_download_url"), "size": a.get("size")}
+        for a in data.get("assets", []) if a.get("name") and a.get("browser_download_url")
+    ]
     return _result(
         True, update_available=is_newer, latest_version=tag,
         url=data.get("html_url", f"https://github.com/{GITHUB_REPO}/releases/latest"),
+        assets=assets,
     )
 
 
