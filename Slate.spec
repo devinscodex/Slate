@@ -47,6 +47,16 @@ binaries = []
 hiddenimports = []
 tmp_ret = collect_all('fitz')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+# PyMuPDF split its real package out from the 'fitz' compat shim --
+# 'fitz' is now 3 pure-Python files re-exporting 'from pymupdf import *';
+# every compiled extension and data resource (including the layout-
+# analysis ONNX model config fitz/pymupdf's own import chain pulls in
+# at startup) lives under the separate top-level 'pymupdf' package.
+# collect_all('fitz') alone misses all of it -- real frozen-exe crash,
+# FileNotFoundError on a missing .../pymupdf/layout/resources/onnx/*.yaml,
+# reproduced locally and confirmed fixed by also collecting 'pymupdf'.
+tmp_ret = collect_all('pymupdf')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('pikepdf')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('pyhanko')

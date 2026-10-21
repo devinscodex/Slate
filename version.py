@@ -11,7 +11,7 @@ AUTHOR = "devinscodex"
 # (verified via `pip show pymupdf`). See LICENSE for full text.
 LICENSE = "AGPL-3.0-or-later"
 
-VERSION = "1.7.5"
+VERSION = "1.7.6"
 # 1.0.0 -- core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (Flexoki/Bonepaper/Slate, default Slate
@@ -144,6 +144,17 @@ VERSION = "1.7.5"
 #          detects the bind loss and hands its path to the winner
 #          instead of opening its own window. Live-verified: 5
 #          simultaneous launches collapsed to 1 window, 0 errors.
+# 1.7.6 -- Fixed: v1.7.5's Windows build crashed on launch, "Failed to
+#          execute script 'slate'", FileNotFoundError on a missing
+#          pymupdf/layout/resources/onnx/*.yaml. PyMuPDF split its real
+#          package from the 'fitz' compat shim -- 'fitz' is now 3 pure-
+#          Python files re-exporting from 'pymupdf'; every compiled
+#          extension and data resource lives under the separate
+#          top-level 'pymupdf' package. Slate.spec only ever collected
+#          'fitz', so none of that shipped. Now also collects
+#          'pymupdf'. Reproduced with a minimal frozen build (confirmed
+#          the exact crash), fixed, then confirmed the real Slate.spec
+#          freeze launches clean on a virtual display.
 
 # Mirrors README.md's own prose (minus headers and purely-navigational
 # lines like the Download/DESIGN.md pointers, which don't make sense
