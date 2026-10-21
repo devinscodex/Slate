@@ -1,4 +1,7 @@
+import socket
 import time
+
+import pytest
 
 import singleinstance
 
@@ -6,7 +9,6 @@ import singleinstance
 def _free_port():
     """A distinct port per test run so parallel/rapid test runs never
     collide on a still-closing socket from a prior test."""
-    import socket
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
@@ -45,11 +47,32 @@ def test_server_receives_multiple_paths_in_order():
         server.close()
 
 
+def test_losing_the_bind_is_a_reliable_signal_a_server_exists():
+    """Regression for the real Explorer multi-select race: launching
+    several processes near-simultaneously means each one's probe can
+    see 'nobody's listening yet' before ANY of them has started
+    serving. The fix binds first -- this proves the bind loss itself
+    (not a separate probe) is what a second process must react to."""
+    port = _free_port()
+    q, on_path = singleinstance.make_ipc_queue()
+    server = singleinstance.start_server(on_path, port=port)
+    try:
+        second = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        with pytest.raises(OSError):
+            second.bind(("127.0.0.1", port))
+        second.close()
+        # The process that lost the bind retries the handoff against
+        # the winner -- same path a real second main() takes.
+        assert singleinstance.try_send_to_running_instance("/handed/off.pdf", port=port) is True
+        assert q.get(timeout=2) == "/handed/off.pdf"
+    finally:
+        server.close()
+
+
 def test_path_with_no_trailing_newline_from_client_still_delivered_on_disconnect():
     """The server reads until a newline OR the connection closes --
     try_send_to_running_instance always sends one, but this guards the
     protocol itself against a future caller that doesn't."""
-    import socket
     port = _free_port()
     q, on_path = singleinstance.make_ipc_queue()
     server = singleinstance.start_server(on_path, port=port)

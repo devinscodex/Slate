@@ -4706,12 +4706,27 @@ def main():
     _set_windows_app_user_model_id()
     path = sys.argv[1] if len(sys.argv) > 1 else None
 
-    # Single-instance: if a Slate window is already
-    # running, hand this path to it as a new tab instead of opening a
-    # second window. Only meaningful when a path was actually given --
-    # a bare `slate.py` with nothing to open has nothing to hand off.
-    if path and singleinstance.try_send_to_running_instance(path):
-        return
+    # Single-instance: try to BECOME the server first (one atomic OS
+    # bind) rather than probe-then-bind as two separate steps. Probing
+    # before binding is a real race when several launches happen near-
+    # simultaneously (e.g. selecting a handful of PDFs in Explorer and
+    # pressing Enter all at once): every process's probe would see
+    # "nobody's listening yet" before ANY of them has started serving,
+    # so each opens its own standalone window instead of exactly one
+    # winning. The bind itself is atomic -- exactly one process gets
+    # the port, so losing the bind is a reliable signal a server
+    # already exists, worth retrying the handoff against.
+    ipc_queue, on_path = singleinstance.make_ipc_queue()
+    try:
+        ipc_server = singleinstance.start_server(on_path)
+    except OSError:
+        ipc_server = None
+        if path and singleinstance.try_send_to_running_instance(path):
+            return
+        # Handoff also failed (rare -- e.g. the winning process is
+        # still mid-startup, not yet accepting connections within the
+        # retry window). Fail soft: open standalone rather than drop
+        # the file the user asked to open.
 
     root = tk.Tk()
     app = SlateApp(root, path)
@@ -4792,21 +4807,12 @@ def main():
     root.bind("<Unmap>", _sync_children_to_root_state)
     root.bind("<Map>", _sync_children_to_root_state)
 
-    # Become the server for any LATER invocation. Real thread-safety
-    # note: the socket-listener thread must
-    # never touch Tk widgets directly -- it only ever puts a path on a
-    # plain queue.Queue; _poll_ipc (scheduled via root.after(), so it
-    # always runs on the main thread) is the only thing that calls
-    # _open_document.
-    ipc_queue, on_path = singleinstance.make_ipc_queue()
-    try:
-        ipc_server = singleinstance.start_server(on_path)
-    except OSError:
-        # Real, rare race: another invocation won the bind between our
-        # own failed try_send above and this bind call. Fail soft --
-        # this instance just won't accept later hand-offs; it still
-        # opens fine standalone.
-        ipc_server = None
+    # ipc_server/ipc_queue were already set up above (bind-first, see
+    # the comment at the top of main()). Thread-safety note: the
+    # socket-listener thread must never touch Tk widgets directly, it
+    # only ever puts a path on a plain queue.Queue; _poll_ipc
+    # (scheduled via root.after(), so it always runs on the main
+    # thread) is the only thing that calls _open_document.
 
     def _poll_ipc():
         try:

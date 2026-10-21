@@ -11,7 +11,7 @@ AUTHOR = "devinscodex"
 # (verified via `pip show pymupdf`). See LICENSE for full text.
 LICENSE = "AGPL-3.0-or-later"
 
-VERSION = "1.7.4"
+VERSION = "1.7.5"
 # 1.0.0 -- core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (Flexoki/Bonepaper/Slate, default Slate
@@ -132,6 +132,18 @@ VERSION = "1.7.4"
 #          The temp file is now synced through a writable handle. The
 #          Windows build runs the display-free tests, including the
 #          save swap, before freezing.
+# 1.7.5 -- Fixed: opening several PDFs at once (e.g. selecting multiple
+#          files in Explorer and pressing Enter) opened one window per
+#          file instead of one window with multiple tabs. The old
+#          single-instance check probed for a running instance BEFORE
+#          trying to bind the handoff port -- a real race when launches
+#          happen near-simultaneously, since every process's probe can
+#          see "nobody's listening yet" before any of them has actually
+#          started listening. Now binds first (atomic at the OS level,
+#          so exactly one process wins); every other process reliably
+#          detects the bind loss and hands its path to the winner
+#          instead of opening its own window. Live-verified: 5
+#          simultaneous launches collapsed to 1 window, 0 errors.
 
 # Mirrors README.md's own prose (minus headers and purely-navigational
 # lines like the Download/DESIGN.md pointers, which don't make sense
