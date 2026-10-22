@@ -32,6 +32,12 @@ _BROWSER_CANDIDATES = [
     r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    # Edge: Chromium-based since 2020, ships by default on every stock
+    # Windows image -- the real fallback for a machine with no Chrome/
+    # Brave installed (MEG's standard desktop image is exactly this
+    # case: Edge only, nothing else Chromium-family).
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
 ]
 
 
@@ -58,13 +64,13 @@ def _find_browser() -> str:
         wsl_path = _wsl_mount_variant(path)
         if wsl_path and os.path.exists(wsl_path):
             return wsl_path
-    found = shutil.which("brave.exe") or shutil.which("chrome.exe")
+    found = shutil.which("brave.exe") or shutil.which("chrome.exe") or shutil.which("msedge.exe")
     if found:
         return found
     raise FileNotFoundError(
-        "No Chromium-family browser found (checked Brave/Chrome standard "
-        "install paths -- both native and WSL-mounted forms -- and PATH) "
-        "-- html_to_pdf needs one for real HTML+CSS+JS rendering."
+        "No Chromium-family browser found (checked Brave/Chrome/Edge "
+        "standard install paths -- both native and WSL-mounted forms -- "
+        "and PATH) -- html_to_pdf needs one for real HTML+CSS+JS rendering."
     )
 
 

@@ -4776,7 +4776,7 @@ def _set_windows_app_user_model_id():
 
 def main():
     _set_windows_app_user_model_id()
-    path = sys.argv[1] if len(sys.argv) > 1 else None
+    paths = sys.argv[1:]
 
     # Single-instance: try to BECOME the server first (one atomic OS
     # bind) rather than probe-then-bind as two separate steps. Probing
@@ -4793,15 +4793,25 @@ def main():
         ipc_server = singleinstance.start_server(on_path)
     except OSError:
         ipc_server = None
-        if path and singleinstance.try_send_to_running_instance(path):
+        # Hand off EVERY path, not just the first -- covers both
+        # Explorer's one-process-per-file launch (paths has a single
+        # entry here, the common case) and a single process started
+        # with several argv paths at once (e.g. dragging multiple
+        # files onto the Slate icon/shortcut, which Windows delivers
+        # as multiple arguments to one launch). A path that fails to
+        # hand off (rare -- e.g. the winning process is still mid-
+        # startup, not yet accepting connections within the retry
+        # window) falls through to the standalone window below instead
+        # of being silently dropped.
+        paths = [p for p in paths if not singleinstance.try_send_to_running_instance(p)]
+        if not paths:
             return
-        # Handoff also failed (rare -- e.g. the winning process is
-        # still mid-startup, not yet accepting connections within the
-        # retry window). Fail soft: open standalone rather than drop
-        # the file the user asked to open.
 
+    path = paths[0] if paths else None
     root = tk.Tk()
     app = SlateApp(root, path)
+    for extra_path in paths[1:]:
+        app._open_document(extra_path)
 
     # Restore window size+position. A saved geometry wins outright -- it
     # already encodes both size and position together, nothing left for
