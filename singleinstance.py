@@ -9,6 +9,7 @@ never reachable off-machine.
 """
 import queue
 import socket
+import sys
 import threading
 
 PORT = 51234  # arbitrary, fixed -- client-probe and server must agree.
@@ -37,7 +38,20 @@ def start_server(on_path, port: int = PORT):
     caller that wants on_path to be a plain queue.put can just pass
     that in directly instead of writing a wrapper."""
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    if sys.platform != "win32":
+        # Real incident: this option means something different (and
+        # dangerous) on Windows than on POSIX. POSIX SO_REUSEADDR just
+        # lets a socket rebind quickly through a closed peer's TIME_WAIT.
+        # Windows SO_REUSEADDR instead lets an UNRELATED process bind the
+        # exact same (address, port) a socket is already actively
+        # listening on, with no error -- silently defeating this whole
+        # module's "exactly one process wins the bind" assumption.
+        # Slate 1.7.6 opened 3 separate windows for 3 near-simultaneous
+        # real-Windows launches because every one of them succeeded at
+        # bind(). Windows' own default (no REUSEADDR) already rejects a
+        # second bind on an actively-listening port -- the option must
+        # stay off there, not just unnecessary.
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(("127.0.0.1", port))
     server.listen(5)
 

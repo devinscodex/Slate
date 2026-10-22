@@ -1,4 +1,5 @@
 import socket
+import sys
 import time
 
 import pytest
@@ -65,6 +66,32 @@ def test_losing_the_bind_is_a_reliable_signal_a_server_exists():
         # the winner -- same path a real second main() takes.
         assert singleinstance.try_send_to_running_instance("/handed/off.pdf", port=port) is True
         assert q.get(timeout=2) == "/handed/off.pdf"
+    finally:
+        server.close()
+
+
+def test_reuseaddr_not_set_on_windows(monkeypatch):
+    """Real incident: Windows' SO_REUSEADDR lets an unrelated process
+    bind the exact same (address, port) a socket is already actively
+    listening on, no error raised -- the opposite of POSIX's narrower
+    TIME_WAIT-rebind semantics. Slate 1.7.6 opened 3 separate windows
+    for 3 near-simultaneous real-Windows launches because every one of
+    them succeeded at bind(). Must stay off on win32."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    port = _free_port()
+    server = singleinstance.start_server(lambda p: None, port=port)
+    try:
+        assert server.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR) == 0
+    finally:
+        server.close()
+
+
+def test_reuseaddr_set_on_posix(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    port = _free_port()
+    server = singleinstance.start_server(lambda p: None, port=port)
+    try:
+        assert server.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR) != 0
     finally:
         server.close()
 
