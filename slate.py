@@ -258,6 +258,10 @@ class SlateApp:
         self.home_frame = None
         self.toc_visible = tk.BooleanVar(value=_saved["toc_visible"])
         self.check_updates_on_start_var = tk.BooleanVar(value=self.check_updates_on_start)
+        # Display-only -- main() already decided bind-or-handoff for
+        # THIS process before this object even exists; toggling here
+        # only changes what the NEXT launch does.
+        self.single_instance_var = tk.BooleanVar(value=_saved.get("single_instance", True))
         self.theme_name = tk.StringVar(value=theme.load_preference())
         # Gated feature (DESIGN.md's "Text editing"): a local UX gate,
         # not real access control -- re-locks every restart on purpose.
@@ -497,6 +501,12 @@ class SlateApp:
     def _on_check_updates_toggle(self):
         self.check_updates_on_start = self.check_updates_on_start_var.get()
         settings.save({"check_updates_on_start": self.check_updates_on_start})
+
+    def _on_single_instance_toggle(self):
+        # Nothing to apply live -- main()'s bind/handoff choice for this
+        # already-running process is locked in. Persist only; takes
+        # effect on the next launch.
+        settings.save({"single_instance": self.single_instance_var.get()})
 
     def _apply_native_titlebar_theme(self, window=None):
         """The window title bar itself is drawn by the OS, not Tk --
@@ -1443,7 +1453,8 @@ class SlateApp:
             ("Colorize pages to theme (F4)", self.colorize_pages_var, self._on_colorize_toggle, (6, 2)),
             ("Crop to Content", self.crop_to_content_var, self._on_crop_toggle, (2, 2)),
             ("Show Table of Contents", self.toc_visible, self._toggle_toc_panel, (2, 2)),
-            ("Check for updates on start", self.check_updates_on_start_var, self._on_check_updates_toggle, (2, 6)),
+            ("Check for updates on start", self.check_updates_on_start_var, self._on_check_updates_toggle, (2, 2)),
+            ("Single instance (opened files share one window, applies next launch)", self.single_instance_var, self._on_single_instance_toggle, (2, 6)),
         ):
             btn = tk.Checkbutton(
                 display_frame, text=text, variable=variable,
@@ -4788,24 +4799,31 @@ def main():
     # winning. The bind itself is atomic -- exactly one process gets
     # the port, so losing the bind is a reliable signal a server
     # already exists, worth retrying the handoff against.
-    ipc_queue, on_path = singleinstance.make_ipc_queue()
-    try:
-        ipc_server = singleinstance.start_server(on_path)
-    except OSError:
-        ipc_server = None
-        # Hand off EVERY path, not just the first -- covers both
-        # Explorer's one-process-per-file launch (paths has a single
-        # entry here, the common case) and a single process started
-        # with several argv paths at once (e.g. dragging multiple
-        # files onto the Slate icon/shortcut, which Windows delivers
-        # as multiple arguments to one launch). A path that fails to
-        # hand off (rare -- e.g. the winning process is still mid-
-        # startup, not yet accepting connections within the retry
-        # window) falls through to the standalone window below instead
-        # of being silently dropped.
-        paths = [p for p in paths if not singleinstance.try_send_to_running_instance(p)]
-        if not paths:
-            return
+    #
+    # Settings > "Single instance" (settings.py's single_instance,
+    # default True) can turn this whole mechanism off -- read directly
+    # here since no SlateApp/Tk root exists yet to ask. Off means every
+    # launch just opens its own standalone window, no socket at all;
+    # existing/legacy behavior for anyone who wants it.
+    ipc_queue, ipc_server = None, None
+    if settings.load().get("single_instance", True):
+        ipc_queue, on_path = singleinstance.make_ipc_queue()
+        try:
+            ipc_server = singleinstance.start_server(on_path)
+        except OSError:
+            # Hand off EVERY path, not just the first -- covers both
+            # Explorer's one-process-per-file launch (paths has a single
+            # entry here, the common case) and a single process started
+            # with several argv paths at once (e.g. dragging multiple
+            # files onto the Slate icon/shortcut, which Windows delivers
+            # as multiple arguments to one launch). A path that fails to
+            # hand off (rare -- e.g. the winning process is still mid-
+            # startup, not yet accepting connections within the retry
+            # window) falls through to the standalone window below instead
+            # of being silently dropped.
+            paths = [p for p in paths if not singleinstance.try_send_to_running_instance(p)]
+            if not paths:
+                return
 
     path = paths[0] if paths else None
     root = tk.Tk()

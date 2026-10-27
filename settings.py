@@ -23,6 +23,12 @@ DEFAULTS = {
     "crop_to_content": False,
     "toc_visible": True,
     "check_updates_on_start": True,
+    # Combine every file opened together into one window/tab set.
+    # Read directly by main() BEFORE any SlateApp/Tk root exists (the
+    # bind-or-handoff decision happens at process startup) -- default
+    # True keeps today's behavior; off reverts to one standalone window
+    # per launch, no socket involved at all.
+    "single_instance": True,
     # Integer POINT delta from whatever size Tk picked as the platform's
     # native default at first launch (theme.py._UI_FONT_BASE_SIZES,
     # captured once) -- not an absolute point size or raw pixel count,
