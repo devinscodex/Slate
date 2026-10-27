@@ -11,7 +11,7 @@ AUTHOR = "devinscodex"
 # (verified via `pip show pymupdf`). See LICENSE for full text.
 LICENSE = "AGPL-3.0-or-later"
 
-VERSION = "1.7.6"
+VERSION = "1.7.7"
 # 1.0.0 -- core: view, annotate, merge/split, redact, sign, forms, scan
 # 1.1.0 -- gated text editing (fontmatch, textedit, gate, UI)
 # 1.2.0 -- theme roster overhaul (Flexoki/Bonepaper/Slate, default Slate
@@ -155,26 +155,36 @@ VERSION = "1.7.6"
 #          'pymupdf'. Reproduced with a minimal frozen build (confirmed
 #          the exact crash), fixed, then confirmed the real Slate.spec
 #          freeze launches clean on a virtual display.
-# PENDING (unreleased, code in tree, not yet verified on real Windows --
-#          hold VERSION here until confirmed, then bump) --
-#          Self-update: Check for Updates (or the silent startup check)
-#          now offers to download, verify and install a new release
-#          directly, instead of only opening the GitHub release page.
-#          New selfupdate.py: downloads the release's installer +
-#          SHA256SUMS.txt, verifies the installer's real hash against
-#          the manifest before trusting it, then hands off to the
-#          installer (silent, no UI) and relaunches once it finishes.
-#          Windows-only, and only when the frozen build's release has
-#          both assets published -- a dev run, a non-Windows platform,
-#          or a release missing either asset falls back to the old
-#          "open the release page" behavior unchanged, never guesses
-#          what to run. updatecheck.py now also parses the release's
-#          asset list (name/download_url/size). No admin elevation
-#          needed (installer/slate.iss is a per-user install already).
-#          Logic fully unit-tested (checksum match/mismatch/missing,
-#          network failure, non-Windows no-op); the UI flow itself
-#          needs a real Windows pass before shipping, same as any other
-#          live-UI change.
+# 1.7.7 -- Real-Windows fix: start_server() set SO_REUSEADDR unconditionally,
+#          harmless on POSIX (TIME_WAIT rebind) but on Windows it lets an
+#          UNRELATED process bind the same (address, port) a socket is
+#          already actively listening on, no error -- silently defeated
+#          the whole "exactly one process wins the bind" scheme from
+#          1.7.5/1.7.6, which is why Devin still saw 3 separate windows
+#          on real Windows despite those passing every dev-side check.
+#          Fixed: SO_REUSEADDR only set on non-Windows now. Devin
+#          confirmed on real Windows: multi-select + Enter on several
+#          files collapses to 1 window. Also fixed: html_to_pdf's
+#          _find_browser() only checked Brave/Chrome, not Edge -- MEG's
+#          standard Windows image ships Edge only, crashing any .html
+#          open. main() now hands off/opens every launch path, not just
+#          argv[1] (dragging several files onto the icon/shortcut lost
+#          everything past the first). New Settings > Single instance
+#          checkbox (default on) -- off skips the whole handoff
+#          mechanism, one standalone window per launch, same as pre-
+#          1.7.5. NOT YET VERIFIED ON REAL WINDOWS (Devin's call to tag
+#          and build anyway so it's ready whenever he tests it) -- if it
+#          fails, don't bump past this without a real retest first.
+#          Self-update landed too: Check for Updates (or the silent
+#          startup check) now offers to download, verify and install a
+#          new release directly instead of only opening the release
+#          page. selfupdate.py downloads the installer + SHA256SUMS.txt,
+#          verifies the real hash before trusting it, then hands off
+#          (silent) and relaunches. Windows-only, needs both assets
+#          published on the release; UI flow also not yet Windows-
+#          verified. build-windows.yml: dropped the redundant
+#          Slate-portable.zip from test artifacts (roughly halves
+#          download size -- nothing ever consumed it).
 
 # Mirrors README.md's own prose (minus headers and purely-navigational
 # lines like the Download/DESIGN.md pointers, which don't make sense
