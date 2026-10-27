@@ -63,7 +63,6 @@ jobs:
       - name: Checksums
         shell: pwsh
         run: |
-          Compress-Archive -Path dist\Slate -DestinationPath dist-installer\Slate-portable.zip
           Get-ChildItem dist-installer\* | ForEach-Object {
             "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
           } | Set-Content dist-installer\SHA256SUMS.txt
