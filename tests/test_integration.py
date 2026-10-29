@@ -2624,7 +2624,7 @@ def test_f2_opens_command_palette_listing_all_themes(tmp_path):
         listbox = [w for w in palette.winfo_children() if isinstance(w, tk.Listbox)][0]
         entries = listbox.get(0, tk.END)
         assert len(entries) == len(theme.THEME_LABELS)
-        assert any("Martin Dark" in e for e in entries)
+        assert any("Basic Dark" in e for e in entries)
         palette.destroy()
     finally:
         app.doc.close()
@@ -3750,7 +3750,7 @@ def test_settings_theme_picker_is_a_dropdown_with_light_dark_radios(tmp_path):
         assert len(combos) == 1
         family_combo = combos[0]
         assert str(family_combo.cget("state")) == "readonly"
-        assert set(family_combo.cget("values")) == {"Slate", "Flexoki", "Martin"}
+        assert set(family_combo.cget("values")) == {"Slate", "Flexoki", "Basic"}
         assert family_combo.get() == "Slate"  # matches slate_dark's own family
 
         radios = find_all(tk.Radiobutton)
@@ -3806,7 +3806,7 @@ def test_settings_theme_picker_selects_the_right_theme_from_family_plus_mode(tmp
         assert app.theme_name.get() == "slate_dark"
 
         # Family changed, mode held (still Dark) -> slate_dark to martin_dark.
-        family_combo.set("Martin")
+        family_combo.set("Basic")
         family_combo.event_generate("<<ComboboxSelected>>")
         root.update()
         assert app.theme_name.get() == "martin_dark"
@@ -3863,7 +3863,7 @@ def test_settings_palette_preview_shows_the_real_current_theme_colors(tmp_path):
                 out.extend(find_all(cls, c))
             return out
         family_combo = find_all(ttk.Combobox)[0]
-        family_combo.set("Martin")
+        family_combo.set("Basic")
         family_combo.event_generate("<<ComboboxSelected>>")
         root.update()
 

@@ -185,6 +185,19 @@ VERSION = "1.7.7"
 #          verified. build-windows.yml: dropped the redundant
 #          Slate-portable.zip from test artifacts (roughly halves
 #          download size -- nothing ever consumed it).
+#          Update-timing choice: once downloaded+verified, Slate now
+#          asks WHEN to install -- Now (old behavior), At Close (queued
+#          in memory, runs at whatever exit path actually ends this
+#          session), or Next Startup (selfupdate.save_pending_update
+#          persists it to ~/.slate/pending_update.json; main() checks
+#          this before any UI exists on the next launch and hands off
+#          immediately if the installer's still there). Still Windows-
+#          unverified, same as the rest of this entry.
+#          Theme: "Martin" display label renamed "Basic" (internal
+#          martin_light/martin_dark keys, theme_data/martin.json, and
+#          the real MEG-brand-color sourcing comments all untouched --
+#          label only). Basic Dark is now DEFAULT_THEME (was Slate
+#          Light).
 
 # Mirrors README.md's own prose (minus headers and purely-navigational
 # lines like the Download/DESIGN.md pointers, which don't make sense

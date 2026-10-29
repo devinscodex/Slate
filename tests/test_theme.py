@@ -10,8 +10,8 @@ def test_get_palette_falls_back_to_default_for_unknown_name():
     assert theme.get_palette("not-a-real-theme") == theme.THEMES[theme.DEFAULT_THEME]
 
 
-def test_default_theme_is_slate_light():
-    assert theme.DEFAULT_THEME == "slate_light"
+def test_default_theme_is_basic_dark():
+    assert theme.DEFAULT_THEME == "martin_dark"
 
 
 def test_all_themes_have_the_same_keys():
@@ -66,7 +66,11 @@ def test_roster_is_exactly_six_themes():
 
     Gotham (an Alacritty theme, dark-only) was added and removed in the
     same pass -- roster stays at 8 (see theme.py's own THEME_LABELS
-    comment for the full add/remove note)."""
+    comment for the full add/remove note).
+
+    Martin's display label was later renamed "Basic" (values, internal
+    martin_light/martin_dark keys unchanged -- see theme.py's own
+    THEME_LABELS comment); Basic Dark also became DEFAULT_THEME."""
     assert set(theme.THEMES.keys()) == {
         "light", "dark",
         "slate_light", "slate_dark",
@@ -92,10 +96,11 @@ def test_roster_is_exactly_six_themes():
                         "Anthracite Light", "Anthracite Dark",
                         "Gridpaper Light", "Gridpaper Dark",
                         "Graphpaper Light", "Graphpaper Dark",
-                        "Ossuary Light", "Ossuary Dark"):
+                        "Ossuary Light", "Ossuary Dark",
+                        "Martin Light", "Martin Dark"):
         assert gone_label not in theme.THEME_LABELS, gone_label
-    assert theme.THEME_LABELS["Martin Light"] == "martin_light"
-    assert theme.THEME_LABELS["Martin Dark"] == "martin_dark"
+    assert theme.THEME_LABELS["Basic Light"] == "martin_light"
+    assert theme.THEME_LABELS["Basic Dark"] == "martin_dark"
     # The bare "Light"/"Dark" labels were themselves retired the same day
     # Standard's display name became "Flexoki" -- those two strings now
     # only exist as internal THEMES keys, never as a THEME_LABELS key.

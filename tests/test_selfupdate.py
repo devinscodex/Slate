@@ -129,3 +129,37 @@ def test_launch_installer_and_restart_noop_off_windows(monkeypatch):
     to subprocess anything on a non-Windows platform."""
     monkeypatch.setattr(selfupdate.sys, "platform", "linux")
     assert selfupdate.launch_installer_and_restart("/fake/installer.exe", "/fake/Slate") is False
+
+
+def _use_tmp_pending_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(selfupdate, "PENDING_FILE", tmp_path / ".slate" / "pending_update.json")
+
+
+def test_load_pending_update_returns_none_when_nothing_saved(monkeypatch, tmp_path):
+    _use_tmp_pending_file(monkeypatch, tmp_path)
+    assert selfupdate.load_pending_update() is None
+
+
+def test_save_then_load_pending_update_roundtrips_a_real_file(monkeypatch, tmp_path):
+    _use_tmp_pending_file(monkeypatch, tmp_path)
+    installer = tmp_path / "Slate-Setup-1.7.7.exe"
+    installer.write_bytes(b"fake")
+    selfupdate.save_pending_update(str(installer))
+    assert selfupdate.load_pending_update() == str(installer)
+
+
+def test_load_pending_update_clears_stale_record_when_file_missing(monkeypatch, tmp_path):
+    """A temp dir can be swept by the OS between sessions -- the
+    pending record must not point at a dead path."""
+    _use_tmp_pending_file(monkeypatch, tmp_path)
+    installer = tmp_path / "Slate-Setup-1.7.7.exe"
+    installer.write_bytes(b"fake")
+    selfupdate.save_pending_update(str(installer))
+    installer.unlink()  # simulate the OS sweeping the temp dir
+    assert selfupdate.load_pending_update() is None
+    assert not selfupdate.PENDING_FILE.exists()  # stale record cleared, not left behind
+
+
+def test_clear_pending_update_is_a_noop_when_nothing_saved(monkeypatch, tmp_path):
+    _use_tmp_pending_file(monkeypatch, tmp_path)
+    selfupdate.clear_pending_update()  # must not raise

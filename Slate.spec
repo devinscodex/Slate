@@ -83,7 +83,9 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[],
     noarchive=False,
-    optimize=0,
+    # 2: strip docstrings+asserts from bundled bytecode. Safe -- every
+    # assert in this repo (909, grepped) lives in tests/, never shipped.
+    optimize=2,
 )
 pyz = PYZ(a.pure)
 

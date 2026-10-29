@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Slate -- feature guide (rev01)</title>
+<style>
+  * { box-sizing: border-box; }
+  body { background: #ffffff; color: #1a1a1a; font-family: Georgia, 'Times New Roman', serif;
+         margin: 0; line-height: 1.45; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page { max-width: 760px; margin: 0 auto; padding: 48px 40px; }
+  h1 { font-size: 1.7rem; margin: 0 0 4px; font-family: Georgia, serif; }
+  .tag { color: #555; font-size: 0.85rem; margin: 0 0 28px; font-family: system-ui, sans-serif; }
+  h2 { font-size: 1.15rem; margin: 30px 0 8px; border-bottom: 2px solid #1a1a1a; padding-bottom: 4px; }
+  h3 { font-size: 0.95rem; margin: 16px 0 4px; color: #333; }
+  p { margin: 0 0 10px; }
+  ul { margin: 0 0 10px; padding-left: 22px; }
+  li { margin-bottom: 4px; }
+  .glossary dt { font-weight: bold; margin-top: 8px; }
+  .glossary dd { margin: 2px 0 0 0; color: #333; }
+  .note { background: #f4f4f2; border-left: 3px solid #999; padding: 8px 12px; margin: 10px 0;
+          font-size: 0.9rem; font-family: system-ui, sans-serif; }
+  .foot { margin-top: 36px; padding-top: 12px; border-top: 1px solid #ccc; font-size: 0.78rem;
+          color: #666; font-family: system-ui, sans-serif; }
+  code { font-family: Consolas, monospace; background: #f2f2f0; padding: 1px 4px; font-size: 0.9em; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Slate -- what it does</h1>
+  <p class="tag">rev01 -- 2026-10-29 -- a plain-English guide to every feature in the current
+     build. Companion to slate-architecture-rev01.html (the module map, written for developers).
+     This page is for anyone using the app.</p>
+
+  <h2>Overview</h2>
+  <p>Slate is a PDF editor. You use it to read, mark up, fix, and protect PDF files on your own
+     computer. Slate does not send your files anywhere. Every feature below runs on your machine.</p>
+
+  <h2>Glossary</h2>
+  <dl class="glossary">
+    <dt>PDF</dt><dd>A document file format that looks the same on every computer.</dd>
+    <dt>Redaction</dt><dd>Permanently removing text or an image from a page, not just covering it
+      with a black box. A real redaction cannot be undone or reversed.</dd>
+    <dt>OCR</dt><dd>Optical Character Recognition. It reads the text in a scanned image and adds a
+      hidden, searchable text layer under the image.</dd>
+    <dt>Digital signature</dt><dd>A cryptographic stamp that proves a file has not changed since it
+      was signed.</dd>
+    <dt>Theme</dt><dd>A set of colors for the app's own screen, not the document.</dd>
+    <dt>Tab</dt><dd>One open document. Slate can hold several tabs in one window.</dd>
+  </dl>
+
+  <h2>1. Viewing a document</h2>
+  <ul>
+    <li>Zoom in, zoom out, or Fit Width (the page always fills the window's width).</li>
+    <li>Slate finds each page's real content area and can trim blank margins (Crop to Content).</li>
+    <li>Move through pages one at a time, jump to a page number, or jump to the last page.</li>
+    <li>A bookmarks panel shows the document's own table of contents, if it has one.</li>
+    <li>Continuous scroll: pages flow one after another, like a long scroll.</li>
+    <li>Book view: several pages show side by side in one row, like an open book.</li>
+    <li>Large documents stay fast to scroll. Slate only draws the pages near your current view.</li>
+    <li>Open more than one file at once. Each file gets its own tab in the same window.</li>
+    <li>Opening a second file reuses the same window and adds a tab, instead of opening a new
+      window. This can be turned off in Settings.</li>
+  </ul>
+
+  <h2>2. Marking up a page</h2>
+  <ul>
+    <li>Highlight text with a see-through color marker.</li>
+    <li>Add a floating text note anywhere on a page.</li>
+    <li>Draw freehand ink marks or a rectangle shape.</li>
+    <li>Stamp a page (for example, "Approved").</li>
+    <li>Find text anywhere in the document and jump between matches.</li>
+  </ul>
+
+  <h2>3. Editing a document</h2>
+  <ul>
+    <li>Edit existing body text in place. Slate tries to match the original font. It warns you if
+      the new text will not fit.</li>
+    <li>Fill in PDF form fields: text boxes, checkboxes, radio buttons, dropdowns, and lists.</li>
+    <li>Merge several PDFs into one file, or split one PDF into separate files per page.</li>
+  </ul>
+  <div class="note">Rotate, delete, move, and insert pages are built and tested, but not yet
+    wired into the on-screen menus in this build.</div>
+
+  <h2>4. Redacting sensitive content</h2>
+  <ul>
+    <li>Permanently remove text, images, and drawings from a page. This is a real redaction, not
+      a black box drawn on top. Hidden document metadata is cleared too.</li>
+    <li>Scan a document for likely Social Security numbers, bank routing numbers, bank account
+      numbers, and credit card numbers. Slate flags what it finds so you know what to review.</li>
+    <li>Scan an entire folder of PDFs for the same patterns in one pass.</li>
+    <li>If a page has no searchable text (for example, an un-OCR'd scan), Slate flags it as
+      "unscannable" instead of silently calling it clean.</li>
+  </ul>
+
+  <h2>5. Protecting a document</h2>
+  <ul>
+    <li>Password-protect a PDF. You set a password readers must enter, and a separate owner
+      password that controls what they're allowed to do (such as printing).</li>
+    <li>Open a PDF someone else password-protected, by entering the password.</li>
+    <li>Apply a digital signature. Slate can generate a throwaway certificate for you, or use a
+      real company-issued one.</li>
+    <li>Check whether a PDF is already signed, and confirm an existing signature is still valid.</li>
+    <li>Lock the text-editing feature behind a passphrase on your own machine. This is a
+      convenience lock for your own desk, not real security against someone with full access to
+      the computer.</li>
+  </ul>
+
+  <h2>6. Scanning and converting files</h2>
+  <ul>
+    <li>Scan paper into a PDF.</li>
+    <li>OCR scanned pages, so you can search, select, and copy their text, with no change to how
+      the page looks.</li>
+    <li>Convert a web page (HTML) to PDF, rendered through a real browser so it looks right.</li>
+    <li>Convert a PDF to Markdown text (keeps headings, bold text, and bullet lists) or to plain
+      text.</li>
+    <li>Export PDF pages as image files, or build a new PDF from a set of images.</li>
+    <li>Open an image, EPUB, HTML, or text file directly. Slate converts it to PDF automatically.</li>
+    <li>Fix a known EPUB e-book bug that garbles text, with no change to your original file.</li>
+  </ul>
+
+  <h2>7. Making Slate your own</h2>
+  <ul>
+    <li>Six built-in color themes, light and dark, including a Martin Energy Group brand theme
+      ("Basic").</li>
+    <li>A full color editor: change any theme's colors and save your changes, or save a whole new
+      theme under its own name.</li>
+    <li>Your theme choice, including any hand-tuned colors, is still there the next time you open
+      Slate.</li>
+    <li>Colorize Pages: optionally tint the document itself to match the app's theme.</li>
+    <li>A separate text-size control scales the whole app, menus included -- this is different
+      from zooming a document's pages.</li>
+    <li>A Recent Files list remembers your last 10 files, and quietly drops any that no longer
+      exist.</li>
+    <li>Slate reopens at the same window size, position, tabs, and zoom level you left it at.</li>
+  </ul>
+
+  <h2>8. Staying up to date</h2>
+  <ul>
+    <li>Slate can check for a new version automatically when it starts, or you can check by hand
+      from the About screen.</li>
+    <li>On Windows, Slate can download a new version itself. It checks the download against a
+      published checksum before ever running it.</li>
+    <li>You choose when the update actually happens: right now, the next time you close Slate, or
+      the next time you open it.</li>
+  </ul>
+
+  <div class="foot">
+    Source: direct read of ~/projects/slate (fdccb11857d9, 2026-10-27 trunk + uncommitted
+    2026-10-29 edits). Companion doc: slate-architecture-rev01.html (module map, developer-facing).
+    ANTInet lineage: rev01 is the first entry for this topic.
+  </div>
+</div>
+</body>
+</html>

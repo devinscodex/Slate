@@ -73,7 +73,9 @@ def _load_base(family: str, mode: str) -> dict:
     data = json.loads((_THEME_DATA_DIR / f"{family}.json").read_text())[mode]
     return {k: data[k] for k in _BASE_KEYS} | {"is_dark": mode == "dark"}
 
-DEFAULT_THEME = "slate_light"
+# "martin_dark" internal key, "Basic Dark" display label (THEME_LABELS
+# below) -- out-of-box default as of the "Basic" rename.
+DEFAULT_THEME = "martin_dark"
 
 
 def _hex_to_rgb(hexval: str):
@@ -210,8 +212,9 @@ THEMES = {
     "martin_dark": _with_chrome_cascade(_MARTIN_DARK),
 }
 
-# Display label -> internal THEMES key. Slate is always top/default;
-# the rest follow in roster order.
+# Display label -> internal THEMES key. Roster list order below, NOT
+# DEFAULT_THEME above, decides the out-of-box default -- Slate Light
+# sits first here for roster order only.
 THEME_LABELS = {
     "Slate Light": "slate_light",
     "Slate Dark": "slate_dark",
@@ -221,9 +224,14 @@ THEME_LABELS = {
     "Flexoki Light": "light",
     "Flexoki Dark": "dark",
     # Real Martin Energy Group brand colors -- see _MARTIN_LIGHT/
-    # _MARTIN_DARK's own comment for sourcing.
-    "Martin Light": "martin_light",
-    "Martin Dark": "martin_dark",
+    # _MARTIN_DARK's own comment for sourcing. Label renamed "Martin" ->
+    # "Basic" (internal martin_light/martin_dark keys, theme_data/
+    # martin.json and every real-color-sourcing comment below
+    # deliberately untouched -- see slate-pdf-editor-development skill's
+    # "Renaming a theme's display name" note on why the internal key
+    # stays put across a label rename).
+    "Basic Light": "martin_light",
+    "Basic Dark": "martin_dark",
 }
 
 # Kept as plain names too (not just THEMES["light"]/["dark"]) -- several

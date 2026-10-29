@@ -12,15 +12,27 @@ Real network call, real failure modes -- every public function here
 returns a plain result the caller can show the user, never raises.
 """
 import hashlib
+import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
 import urllib.request
+from pathlib import Path
 
 INSTALLER_NAME_RE = re.compile(r"^Slate-Setup-.*\.exe$")
 SUMS_NAME = "SHA256SUMS.txt"
+
+# A verified-downloaded installer the user deferred instead of running
+# right away ("At Close"/"Next Startup" in slate.py's update-timing
+# prompt). Same ~/.slate convention as theme.py/settings.py. Only
+# "Next Startup" actually needs this written to disk ("At Close" just
+# keeps the path in memory for this same process's own exit path) --
+# but it's also the fallback main() reads at the top of every launch,
+# so a path saved here is the one source of truth for "there's a
+# verified installer waiting."
+PENDING_FILE = Path.home() / ".slate" / "pending_update.json"
 
 
 def find_installer_asset(assets):
@@ -119,3 +131,38 @@ def launch_installer_and_restart(installer_path: str, slate_exe: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def save_pending_update(installer_path: str):
+    """Records a verified installer to install on the NEXT launch
+    instead of now -- main() checks this at the very top, before any
+    UI exists. Deliberately not used for the "At Close" choice, which
+    just keeps installer_path in a slate.py instance attr for this
+    same process's own exit (no reason to touch disk for something
+    that never outlives this run)."""
+    PENDING_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PENDING_FILE.write_text(json.dumps({"installer_path": installer_path}))
+
+
+def load_pending_update():
+    """Returns the pending installer's path, or None -- also None (and
+    silently clears the stale record) if the file it points to is
+    gone, since a temp dir can be swept by the OS between sessions and
+    nothing should ever try to run a path that no longer exists."""
+    if not PENDING_FILE.exists():
+        return None
+    try:
+        path = json.loads(PENDING_FILE.read_text()).get("installer_path")
+    except (json.JSONDecodeError, OSError):
+        path = None
+    if not path or not os.path.exists(path):
+        clear_pending_update()
+        return None
+    return path
+
+
+def clear_pending_update():
+    try:
+        PENDING_FILE.unlink()
+    except OSError:
+        pass

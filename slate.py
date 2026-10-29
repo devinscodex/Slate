@@ -164,6 +164,12 @@ class SlateApp:
         # color IS the information. Per-session toggle.
         self.colorize_pages = _saved["colorize_pages"]
         self.check_updates_on_start = _saved["check_updates_on_start"]
+        # Set by _prompt_update_timing's "At Close" choice; checked by
+        # main()'s post-mainloop hook (every exit path -- X button,
+        # File > Quit, Ctrl+Q -- converges there). Not disk-persisted
+        # (see selfupdate.save_pending_update's own docstring): this
+        # choice only ever needs to outlive the rest of THIS run.
+        self._queued_installer_path = None
         # One shared crop rect (viewer.detect_content_bbox) applied to
         # every page, cached per DOCUMENT (self._crop_rect, keyed by
         # self._crop_rect_doc) since sampling several pages' real
@@ -1003,9 +1009,9 @@ class SlateApp:
             if messagebox.askyesno(
                 "Update available",
                 f"Slate {data['latest_version']} is available (you have {version.VERSION}).\n\n"
-                f"Download and install it now? Slate will close and reopen.",
+                f"Download and verify it now?",
             ):
-                self._run_self_update(installer_asset, sums_asset)
+                self._run_self_update(installer_asset, sums_asset, data["latest_version"])
         elif messagebox.askyesno(
             "Update available",
             f"Slate {data['latest_version']} is available (you have {version.VERSION}).\n\n"
@@ -1013,12 +1019,11 @@ class SlateApp:
         ):
             webbrowser.open(data["url"])
 
-    def _run_self_update(self, installer_asset, sums_asset):
+    def _run_self_update(self, installer_asset, sums_asset, latest_version):
         """Downloads+verifies on a background thread (real network I/O,
         never block the UI thread), shows live percent progress, then
-        on success saves state the same way a normal window close does
-        and hands off to the installer -- this IS a close, just one
-        that exits into an installer instead of just stopping."""
+        hands the verified installer to _prompt_update_timing -- when
+        to actually run it is the user's call, not assumed."""
         progress = tk.Toplevel(self.root)
         progress.title("Updating Slate")
         progress.resizable(False, False)
@@ -1051,18 +1056,74 @@ class SlateApp:
             if state["error"]:
                 messagebox.showerror("Update failed", state["error"])
                 return
-            settings.save({"window_geometry": self.root.winfo_geometry()})
-            self._save_open_tabs()
-            if selfupdate.launch_installer_and_restart(state["installer_path"], sys.executable):
-                self.root.destroy()
-                sys.exit(0)
-            else:
-                messagebox.showerror(
-                    "Update failed", "Could not launch the installer. Your current install is untouched.",
-                )
+            self._prompt_update_timing(state["installer_path"], latest_version)
 
         threading.Thread(target=worker, daemon=True).start()
         poll()
+
+    def _prompt_update_timing(self, installer_path, latest_version):
+        """installer_path is already checksum-verified (download_and_
+        verify ran before this is ever called) -- this only decides
+        WHEN to hand off to it, not whether it's safe to run. Closing
+        the dialog (Escape, window X) picks neither: the verified
+        installer just sits unused in its temp dir, same as if Check
+        for Updates were never run."""
+        top = tk.Toplevel(self.root)
+        top.title("Update downloaded")
+        top.resizable(False, False)
+        top.transient(self.root)
+        top.protocol("WM_DELETE_WINDOW", top.destroy)
+
+        tk.Label(
+            top, padx=24, pady=(20, 4),
+            text=f"Slate {latest_version} downloaded and verified.",
+        ).pack()
+        tk.Label(top, padx=24, pady=(0, 16), text="Install it now, or wait?").pack()
+
+        btns = tk.Frame(top, padx=24, pady=(0, 20))
+        btns.pack()
+
+        def pick(mode):
+            top.destroy()
+            if mode == "now":
+                self._apply_update_now(installer_path)
+            elif mode == "at_close":
+                self._queued_installer_path = installer_path
+                messagebox.showinfo(
+                    "Update queued", f"Slate {latest_version} will install when you close Slate.",
+                )
+            else:  # next_startup
+                selfupdate.save_pending_update(installer_path)
+                messagebox.showinfo(
+                    "Update queued", f"Slate {latest_version} will install the next time Slate starts.",
+                )
+
+        tk.Button(btns, text="Install Now", width=14, command=lambda: pick("now")).pack(side=tk.LEFT, padx=4)
+        tk.Button(btns, text="At Close", width=14, command=lambda: pick("at_close")).pack(side=tk.LEFT, padx=4)
+        tk.Button(btns, text="Next Startup", width=14, command=lambda: pick("next_startup")).pack(side=tk.LEFT, padx=4)
+
+        top.update_idletasks()
+        x = self.root.winfo_rootx() + (self.root.winfo_width() - top.winfo_width()) // 2
+        y = self.root.winfo_rooty() + (self.root.winfo_height() - top.winfo_height()) // 2
+        top.geometry(f"+{x}+{y}")
+        colors = theme.get_palette(self.theme_name.get())
+        top.configure(bg=colors["bg"])
+        self._paint_widget(top, colors)
+        self._apply_native_titlebar_theme(top)
+
+    def _apply_update_now(self, installer_path):
+        """The old immediate-install path (pre-timing-choice behavior):
+        save state the same way a normal window close does, hand off
+        to the installer, exit into it."""
+        settings.save({"window_geometry": self.root.winfo_geometry()})
+        self._save_open_tabs()
+        if selfupdate.launch_installer_and_restart(installer_path, sys.executable):
+            self.root.destroy()
+            sys.exit(0)
+        else:
+            messagebox.showerror(
+                "Update failed", "Could not launch the installer. Your current install is untouched.",
+            )
 
     def _show_command_palette(self, event=None):
         """F2. Theme-switching only for now, but built as a real (label,
@@ -4786,6 +4847,18 @@ def _set_windows_app_user_model_id():
 
 
 def main():
+    # "Next Startup" update choice (_prompt_update_timing in SlateApp)
+    # lands here, before single-instance/UI setup -- a verified
+    # installer persisted by selfupdate.save_pending_update means skip
+    # a normal launch entirely and hand off to it instead. Stale/
+    # missing-file records already return None from load_pending_update,
+    # so this is a no-op on every ordinary launch.
+    _pending_installer = selfupdate.load_pending_update()
+    if _pending_installer:
+        selfupdate.clear_pending_update()  # consume once -- a failed/declined launch below must not loop forever
+        if selfupdate.launch_installer_and_restart(_pending_installer, sys.executable):
+            return
+
     _set_windows_app_user_model_id()
     paths = sys.argv[1:]
 
@@ -4933,6 +5006,12 @@ def main():
         ipc_server.close()
     if app.doc is not None:
         app.doc.close()
+    # "At Close" update choice -- deliberately placed AFTER mainloop()
+    # returns rather than inside _on_close above: every real exit path
+    # (window X, File > Quit, Ctrl+Q's root.quit()) converges here,
+    # while _on_close only ever fires for the WM_DELETE_WINDOW case.
+    if app._queued_installer_path:
+        selfupdate.launch_installer_and_restart(app._queued_installer_path, sys.executable)
 
 
 if __name__ == "__main__":
