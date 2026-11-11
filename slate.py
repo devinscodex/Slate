@@ -104,7 +104,7 @@ CODE_TEXT_EXTENSIONS = (
 # view/search/TOC/keyboard nav all already work unchanged on those,
 # only these PDF-specific actions need gating.
 _FILE_PDF_ONLY_LABELS = [
-    "Save", "Save As...", "Merge PDFs...", "Split into pages...",
+    "Save", "Save As...", "Print...", "Merge PDFs...", "Split into pages...",
     "Encrypt...", "Sign (self-signed test cert)...",
 ]
 _EDIT_PDF_ONLY_LABELS = [
@@ -821,6 +821,7 @@ class SlateApp:
         filem.add_command(label="Close", command=self.do_close, accelerator="Ctrl+W")
         filem.add_command(label="Save", command=self.save, accelerator="Ctrl+S")
         filem.add_command(label="Save As...", command=self.save_as, accelerator="Ctrl+Shift+S")
+        filem.add_command(label="Print...", command=self.do_print, accelerator="Ctrl+P")
         filem.add_separator()
         filem.add_command(label="Merge PDFs...", command=self.do_merge)
         filem.add_command(label="Split into pages...", command=self.do_split)
@@ -877,6 +878,7 @@ class SlateApp:
             label="Table of Contents",
             variable=self.toc_visible,
             command=self._toggle_toc_panel,
+            accelerator="Ctrl+B",
         )
         viewm.add_separator()
         viewm.add_command(label="Find... (/)", command=self._show_find_bar)
@@ -1513,7 +1515,7 @@ class SlateApp:
         for text, variable, cmd, pad in (
             ("Colorize pages to theme (F4)", self.colorize_pages_var, self._on_colorize_toggle, (6, 2)),
             ("Crop to Content", self.crop_to_content_var, self._on_crop_toggle, (2, 2)),
-            ("Show Table of Contents", self.toc_visible, self._toggle_toc_panel, (2, 2)),
+            ("Show Table of Contents (Ctrl+B)", self.toc_visible, self._toggle_toc_panel, (2, 2)),
             ("Check for updates on start", self.check_updates_on_start_var, self._on_check_updates_toggle, (2, 2)),
             ("Single instance (opened files share one window, applies next launch)", self.single_instance_var, self._on_single_instance_toggle, (2, 6)),
         ):
@@ -2615,6 +2617,21 @@ class SlateApp:
         # Settings' own controls.
         toolbar_left = tk.Frame(toolbar)
         toolbar_left.grid(row=0, column=0, sticky="w")
+        # Far-left toggle, same self.toc_visible BooleanVar the View menu
+        # checkbutton and Settings dialog's own toggle already share --
+        # all three stay in sync automatically since Tk flips the var on
+        # a real Checkbutton click before calling command=. Built with
+        # the same indicatoron=False + _wire_toggle_button_contrast
+        # convention as the Settings dialog's own toggle buttons, so it
+        # repaints correctly on a live theme switch.
+        toc_toggle_btn = tk.Checkbutton(
+            toolbar_left, text="TOC", variable=self.toc_visible,
+            command=self._toggle_toc_panel,
+            selectcolor=theme.get_palette(self.theme_name.get())["select_bg"],
+            indicatoron=False, relief=tk.RAISED, padx=6, pady=2,
+        )
+        toc_toggle_btn.pack(side=tk.LEFT, padx=(0, 12))
+        self._wire_toggle_button_contrast(toc_toggle_btn, self.toc_visible)
         tk.Label(toolbar_left, text="Columns:").pack(side=tk.LEFT, padx=(0, 4))
 
         def _toolbar_columns_dec():
@@ -2818,6 +2835,7 @@ class SlateApp:
         self.root.bind("<Control-c>", self._copy_selection)
         self.root.bind("<F8>", self._kb_toggle_book_view)
         self.root.bind("<F4>", self._kb_toggle_colorize)
+        self.root.bind("<Control-b>", self._kb_toggle_toc)
 
         # CUA keybinds -- the standard Windows/Mac shortcut set, matching
         # menu accelerators added alongside these.
@@ -2827,6 +2845,7 @@ class SlateApp:
         self.root.bind("<Control-o>", lambda e: self.open_file())
         self.root.bind("<Control-s>", lambda e: self.save())
         self.root.bind("<Control-S>", lambda e: self.save_as())  # Ctrl+Shift+S
+        self.root.bind("<Control-p>", lambda e: self.do_print())
         self.root.bind("<Control-f>", self._kb_open_find)  # alongside "/", not a replacement
         self.root.bind("<Control-q>", lambda e: self.root.quit())
         self.root.bind("<Control-plus>", lambda e: self.zoom_in())
@@ -3014,6 +3033,14 @@ class SlateApp:
         cache-invalidate-and-render logic rather than duplicating it."""
         self.colorize_pages_var.set(not self.colorize_pages_var.get())
         self._on_colorize_toggle()
+
+    def _kb_toggle_toc(self, event=None):
+        """Ctrl+B -- same raw-keypress-needs-a-manual-flip-first pattern
+        as F8/F4 above, reusing _toggle_toc_panel's real show/hide logic
+        rather than duplicating it."""
+        self.toc_visible.set(not self.toc_visible.get())
+        self._toggle_toc_panel()
+        return "break"
 
     def _select_view_mode_continuous(self):
         """Settings dialog's simplified "Continuous" radio -- plain
@@ -4557,6 +4584,47 @@ class SlateApp:
         self._layout = None
         self._layout_doc = None
         self.render()
+
+    def do_print(self):
+        """File > Print... (Ctrl+P) -- hands off to the OS's own print
+        handling rather than reinventing a print pipeline (same
+        compose-don't-reinvent convention as html_to_pdf's Edge
+        shell-out). Gated to real PDFs only (_FILE_PDF_ONLY_LABELS), so
+        self.doc.name is always a real PDF path -- for an HTML/image
+        source tab this is convert.path_to_pdf's converted temp file,
+        the ACTUAL rendered document, not self.path's original source
+        (self.path would be the wrong file to hand to a print verb
+        here, see save()'s own docstring on that original-vs-open-path
+        split).
+
+        No dirty-tracking exists anywhere in this file to know whether
+        the in-memory doc has unsaved edits, so this can't reliably warn
+        only when it matters -- instead it always confirms, naming the
+        caveat plainly every time rather than silently printing a stale
+        file."""
+        if not self._require_doc():
+            return
+        if sys.platform != "win32":
+            messagebox.showinfo(
+                "Print", "Printing isn't available on this platform yet."
+            )
+            return
+        target = self.doc.name
+        if not messagebox.askyesno(
+            "Print",
+            f"This prints the last SAVED version of {os.path.basename(target)}. "
+            "Any changes made since the last Save won't appear. Continue?",
+        ):
+            return
+        try:
+            os.startfile(target, "print")
+        except OSError as err:
+            messagebox.showerror(
+                "Print failed",
+                f"Could not print {target}: {err}\n\n"
+                "This usually means no application on this machine is "
+                "registered to handle printing this file type.",
+            )
 
     def save_as(self):
         if not self._require_doc():

@@ -3537,6 +3537,34 @@ def test_f4_toggles_colorize_pages(tmp_path):
         root.destroy()
 
 
+def test_ctrl_b_toggles_toc(tmp_path):
+    """Ctrl+B is a hotkey for the TOC panel toggle (same pattern as F4/
+    F8 above): flip the var manually since a raw key event doesn't do
+    it the way a real Checkbutton click does, then reuse
+    _toggle_toc_panel's real show/hide logic. Also exercises the
+    actual PanedWindow membership, not just the BooleanVar, since
+    that's the part users actually see."""
+    root, app = _make_app(tmp_path)
+    try:
+        app.toc_visible.set(False)
+        app._toggle_toc_panel()
+        panes = [str(p) for p in app._content_frame.panes()]
+        assert str(app.toc_frame) not in panes
+
+        app._kb_toggle_toc()
+        assert app.toc_visible.get() is True
+        panes = [str(p) for p in app._content_frame.panes()]
+        assert str(app.toc_frame) in panes
+
+        app._kb_toggle_toc()
+        assert app.toc_visible.get() is False
+        panes = [str(p) for p in app._content_frame.panes()]
+        assert str(app.toc_frame) not in panes
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
 def test_settings_header_shows_the_real_running_version(tmp_path):
     """The Settings pane shows the current Slate version. Real value,
     not a hardcoded string -- must match
@@ -3697,7 +3725,7 @@ def test_settings_toggle_buttons_use_each_themes_own_accent_not_one_fixed_color(
                 return None
             return walk(top)
 
-        toc_btn = find("Show Table of Contents")
+        toc_btn = find("Show Table of Contents (Ctrl+B)")
         assert toc_btn.cget("selectcolor") == theme.THEMES["slate_dark"]["select_bg"]
     finally:
         app.doc.close()
@@ -3914,7 +3942,7 @@ def test_display_group_selectcolor_follows_a_live_theme_switch(tmp_path):
             return walk(top)
 
         colorize_btn = find("Colorize pages to theme (F4)")
-        toc_btn = find("Show Table of Contents")
+        toc_btn = find("Show Table of Contents (Ctrl+B)")
         assert colorize_btn.cget("selectcolor") == theme.THEMES["martin_dark"]["select_bg"]
 
         # Switch theme in the SAME still-open dialog -- the real scenario.
@@ -4283,6 +4311,72 @@ def test_mouse_wheel_scrolls_while_the_find_box_has_focus(tmp_path):
             app._wheel_up()
         root.update()
         assert app.canvas.yview()[0] < mid
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_print_requires_confirmation_then_hands_off_to_os_print_verb(tmp_path, monkeypatch):
+    """do_print must use self.doc.name (the real rendered file), not
+    self.path -- the two differ for an HTML/image tab (see do_print's
+    own docstring)."""
+    root, app = _make_app(tmp_path)
+    try:
+        monkeypatch.setattr(slate.sys, "platform", "win32")
+        monkeypatch.setattr(slate.messagebox, "askyesno", lambda *a, **k: True)
+        calls = []
+        monkeypatch.setattr(slate.os, "startfile", lambda p, verb: calls.append((p, verb)), raising=False)
+        app.do_print()
+        assert calls == [(app.doc.name, "print")]
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_print_declining_confirmation_does_not_print(tmp_path, monkeypatch):
+    root, app = _make_app(tmp_path)
+    try:
+        monkeypatch.setattr(slate.sys, "platform", "win32")
+        monkeypatch.setattr(slate.messagebox, "askyesno", lambda *a, **k: False)
+        calls = []
+        monkeypatch.setattr(slate.os, "startfile", lambda p, verb: calls.append((p, verb)), raising=False)
+        app.do_print()
+        assert calls == []
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_print_shows_error_when_os_has_no_print_handler(tmp_path, monkeypatch):
+    root, app = _make_app(tmp_path)
+    try:
+        monkeypatch.setattr(slate.sys, "platform", "win32")
+        monkeypatch.setattr(slate.messagebox, "askyesno", lambda *a, **k: True)
+        shown = []
+        monkeypatch.setattr(slate.messagebox, "showerror", lambda title, msg: shown.append(title))
+
+        def _raise(p, verb):
+            raise OSError("no application registered")
+
+        monkeypatch.setattr(slate.os, "startfile", _raise, raising=False)
+        app.do_print()
+        assert shown == ["Print failed"]
+    finally:
+        app.doc.close()
+        root.destroy()
+
+
+def test_print_is_a_noop_off_windows(tmp_path, monkeypatch):
+    root, app = _make_app(tmp_path)
+    try:
+        monkeypatch.setattr(slate.sys, "platform", "linux")
+        shown = []
+        monkeypatch.setattr(slate.messagebox, "showinfo", lambda title, msg: shown.append(title))
+        calls = []
+        monkeypatch.setattr(slate.os, "startfile", lambda *a, **k: calls.append(a), raising=False)
+        app.do_print()
+        assert calls == []
+        assert shown == ["Print"]
     finally:
         app.doc.close()
         root.destroy()
